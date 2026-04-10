@@ -23,8 +23,16 @@ function initTestRepo(): string {
 
 describe("worktree", () => {
 	let repoDir: string;
+	const savedGitEnv: Record<string, string | undefined> = {};
 
 	beforeEach(() => {
+		// Save and clear GIT_* env vars to isolate from lefthook/worktree context
+		for (const key of Object.keys(process.env)) {
+			if (key.startsWith("GIT_")) {
+				savedGitEnv[key] = process.env[key];
+				delete process.env[key];
+			}
+		}
 		repoDir = initTestRepo();
 	});
 
@@ -49,6 +57,10 @@ describe("worktree", () => {
 			// Ignore cleanup errors
 		}
 		rmSync(repoDir, { recursive: true, force: true });
+		// Restore GIT_* env vars
+		for (const [key, value] of Object.entries(savedGitEnv)) {
+			if (value !== undefined) process.env[key] = value;
+		}
 	});
 
 	describe("getWorktreePath", () => {
