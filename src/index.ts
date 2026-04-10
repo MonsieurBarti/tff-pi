@@ -17,10 +17,12 @@ import { handleStatus } from "./commands/status.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import { applyMigrations, getMilestone, getProject, getSlice, openDatabase } from "./common/db.js";
 import { getGitRoot } from "./common/git.js";
+import type { PhaseContext } from "./common/phase.js";
 import { isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { SLICE_STATUSES, TIERS, milestoneLabel } from "./common/types.js";
-import { determineNextPhase, findActiveSlice, runPhase, runPhaseWithGate } from "./orchestrator.js";
+import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
+import { phaseModules } from "./phases/index.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
@@ -238,15 +240,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhaseWithGate(
+					const mod = phaseModules.discuss;
+					if (!mod) return;
+					const phaseCtx: PhaseContext = {
 						pi,
-						database,
+						db: database,
 						root,
 						slice,
-						milestone.number,
-						"discuss",
-						currentSettings,
-					);
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -267,7 +271,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhase(pi, database, root, slice, milestone.number, "research", currentSettings);
+					const mod = phaseModules.research;
+					if (!mod) return;
+					const phaseCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice,
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -288,15 +302,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhaseWithGate(
+					const mod = phaseModules.plan;
+					if (!mod) return;
+					const phaseCtx: PhaseContext = {
 						pi,
-						database,
+						db: database,
 						root,
 						slice,
-						milestone.number,
-						"plan",
-						currentSettings,
-					);
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -317,15 +333,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhaseWithGate(
+					const mod = phaseModules[phase];
+					if (!mod) return;
+					const phaseCtx: PhaseContext = {
 						pi,
-						database,
+						db: database,
 						root,
 						slice,
-						milestone.number,
-						phase,
-						currentSettings,
-					);
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -346,18 +364,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						iterations++;
 						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
 						if (!phase) break;
+						const mod = phaseModules[phase];
+						if (!mod) break;
 						const milestone = getMilestone(database, currentSlice.milestoneId);
 						if (!milestone) break;
-						const result = await runPhaseWithGate(
+						const phaseCtx: PhaseContext = {
 							pi,
-							database,
+							db: database,
 							root,
-							currentSlice,
-							milestone.number,
-							phase,
-							currentSettings,
-						);
-						if (!result.completed) break;
+							slice: currentSlice,
+							milestoneNumber: milestone.number,
+							settings: currentSettings,
+						};
+						const result = await mod.run(phaseCtx);
+						if (!result.success) break;
 						currentSlice = findActiveSlice(database);
 					}
 					if (iterations >= MAX_AUTO_ITERATIONS) {

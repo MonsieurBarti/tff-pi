@@ -111,12 +111,20 @@ describe("determineNextPhase", () => {
 		expect(determineNextPhase("researching")).toBe("plan");
 	});
 
-	it("planning -> null", () => {
-		expect(determineNextPhase("planning")).toBeNull();
+	it("planning -> execute", () => {
+		expect(determineNextPhase("planning")).toBe("execute");
 	});
-
-	it("executing -> null", () => {
-		expect(determineNextPhase("executing")).toBeNull();
+	it("executing -> verify", () => {
+		expect(determineNextPhase("executing")).toBe("verify");
+	});
+	it("verifying -> review", () => {
+		expect(determineNextPhase("verifying")).toBe("review");
+	});
+	it("reviewing -> ship", () => {
+		expect(determineNextPhase("reviewing")).toBe("ship");
+	});
+	it("shipping -> null", () => {
+		expect(determineNextPhase("shipping")).toBeNull();
 	});
 
 	it("closed -> null", () => {

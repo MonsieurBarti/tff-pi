@@ -83,7 +83,7 @@ describe("validateNext", () => {
 		expect(result.phase).toBe("plan");
 	});
 
-	it("fails for planning slice (no next phase)", () => {
+	it("succeeds for planning slice (execute phase)", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
@@ -93,7 +93,7 @@ describe("validateNext", () => {
 		updateSliceStatus(db, sliceId, "planning");
 
 		const result = validateNext(db);
-		expect(result.valid).toBe(false);
-		expect(result.error).toContain("No next phase");
+		expect(result.valid).toBe(true);
+		expect(result.phase).toBe("execute");
 	});
 });
