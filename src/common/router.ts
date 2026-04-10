@@ -34,7 +34,7 @@ export function parseSubcommand(input: string): ParsedCommand {
 	}
 
 	const parts = trimmed.split(/\s+/);
-	const subcommand = parts[0];
+	const subcommand = parts[0] ?? "help";
 	const args = parts.slice(1);
 
 	return { subcommand, args };
