@@ -9,6 +9,7 @@ import {
 	getCurrentBranch,
 	getGitRoot,
 } from "../../../src/common/git.js";
+import { must } from "../../helpers.js";
 
 describe("git", () => {
 	let repoDir: string;
@@ -19,7 +20,6 @@ describe("git", () => {
 		for (const key of Object.keys(process.env)) {
 			if (key.startsWith("GIT_")) {
 				savedGitEnv[key] = process.env[key];
-				// biome-ignore lint/performance/noDelete: only way to unset env vars
 				delete process.env[key];
 			}
 		}
@@ -66,7 +66,7 @@ describe("git", () => {
 
 	describe("branchExists", () => {
 		it("returns true for an existing branch", () => {
-			const branch = getCurrentBranch(repoDir)!;
+			const branch = must(getCurrentBranch(repoDir));
 			expect(branchExists(branch, repoDir)).toBe(true);
 		});
 

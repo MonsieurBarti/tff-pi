@@ -13,6 +13,7 @@ import {
 	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -41,9 +42,9 @@ describe("validateNext", () => {
 
 	it("succeeds for created slice (discuss phase)", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 
 		const result = validateNext(db);
@@ -54,11 +55,11 @@ describe("validateNext", () => {
 
 	it("succeeds for discussing + SS slice (research phase)", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const sliceId = getSlices(db, milestoneId)[0]!.id;
+		const sliceId = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, sliceId, "discussing");
 		updateSliceTier(db, sliceId, "SS");
 
@@ -69,11 +70,11 @@ describe("validateNext", () => {
 
 	it("succeeds for discussing + S slice (plan phase)", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const sliceId = getSlices(db, milestoneId)[0]!.id;
+		const sliceId = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, sliceId, "discussing");
 		updateSliceTier(db, sliceId, "S");
 
@@ -84,11 +85,11 @@ describe("validateNext", () => {
 
 	it("fails for planning slice (no next phase)", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const sliceId = getSlices(db, milestoneId)[0]!.id;
+		const sliceId = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, sliceId, "planning");
 
 		const result = validateNext(db);

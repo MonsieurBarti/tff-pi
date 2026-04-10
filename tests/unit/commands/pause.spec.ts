@@ -13,6 +13,7 @@ import {
 	openDatabase,
 	updateSliceStatus,
 } from "../../../src/common/db.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -27,25 +28,25 @@ describe("handlePause", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 	});
 
 	it("pauses an active slice in discussing status", () => {
 		updateSliceStatus(db, sliceId, "discussing");
 		const result = handlePause(db, sliceId);
 		expect(result.success).toBe(true);
-		expect(getSlice(db, sliceId)!.status).toBe("paused");
+		expect(must(getSlice(db, sliceId)).status).toBe("paused");
 	});
 
 	it("pauses an active slice in executing status", () => {
 		updateSliceStatus(db, sliceId, "executing");
 		const result = handlePause(db, sliceId);
 		expect(result.success).toBe(true);
-		expect(getSlice(db, sliceId)!.status).toBe("paused");
+		expect(must(getSlice(db, sliceId)).status).toBe("paused");
 	});
 
 	it("fails for closed slice", () => {

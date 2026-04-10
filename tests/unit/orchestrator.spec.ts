@@ -24,6 +24,7 @@ import {
 	findActiveSlice,
 	verifyPhaseArtifacts,
 } from "../../src/orchestrator.js";
+import { must } from "../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -49,41 +50,39 @@ describe("findActiveSlice", () => {
 
 	it("returns null when no active milestone (all closed)", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const m1Id = getMilestones(db, projectId)[0]!.id;
+		const m1Id = must(getMilestones(db, projectId)[0]).id;
 		updateMilestoneStatus(db, m1Id, "closed");
 		expect(findActiveSlice(db)).toBeNull();
 	});
 
 	it("returns first non-closed slice", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
-		const s1Id = getSlices(db, milestoneId)[0]!.id;
+		const s1Id = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, s1Id, "closed");
 
-		const active = findActiveSlice(db);
-		expect(active).not.toBeNull();
-		expect(active!.title).toBe("DB");
+		const active = must(findActiveSlice(db));
+		expect(active.title).toBe("DB");
 	});
 
 	it("skips paused slices", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
-		const s1Id = getSlices(db, milestoneId)[0]!.id;
+		const s1Id = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, s1Id, "paused");
 
-		const active = findActiveSlice(db);
-		expect(active).not.toBeNull();
-		expect(active!.title).toBe("DB");
+		const active = must(findActiveSlice(db));
+		expect(active.title).toBe("DB");
 	});
 });
 
@@ -257,11 +256,11 @@ describe("verifyPhaseArtifacts", () => {
 		initTffDirectory(root);
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 	});
 
 	afterEach(() => {

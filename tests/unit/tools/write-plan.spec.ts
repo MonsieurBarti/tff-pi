@@ -22,6 +22,7 @@ import {
 	openDatabase,
 } from "../../../src/common/db.js";
 import { handleWritePlan } from "../../../src/tools/write-plan.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -43,12 +44,12 @@ describe("handleWritePlan", () => {
 		root = createTempRoot();
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		initMilestoneDir(root, 1);
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		initSliceDir(root, 1, 1);
 	});
 
@@ -67,9 +68,9 @@ describe("handleWritePlan", () => {
 		const result = handleWritePlan(db, root, sliceId, content, tasks);
 
 		expect(result.isError).toBeUndefined();
-		expect(result.content[0]!.text).toContain("PLAN.md written for M01-S01");
-		expect(result.content[0]!.text).toContain("3 task(s)");
-		expect(result.content[0]!.text).toContain("3 wave(s)");
+		expect(must(result.content[0]).text).toContain("PLAN.md written for M01-S01");
+		expect(must(result.content[0]).text).toContain("3 task(s)");
+		expect(must(result.content[0]).text).toContain("3 wave(s)");
 		expect(result.details.taskCount).toBe(3);
 		expect(result.details.waveCount).toBe(3);
 
@@ -78,12 +79,12 @@ describe("handleWritePlan", () => {
 
 		const dbTasks = getTasks(db, sliceId);
 		expect(dbTasks).toHaveLength(3);
-		expect(dbTasks[0]!.title).toBe("Setup DB");
-		expect(dbTasks[0]!.wave).toBe(1);
-		expect(dbTasks[1]!.title).toBe("Add API");
-		expect(dbTasks[1]!.wave).toBe(2);
-		expect(dbTasks[2]!.title).toBe("Add UI");
-		expect(dbTasks[2]!.wave).toBe(3);
+		expect(must(dbTasks[0]).title).toBe("Setup DB");
+		expect(must(dbTasks[0]).wave).toBe(1);
+		expect(must(dbTasks[1]).title).toBe("Add API");
+		expect(must(dbTasks[1]).wave).toBe(2);
+		expect(must(dbTasks[2]).title).toBe("Add UI");
+		expect(must(dbTasks[2]).wave).toBe(3);
 	});
 
 	it("creates dependency records", () => {
@@ -96,15 +97,15 @@ describe("handleWritePlan", () => {
 
 		const deps = getDependencies(db, sliceId);
 		expect(deps).toHaveLength(1);
-		expect(deps[0]!.fromTaskId).toBeDefined();
-		expect(deps[0]!.toTaskId).toBeDefined();
+		expect(must(deps[0]).fromTaskId).toBeDefined();
+		expect(must(deps[0]).toTaskId).toBeDefined();
 	});
 
 	it("returns error for unknown slice", () => {
 		const result = handleWritePlan(db, root, "nonexistent", "content", []);
 
 		expect(result.isError).toBe(true);
-		expect(result.content[0]!.text).toContain("Slice not found");
+		expect(must(result.content[0]).text).toContain("Slice not found");
 	});
 
 	it("handles tasks with no dependencies", () => {
@@ -120,7 +121,7 @@ describe("handleWritePlan", () => {
 
 		const dbTasks = getTasks(db, sliceId);
 		expect(dbTasks).toHaveLength(2);
-		expect(dbTasks[0]!.wave).toBe(1);
-		expect(dbTasks[1]!.wave).toBe(1);
+		expect(must(dbTasks[0]).wave).toBe(1);
+		expect(must(dbTasks[1]).wave).toBe(1);
 	});
 });

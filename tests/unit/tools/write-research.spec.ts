@@ -20,6 +20,7 @@ import {
 	openDatabase,
 } from "../../../src/common/db.js";
 import { handleWriteResearch } from "../../../src/tools/write-research.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -41,12 +42,12 @@ describe("handleWriteResearch", () => {
 		root = createTempRoot();
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		initMilestoneDir(root, 1);
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		initSliceDir(root, 1, 1);
 	});
 
@@ -59,7 +60,7 @@ describe("handleWriteResearch", () => {
 		const result = handleWriteResearch(db, root, sliceId, content);
 
 		expect(result.isError).toBeUndefined();
-		expect(result.content[0]!.text).toContain("RESEARCH.md written for M01-S01");
+		expect(must(result.content[0]).text).toContain("RESEARCH.md written for M01-S01");
 		expect(result.details.path).toBe("milestones/M01/slices/M01-S01/RESEARCH.md");
 
 		const written = readArtifact(root, "milestones/M01/slices/M01-S01/RESEARCH.md");
@@ -70,6 +71,6 @@ describe("handleWriteResearch", () => {
 		const result = handleWriteResearch(db, root, "nonexistent", "content");
 
 		expect(result.isError).toBe(true);
-		expect(result.content[0]!.text).toContain("Slice not found");
+		expect(must(result.content[0]).text).toContain("Slice not found");
 	});
 });

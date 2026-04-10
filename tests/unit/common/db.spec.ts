@@ -27,6 +27,7 @@ import {
 	updateTaskStatus,
 	updateTaskWave,
 } from "../../../src/common/db.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -69,12 +70,11 @@ describe("project", () => {
 
 	it("inserts and retrieves a project", () => {
 		insertProject(db, { name: "TFF", vision: "Make coding great" });
-		const project = getProject(db);
-		expect(project).not.toBeNull();
-		expect(project!.name).toBe("TFF");
-		expect(project!.vision).toBe("Make coding great");
-		expect(project!.id).toBeDefined();
-		expect(project!.createdAt).toBeDefined();
+		const project = must(getProject(db));
+		expect(project.name).toBe("TFF");
+		expect(project.vision).toBe("Make coding great");
+		expect(project.id).toBeDefined();
+		expect(project.createdAt).toBeDefined();
 	});
 });
 
@@ -85,7 +85,7 @@ describe("milestone", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		projectId = getProject(db)!.id;
+		projectId = must(getProject(db)).id;
 	});
 
 	it("inserts and lists milestones for a project", () => {
@@ -93,18 +93,17 @@ describe("milestone", () => {
 		insertMilestone(db, { projectId, number: 2, name: "Core", branch: "milestone/M02" });
 		const milestones = getMilestones(db, projectId);
 		expect(milestones).toHaveLength(2);
-		expect(milestones[0]!.name).toBe("Foundation");
-		expect(milestones[0]!.projectId).toBe(projectId);
-		expect(milestones[0]!.status).toBe("created");
+		expect(must(milestones[0]).name).toBe("Foundation");
+		expect(must(milestones[0]).projectId).toBe(projectId);
+		expect(must(milestones[0]).status).toBe("created");
 	});
 
 	it("gets a milestone by id", () => {
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
 		const milestones = getMilestones(db, projectId);
-		const id = milestones[0]!.id;
-		const m = getMilestone(db, id);
-		expect(m).not.toBeNull();
-		expect(m!.name).toBe("Foundation");
+		const id = must(milestones[0]).id;
+		const m = must(getMilestone(db, id));
+		expect(m.name).toBe("Foundation");
 	});
 
 	it("returns null for unknown id", () => {
@@ -113,9 +112,9 @@ describe("milestone", () => {
 
 	it("updates milestone status", () => {
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const id = getMilestones(db, projectId)[0]!.id;
+		const id = must(getMilestones(db, projectId)[0]).id;
 		updateMilestoneStatus(db, id, "in_progress");
-		expect(getMilestone(db, id)!.status).toBe("in_progress");
+		expect(must(getMilestone(db, id)).status).toBe("in_progress");
 	});
 });
 
@@ -126,9 +125,9 @@ describe("slice", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		milestoneId = getMilestones(db, projectId)[0]!.id;
+		milestoneId = must(getMilestones(db, projectId)[0]).id;
 	});
 
 	it("inserts and lists slices for a milestone", () => {
@@ -136,18 +135,17 @@ describe("slice", () => {
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
 		expect(slices).toHaveLength(2);
-		expect(slices[0]!.title).toBe("Auth");
-		expect(slices[0]!.milestoneId).toBe(milestoneId);
-		expect(slices[0]!.status).toBe("created");
-		expect(slices[0]!.tier).toBeNull();
+		expect(must(slices[0]).title).toBe("Auth");
+		expect(must(slices[0]).milestoneId).toBe(milestoneId);
+		expect(must(slices[0]).status).toBe("created");
+		expect(must(slices[0]).tier).toBeNull();
 	});
 
 	it("gets a slice by id", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const id = getSlices(db, milestoneId)[0]!.id;
-		const s = getSlice(db, id);
-		expect(s).not.toBeNull();
-		expect(s!.title).toBe("Auth");
+		const id = must(getSlices(db, milestoneId)[0]).id;
+		const s = must(getSlice(db, id));
+		expect(s.title).toBe("Auth");
 	});
 
 	it("returns null for unknown id", () => {
@@ -156,16 +154,16 @@ describe("slice", () => {
 
 	it("updates slice status", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const id = getSlices(db, milestoneId)[0]!.id;
+		const id = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, id, "executing");
-		expect(getSlice(db, id)!.status).toBe("executing");
+		expect(must(getSlice(db, id)).status).toBe("executing");
 	});
 
 	it("updates slice tier", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const id = getSlices(db, milestoneId)[0]!.id;
+		const id = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceTier(db, id, "SS");
-		expect(getSlice(db, id)!.tier).toBe("SS");
+		expect(must(getSlice(db, id)).tier).toBe("SS");
 	});
 });
 
@@ -176,11 +174,11 @@ describe("task", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 	});
 
 	it("inserts and lists tasks for a slice", () => {
@@ -188,18 +186,17 @@ describe("task", () => {
 		insertTask(db, { sliceId, number: 2, title: "Auth service", wave: 2 });
 		const tasks = getTasks(db, sliceId);
 		expect(tasks).toHaveLength(2);
-		expect(tasks[0]!.title).toBe("User entity");
-		expect(tasks[0]!.status).toBe("open");
-		expect(tasks[0]!.wave).toBeNull();
-		expect(tasks[1]!.wave).toBe(2);
+		expect(must(tasks[0]).title).toBe("User entity");
+		expect(must(tasks[0]).status).toBe("open");
+		expect(must(tasks[0]).wave).toBeNull();
+		expect(must(tasks[1]).wave).toBe(2);
 	});
 
 	it("gets a task by id", () => {
 		insertTask(db, { sliceId, number: 1, title: "User entity" });
-		const id = getTasks(db, sliceId)[0]!.id;
-		const t = getTask(db, id);
-		expect(t).not.toBeNull();
-		expect(t!.title).toBe("User entity");
+		const id = must(getTasks(db, sliceId)[0]).id;
+		const t = must(getTask(db, id));
+		expect(t.title).toBe("User entity");
 	});
 
 	it("returns null for unknown id", () => {
@@ -208,17 +205,17 @@ describe("task", () => {
 
 	it("updates task status", () => {
 		insertTask(db, { sliceId, number: 1, title: "User entity" });
-		const id = getTasks(db, sliceId)[0]!.id;
+		const id = must(getTasks(db, sliceId)[0]).id;
 		updateTaskStatus(db, id, "in_progress");
-		expect(getTask(db, id)!.status).toBe("in_progress");
-		expect(getTask(db, id)!.claimedBy).toBeNull();
+		expect(must(getTask(db, id)).status).toBe("in_progress");
+		expect(must(getTask(db, id)).claimedBy).toBeNull();
 	});
 
 	it("updates task status with claimedBy", () => {
 		insertTask(db, { sliceId, number: 1, title: "User entity" });
-		const id = getTasks(db, sliceId)[0]!.id;
+		const id = must(getTasks(db, sliceId)[0]).id;
 		updateTaskStatus(db, id, "in_progress", "agent-007");
-		expect(getTask(db, id)!.claimedBy).toBe("agent-007");
+		expect(must(getTask(db, id)).claimedBy).toBe("agent-007");
 	});
 });
 
@@ -231,24 +228,24 @@ describe("dependency", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		insertTask(db, { sliceId, number: 1, title: "T1" });
 		insertTask(db, { sliceId, number: 2, title: "T2" });
 		const tasks = getTasks(db, sliceId);
-		task1Id = tasks[0]!.id;
-		task2Id = tasks[1]!.id;
+		task1Id = must(tasks[0]).id;
+		task2Id = must(tasks[1]).id;
 	});
 
 	it("inserts dependency and retrieves by sliceId", () => {
 		insertDependency(db, { fromTaskId: task2Id, toTaskId: task1Id });
 		const deps = getDependencies(db, sliceId);
 		expect(deps).toHaveLength(1);
-		expect(deps[0]!.fromTaskId).toBe(task2Id);
-		expect(deps[0]!.toTaskId).toBe(task1Id);
+		expect(must(deps[0]).fromTaskId).toBe(task2Id);
+		expect(must(deps[0]).toTaskId).toBe(task1Id);
 	});
 
 	it("returns empty array when no dependencies", () => {
@@ -260,15 +257,15 @@ describe("exportState", () => {
 	it("exports all data as JSON string", () => {
 		const db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const sliceId = getSlices(db, milestoneId)[0]!.id;
+		const sliceId = must(getSlices(db, milestoneId)[0]).id;
 		insertTask(db, { sliceId, number: 1, title: "T1" });
-		const taskId = getTasks(db, sliceId)[0]!.id;
+		const taskId = must(getTasks(db, sliceId)[0]).id;
 		insertTask(db, { sliceId, number: 2, title: "T2" });
-		const task2Id = getTasks(db, sliceId)[1]!.id;
+		const task2Id = must(getTasks(db, sliceId)[1]).id;
 		insertDependency(db, { fromTaskId: task2Id, toTaskId: taskId });
 
 		const json = exportState(db);
@@ -288,19 +285,19 @@ describe("updateTaskWave", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 	});
 
 	it("sets the wave number on a task", () => {
 		insertTask(db, { sliceId, number: 1, title: "T1" });
-		const id = getTasks(db, sliceId)[0]!.id;
-		expect(getTask(db, id)!.wave).toBeNull();
+		const id = must(getTasks(db, sliceId)[0]).id;
+		expect(must(getTask(db, id)).wave).toBeNull();
 		updateTaskWave(db, id, 3);
-		expect(getTask(db, id)!.wave).toBe(3);
+		expect(must(getTask(db, id)).wave).toBe(3);
 	});
 });
 
@@ -311,7 +308,7 @@ describe("getNextMilestoneNumber", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		projectId = getProject(db)!.id;
+		projectId = must(getProject(db)).id;
 	});
 
 	it("returns 1 when no milestones exist", () => {
@@ -332,7 +329,7 @@ describe("getActiveMilestone", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		projectId = getProject(db)!.id;
+		projectId = must(getProject(db)).id;
 	});
 
 	it("returns null when no milestones exist", () => {
@@ -342,11 +339,10 @@ describe("getActiveMilestone", () => {
 	it("returns the first non-closed milestone", () => {
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
 		insertMilestone(db, { projectId, number: 2, name: "M2", branch: "milestone/M02" });
-		const m1Id = getMilestones(db, projectId)[0]!.id;
+		const m1Id = must(getMilestones(db, projectId)[0]).id;
 		updateMilestoneStatus(db, m1Id, "closed");
-		const active = getActiveMilestone(db, projectId);
-		expect(active).not.toBeNull();
-		expect(active!.name).toBe("M2");
+		const active = must(getActiveMilestone(db, projectId));
+		expect(active.name).toBe("M2");
 	});
 });
 
@@ -357,9 +353,9 @@ describe("getNextSliceNumber", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		milestoneId = getMilestones(db, projectId)[0]!.id;
+		milestoneId = must(getMilestones(db, projectId)[0]).id;
 	});
 
 	it("returns 1 when no slices exist", () => {
@@ -380,9 +376,9 @@ describe("getActiveSlice", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		milestoneId = getMilestones(db, projectId)[0]!.id;
+		milestoneId = must(getMilestones(db, projectId)[0]).id;
 	});
 
 	it("returns null when no slices exist", () => {
@@ -392,20 +388,18 @@ describe("getActiveSlice", () => {
 	it("returns the first non-closed non-paused slice", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "S1" });
 		insertSlice(db, { milestoneId, number: 2, title: "S2" });
-		const s1Id = getSlices(db, milestoneId)[0]!.id;
+		const s1Id = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, s1Id, "closed");
-		const active = getActiveSlice(db, milestoneId);
-		expect(active).not.toBeNull();
-		expect(active!.title).toBe("S2");
+		const active = must(getActiveSlice(db, milestoneId));
+		expect(active.title).toBe("S2");
 	});
 
 	it("skips paused slices", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "S1" });
 		insertSlice(db, { milestoneId, number: 2, title: "S2" });
-		const s1Id = getSlices(db, milestoneId)[0]!.id;
+		const s1Id = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, s1Id, "paused");
-		const active = getActiveSlice(db, milestoneId);
-		expect(active).not.toBeNull();
-		expect(active!.title).toBe("S2");
+		const active = must(getActiveSlice(db, milestoneId));
+		expect(active.title).toBe("S2");
 	});
 });

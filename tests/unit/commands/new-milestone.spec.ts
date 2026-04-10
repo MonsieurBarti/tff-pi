@@ -17,6 +17,7 @@ import {
 	insertProject,
 	openDatabase,
 } from "../../../src/common/db.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -34,7 +35,7 @@ describe("createMilestone", () => {
 		root = mkdtempSync(join(tmpdir(), "tff-milestone-test-"));
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		projectId = getProject(db)!.id;
+		projectId = must(getProject(db)).id;
 	});
 
 	afterEach(() => {
@@ -49,8 +50,8 @@ describe("createMilestone", () => {
 
 		const milestones = getMilestones(db, projectId);
 		expect(milestones).toHaveLength(1);
-		expect(milestones[0]!.name).toBe("Foundation");
-		expect(milestones[0]!.status).toBe("created");
+		expect(must(milestones[0]).name).toBe("Foundation");
+		expect(must(milestones[0]).status).toBe("created");
 	});
 
 	it("auto-increments to M02", () => {

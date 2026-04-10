@@ -14,6 +14,7 @@ import {
 	openDatabase,
 } from "../../../src/common/db.js";
 import { handleCreateSlice } from "../../../src/tools/create-slice.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -35,9 +36,9 @@ describe("handleCreateSlice", () => {
 		root = createTempRoot();
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		milestoneId = getMilestones(db, projectId)[0]!.id;
+		milestoneId = must(getMilestones(db, projectId)[0]).id;
 	});
 
 	afterEach(() => {
@@ -48,8 +49,8 @@ describe("handleCreateSlice", () => {
 		const result = handleCreateSlice(db, root, milestoneId, "Auth");
 
 		expect(result.isError).toBeUndefined();
-		expect(result.content[0]!.text).toContain("M01-S01");
-		expect(result.content[0]!.text).toContain("Auth");
+		expect(must(result.content[0]).text).toContain("M01-S01");
+		expect(must(result.content[0]).text).toContain("Auth");
 		expect(result.details.sliceId).toBeDefined();
 		expect(result.details.label).toBe("M01-S01");
 		expect(result.details.number).toBe(1);
@@ -64,10 +65,10 @@ describe("handleCreateSlice", () => {
 
 		const slices = getSlices(db, milestoneId);
 		expect(slices).toHaveLength(2);
-		expect(slices[0]!.title).toBe("Auth");
-		expect(slices[0]!.number).toBe(1);
-		expect(slices[1]!.title).toBe("DB");
-		expect(slices[1]!.number).toBe(2);
+		expect(must(slices[0]).title).toBe("Auth");
+		expect(must(slices[0]).number).toBe(1);
+		expect(must(slices[1]).title).toBe("DB");
+		expect(must(slices[1]).number).toBe(2);
 	});
 
 	it("creates slice directory", () => {
@@ -81,6 +82,6 @@ describe("handleCreateSlice", () => {
 		const result = handleCreateSlice(db, root, "nonexistent", "Auth");
 
 		expect(result.isError).toBe(true);
-		expect(result.content[0]!.text).toContain("Milestone not found");
+		expect(must(result.content[0]).text).toContain("Milestone not found");
 	});
 });

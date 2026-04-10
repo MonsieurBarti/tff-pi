@@ -53,7 +53,8 @@ export function handleWritePlan(
 
 	const taskIds: Map<number, string> = new Map();
 	for (let i = 0; i < tasks.length; i++) {
-		const task = tasks[i]!;
+		const task = tasks[i];
+		if (!task) continue;
 		const taskNumber = i + 1;
 		const taskId = insertTask(db, { sliceId, number: taskNumber, title: task.title });
 		taskIds.set(taskNumber, taskId);
@@ -61,9 +62,11 @@ export function handleWritePlan(
 
 	const depRefs: { fromTaskId: string; toTaskId: string }[] = [];
 	for (let i = 0; i < tasks.length; i++) {
-		const task = tasks[i]!;
+		const task = tasks[i];
+		if (!task) continue;
 		const taskNumber = i + 1;
-		const fromId = taskIds.get(taskNumber)!;
+		const fromId = taskIds.get(taskNumber);
+		if (!fromId) continue;
 		for (const depNum of task.dependsOn ?? []) {
 			const toId = taskIds.get(depNum);
 			if (toId) {

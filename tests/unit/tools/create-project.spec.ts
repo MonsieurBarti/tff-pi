@@ -5,6 +5,7 @@ import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyMigrations, getProject, openDatabase } from "../../../src/common/db.js";
 import { handleCreateProject } from "../../../src/tools/create-project.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -32,13 +33,12 @@ describe("handleCreateProject", () => {
 		});
 
 		expect(result.isError).toBeUndefined();
-		expect(result.content[0]!.text).toContain("TFF");
-		expect(result.content[0]!.text).toContain("Use /tff new-milestone");
+		expect(must(result.content[0]).text).toContain("TFF");
+		expect(must(result.content[0]).text).toContain("Use /tff new-milestone");
 		expect(result.details.projectId).toBeDefined();
 
-		const project = getProject(db);
-		expect(project).not.toBeNull();
-		expect(project!.name).toBe("TFF");
+		const project = must(getProject(db));
+		expect(project.name).toBe("TFF");
 	});
 
 	it("returns error when project already exists", () => {
@@ -53,6 +53,6 @@ describe("handleCreateProject", () => {
 		});
 
 		expect(result.isError).toBe(true);
-		expect(result.content[0]!.text).toContain("Project already exists");
+		expect(must(result.content[0]).text).toContain("Project already exists");
 	});
 });
