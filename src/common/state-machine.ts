@@ -36,7 +36,7 @@ export function canTransitionSlice(from: SliceStatus, to: SliceStatus): boolean 
 
 export function nextSliceStatus(current: SliceStatus, tier?: Tier): SliceStatus | null {
 	if (current === "closed" || current === "paused") return null;
-	if (current === "discussing" && tier != null) return "planning";
+	if (current === "discussing" && tier === "S") return "planning";
 
 	const forwardPath: SliceStatus[] = [
 		"created",

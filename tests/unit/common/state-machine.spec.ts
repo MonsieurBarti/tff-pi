@@ -119,12 +119,12 @@ describe("state-machine", () => {
 			expect(nextSliceStatus("discussing", "S")).toBe("planning");
 		});
 
-		it("skips researching for SS-tier: discussing → planning", () => {
-			expect(nextSliceStatus("discussing", "SS")).toBe("planning");
+		it("does NOT skip researching for SS-tier", () => {
+			expect(nextSliceStatus("discussing", "SS")).toBe("researching");
 		});
 
-		it("skips researching for SSS-tier: discussing → planning", () => {
-			expect(nextSliceStatus("discussing", "SSS")).toBe("planning");
+		it("does NOT skip researching for SSS-tier", () => {
+			expect(nextSliceStatus("discussing", "SSS")).toBe("researching");
 		});
 
 		it("returns planning from researching", () => {
