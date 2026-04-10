@@ -16,6 +16,8 @@ describe("git", () => {
 	beforeEach(() => {
 		repoDir = mkdtempSync(join(tmpdir(), "tff-git-test-"));
 		execSync("git init", { cwd: repoDir, stdio: "pipe" });
+		execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: "pipe" });
+		execSync('git config user.name "Test"', { cwd: repoDir, stdio: "pipe" });
 		execSync("git commit --allow-empty -m 'init'", { cwd: repoDir, stdio: "pipe" });
 	});
 
