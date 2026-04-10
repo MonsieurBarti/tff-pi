@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewRequest } from "../../../src/common/review.js";
+import { buildReviewRequest } from "../../../src/common/plannotator-review.js";
 
 describe("buildReviewRequest", () => {
 	it("builds a plan-review request payload", () => {
