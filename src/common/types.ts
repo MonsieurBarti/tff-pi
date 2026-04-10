@@ -76,3 +76,8 @@ export function sliceLabel(milestoneNumber: number, sliceNumber: number): string
 export function taskLabel(taskNumber: number): string {
 	return `T${String(taskNumber).padStart(2, "0")}`;
 }
+
+export interface ValidateResult {
+	valid: boolean;
+	error?: string;
+}
