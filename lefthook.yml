@@ -8,5 +8,7 @@ pre-commit:
   commands:
     biome:
       run: bun run lint
+    typecheck:
+      run: bun run typecheck
     test:
-      run: bun test
+      run: bun run test
