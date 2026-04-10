@@ -12,7 +12,7 @@ import {
 	updateSliceStatus,
 } from "./common/db.js";
 import { type SubAgentPrompt, type SubAgentResult, dispatchSubAgent } from "./common/dispatch.js";
-import { type ReviewResult, requestReview } from "./common/review.js";
+import { type ReviewResult, requestReview } from "./common/plannotator-review.js";
 import type { Settings } from "./common/settings.js";
 import { nextSliceStatus } from "./common/state-machine.js";
 import type { Slice, SliceStatus, Tier } from "./common/types.js";
