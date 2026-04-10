@@ -1,15 +1,19 @@
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
-import type {
-	Dependency,
-	Milestone,
-	MilestoneStatus,
-	Project,
-	Slice,
-	SliceStatus,
-	Task,
-	TaskStatus,
-	Tier,
+import {
+	type Dependency,
+	MILESTONE_STATUSES,
+	type Milestone,
+	type MilestoneStatus,
+	type Project,
+	SLICE_STATUSES,
+	type Slice,
+	type SliceStatus,
+	TASK_STATUSES,
+	TIERS,
+	type Task,
+	type TaskStatus,
+	type Tier,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -141,6 +145,9 @@ function rowToProject(row: ProjectRow): Project {
 }
 
 function rowToMilestone(row: MilestoneRow): Milestone {
+	if (!(MILESTONE_STATUSES as readonly string[]).includes(row.status)) {
+		throw new Error(`Invalid milestone status in database: ${row.status}`);
+	}
 	return {
 		id: row.id,
 		projectId: row.project_id,
@@ -153,6 +160,12 @@ function rowToMilestone(row: MilestoneRow): Milestone {
 }
 
 function rowToSlice(row: SliceRow): Slice {
+	if (!(SLICE_STATUSES as readonly string[]).includes(row.status)) {
+		throw new Error(`Invalid slice status in database: ${row.status}`);
+	}
+	if (row.tier !== null && !(TIERS as readonly string[]).includes(row.tier)) {
+		throw new Error(`Invalid tier in database: ${row.tier}`);
+	}
 	return {
 		id: row.id,
 		milestoneId: row.milestone_id,
@@ -165,6 +178,9 @@ function rowToSlice(row: SliceRow): Slice {
 }
 
 function rowToTask(row: TaskRow): Task {
+	if (!(TASK_STATUSES as readonly string[]).includes(row.status)) {
+		throw new Error(`Invalid task status in database: ${row.status}`);
+	}
 	return {
 		id: row.id,
 		sliceId: row.slice_id,
@@ -191,12 +207,14 @@ function rowToDependency(row: DependencyRow): Dependency {
 export function insertProject(
 	db: Database.Database,
 	params: { name: string; vision: string },
-): void {
+): string {
+	const id = randomUUID();
 	db.prepare("INSERT INTO project (id, name, vision) VALUES (?, ?, ?)").run(
-		randomUUID(),
+		id,
 		params.name,
 		params.vision,
 	);
+	return id;
 }
 
 export function getProject(db: Database.Database): Project | null {
@@ -211,10 +229,12 @@ export function getProject(db: Database.Database): Project | null {
 export function insertMilestone(
 	db: Database.Database,
 	params: { projectId: string; number: number; name: string; branch: string },
-): void {
+): string {
+	const id = randomUUID();
 	db.prepare(
 		"INSERT INTO milestone (id, project_id, number, name, branch) VALUES (?, ?, ?, ?, ?)",
-	).run(randomUUID(), params.projectId, params.number, params.name, params.branch);
+	).run(id, params.projectId, params.number, params.name, params.branch);
+	return id;
 }
 
 export function getMilestones(db: Database.Database, projectId: string): Milestone[] {
@@ -246,13 +266,15 @@ export function updateMilestoneStatus(
 export function insertSlice(
 	db: Database.Database,
 	params: { milestoneId: string; number: number; title: string },
-): void {
+): string {
+	const id = randomUUID();
 	db.prepare("INSERT INTO slice (id, milestone_id, number, title) VALUES (?, ?, ?, ?)").run(
-		randomUUID(),
+		id,
 		params.milestoneId,
 		params.number,
 		params.title,
 	);
+	return id;
 }
 
 export function getSlices(db: Database.Database, milestoneId: string): Slice[] {
@@ -282,14 +304,16 @@ export function updateSliceTier(db: Database.Database, id: string, tier: Tier): 
 export function insertTask(
 	db: Database.Database,
 	params: { sliceId: string; number: number; title: string; wave?: number },
-): void {
+): string {
+	const id = randomUUID();
 	db.prepare("INSERT INTO task (id, slice_id, number, title, wave) VALUES (?, ?, ?, ?, ?)").run(
-		randomUUID(),
+		id,
 		params.sliceId,
 		params.number,
 		params.title,
 		params.wave ?? null,
 	);
+	return id;
 }
 
 export function getTasks(db: Database.Database, sliceId: string): Task[] {

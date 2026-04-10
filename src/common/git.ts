@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 
 export function getGitRoot(cwd?: string): string | null {
 	try {
@@ -24,7 +24,7 @@ export function getCurrentBranch(cwd?: string): string | null {
 
 export function branchExists(branchName: string, cwd?: string): boolean {
 	try {
-		execSync(`git rev-parse --verify ${branchName}`, {
+		execFileSync("git", ["rev-parse", "--verify", branchName], {
 			cwd: cwd ?? process.cwd(),
 			encoding: "utf-8",
 			stdio: "pipe",
@@ -36,7 +36,7 @@ export function branchExists(branchName: string, cwd?: string): boolean {
 }
 
 export function createBranch(branchName: string, startPoint: string, cwd?: string): void {
-	execSync(`git branch ${branchName} ${startPoint}`, {
+	execFileSync("git", ["branch", branchName, startPoint], {
 		cwd: cwd ?? process.cwd(),
 		encoding: "utf-8",
 	});

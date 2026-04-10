@@ -1,10 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { DEFAULT_SETTINGS, serializeSettings } from "./settings.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
 
 export function tffPath(root: string, ...segments: string[]): string {
 	return join(root, ".tff", ...segments);
+}
+
+function safeTffPath(root: string, relativePath: string): string {
+	const tffRoot = resolve(root, ".tff");
+	const fullPath = resolve(tffRoot, relativePath);
+	if (fullPath !== tffRoot && !fullPath.startsWith(`${tffRoot}/`)) {
+		throw new Error(`Path traversal detected: ${relativePath}`);
+	}
+	return fullPath;
 }
 
 export function milestoneDir(root: string, milestoneNumber: number): string {
@@ -32,21 +41,22 @@ export function initTffDirectory(root: string): void {
 }
 
 export function writeArtifact(root: string, relativePath: string, content: string): void {
-	const fullPath = tffPath(root, relativePath);
+	const fullPath = safeTffPath(root, relativePath);
 	mkdirSync(dirname(fullPath), { recursive: true });
 	writeFileSync(fullPath, content, "utf-8");
 }
 
 export function readArtifact(root: string, relativePath: string): string | null {
-	const fullPath = tffPath(root, relativePath);
-	if (!existsSync(fullPath)) {
+	const fullPath = safeTffPath(root, relativePath);
+	try {
+		return readFileSync(fullPath, "utf-8");
+	} catch {
 		return null;
 	}
-	return readFileSync(fullPath, "utf-8");
 }
 
 export function artifactExists(root: string, relativePath: string): boolean {
-	return existsSync(tffPath(root, relativePath));
+	return existsSync(safeTffPath(root, relativePath));
 }
 
 export function initMilestoneDir(root: string, milestoneNumber: number): void {

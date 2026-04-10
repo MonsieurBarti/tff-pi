@@ -4,7 +4,9 @@ import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 const NO_PROJECT_MSG = "No project found. Run `/tff new` to create one.";
 
-const NEXT_ACTION_COMMAND: Record<string, string> = {
+import type { SliceStatus } from "../common/types.js";
+
+const NEXT_ACTION_COMMAND: Partial<Record<SliceStatus, string>> = {
 	created: "discuss",
 	discussing: "discuss",
 	researching: "research",
@@ -24,7 +26,7 @@ export function handleStatus(db: Database.Database): string {
 
 	const milestones = getMilestones(db, project.id);
 
-	let firstNonClosed: { milestoneNumber: number; sliceNumber: number; status: string } | null =
+	let firstNonClosed: { milestoneNumber: number; sliceNumber: number; status: SliceStatus } | null =
 		null;
 
 	for (const milestone of milestones) {

@@ -5,13 +5,7 @@ import {
 	initTffDirectory,
 	writeArtifact,
 } from "../common/artifacts.js";
-import {
-	getMilestones,
-	getProject,
-	insertMilestone,
-	insertProject,
-	insertSlice,
-} from "../common/db.js";
+import { getProject, insertMilestone, insertProject, insertSlice } from "../common/db.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface NewProjectInput {
@@ -26,7 +20,6 @@ export function handleNew(
 	root: string,
 	input: NewProjectInput,
 ): { projectId: string; milestoneId: string } {
-	// 1. Check if project already exists
 	const existing = getProject(db);
 	if (existing) {
 		throw new Error("Project already exists. Use /tff new-milestone to add milestones.");
@@ -34,47 +27,30 @@ export function handleNew(
 
 	const { projectName, vision, milestoneName, slices } = input;
 
-	// 2. Initialize .tff directory structure
 	initTffDirectory(root);
 
-	// 3. Insert project
-	insertProject(db, { name: projectName, vision });
-	const project = getProject(db);
-	if (!project) {
-		throw new Error("Failed to retrieve project after insertion.");
-	}
+	const projectId = insertProject(db, { name: projectName, vision });
 
-	// 4. Write PROJECT.md
 	writeArtifact(root, "PROJECT.md", `# ${projectName}\n\n## Vision\n\n${vision}\n`);
 
-	// 5. Insert milestone M01
-	insertMilestone(db, {
-		projectId: project.id,
+	const milestoneId = insertMilestone(db, {
+		projectId,
 		number: 1,
 		name: milestoneName,
 		branch: "milestone/M01",
 	});
-	const milestones = getMilestones(db, project.id);
-	const milestone = milestones[0];
-	if (!milestone) {
-		throw new Error("Failed to retrieve milestone after insertion.");
-	}
 
-	// 6. Initialize milestone directory
 	initMilestoneDir(root, 1);
 
-	// 7. Write REQUIREMENTS.md placeholder
 	writeArtifact(
 		root,
 		`milestones/${milestoneLabel(1)}/REQUIREMENTS.md`,
 		`# ${milestoneName} — Requirements\n\n<!-- Add requirements here -->\n`,
 	);
 
-	// 8. For each slice: insert + init dir + write .keep placeholder
-	for (let i = 0; i < slices.length; i++) {
+	for (const [i, title] of slices.entries()) {
 		const sliceNumber = i + 1;
-		const title = slices[i]!;
-		insertSlice(db, { milestoneId: milestone.id, number: sliceNumber, title });
+		insertSlice(db, { milestoneId, number: sliceNumber, title });
 		initSliceDir(root, 1, sliceNumber);
 		writeArtifact(
 			root,
@@ -83,5 +59,5 @@ export function handleNew(
 		);
 	}
 
-	return { projectId: project.id, milestoneId: milestone.id };
+	return { projectId, milestoneId };
 }

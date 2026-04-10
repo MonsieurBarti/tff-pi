@@ -4,25 +4,19 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
+import { handleHealth } from "./commands/health.js";
 import { handleProgress } from "./commands/progress.js";
 import { handleStatus } from "./commands/status.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
-import {
-	applyMigrations,
-	getMilestones,
-	getProject,
-	getSlice,
-	getSlices,
-	openDatabase,
-	updateSliceStatus,
-	updateSliceTier,
-} from "./common/db.js";
+import { applyMigrations, openDatabase } from "./common/db.js";
 import { getGitRoot } from "./common/git.js";
 import { isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
-import { canTransitionSlice, nextSliceStatus } from "./common/state-machine.js";
-import type { SliceStatus, Tier } from "./common/types.js";
+import { SLICE_STATUSES, TIERS } from "./common/types.js";
+import { handleClassify } from "./tools/classify.js";
+import { handleCreateProject } from "./tools/create-project.js";
 import { queryState } from "./tools/query-state.js";
+import { handleTransition } from "./tools/transition.js";
 
 // ---------------------------------------------------------------------------
 // Module-level state
@@ -31,6 +25,7 @@ import { queryState } from "./tools/query-state.js";
 let db: Database.Database | null = null;
 let projectRoot: string | null = null;
 let settings: Settings | null = null;
+let initError: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -45,7 +40,7 @@ function getDb(): Database.Database {
 
 function initDb(root: string): void {
 	initTffDirectory(root);
-	const dbPath = tffPath(root, "tff.db");
+	const dbPath = tffPath(root, "state.db");
 	db = openDatabase(dbPath);
 	applyMigrations(db);
 }
@@ -72,17 +67,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 		}
 		projectRoot = root;
 
-		const dbPath = tffPath(root, "tff.db");
+		const dbPath = tffPath(root, "state.db");
 		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
 			try {
 				db = openDatabase(dbPath);
 				applyMigrations(db);
 				loadSettings(root);
+				initError = null;
 				if (ctx.hasUI) {
 					ctx.ui.notify("TFF ready", "info");
 				}
-			} catch {
-				// Non-fatal: .tff exists but something failed
+			} catch (err) {
+				initError = err instanceof Error ? err.message : String(err);
 			}
 		}
 	});
@@ -126,7 +122,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 					const projectName = rest[0] ?? "New Project";
 					pi.sendUserMessage(
-						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n2. The name and goal of the first milestone (M01)\n3. A list of slices (high-level work items) for M01\n\nOnce we have that information, use the tff_query_state tool (scope: overview) to check if a project already exists, then guide the user through creating the project structure.`,
+						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n2. The name and goal of the first milestone (M01)\n3. A list of slices (high-level work items) for M01\n\nOnce agreed, call the tff_create_project tool with the project name, vision, milestone name, and slice titles.`,
 					);
 					break;
 				}
@@ -162,20 +158,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					let msg: string;
 					try {
 						const database = getDb();
-						const project = getProject(database);
-						if (!project) {
-							msg =
-								"TFF health: database connected, no project found. Run `/tff new` to create one.";
-						} else {
-							const milestones = getMilestones(database, project.id);
-							let sliceCount = 0;
-							for (const m of milestones) {
-								sliceCount += getSlices(database, m.id).length;
-							}
-							msg = `TFF health: OK\n- Project: ${project.name}\n- Milestones: ${milestones.length}\n- Slices: ${sliceCount}\n- DB: connected`;
-						}
+						msg = handleHealth(database);
 					} catch (err) {
 						msg = `TFF health: NOT OK — ${err instanceof Error ? err.message : String(err)}`;
+					}
+					if (initError) {
+						msg += `\n- Init warning: ${initError}`;
 					}
 					if (ctx.hasUI) {
 						ctx.ui.notify(msg, "info");
@@ -263,7 +251,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					description: "The ID of the slice to transition",
 				}),
 				targetStatus: Type.Optional(
-					Type.String({
+					StringEnum([...SLICE_STATUSES], {
 						description:
 							"The target status to transition to. If omitted, advances to the next logical status.",
 					}),
@@ -272,51 +260,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
 					const database = getDb();
-					const slice = getSlice(database, params.sliceId);
-					if (!slice) {
-						return {
-							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
-							details: { sliceId: params.sliceId },
-							isError: true,
-						};
-					}
-
-					const target = params.targetStatus
-						? (params.targetStatus as SliceStatus)
-						: nextSliceStatus(slice.status, slice.tier ?? undefined);
-
-					if (!target) {
-						return {
-							content: [{ type: "text", text: `No valid next status from '${slice.status}'.` }],
-							details: { sliceId: params.sliceId, currentStatus: slice.status },
-							isError: true,
-						};
-					}
-
-					if (!canTransitionSlice(slice.status, target)) {
-						return {
-							content: [
-								{
-									type: "text",
-									text: `Invalid transition: '${slice.status}' → '${target}'. Allowed: ${canTransitionSlice.toString()}`,
-								},
-							],
-							details: { sliceId: params.sliceId, from: slice.status, to: target },
-							isError: true,
-						};
-					}
-
-					updateSliceStatus(database, params.sliceId, target);
-
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Slice ${params.sliceId} transitioned: ${slice.status} → ${target}`,
-							},
-						],
-						details: { sliceId: params.sliceId, from: slice.status, to: target },
-					};
+					return handleTransition(database, params.sliceId, params.targetStatus);
 				} catch (err) {
 					return {
 						content: [
@@ -343,33 +287,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				sliceId: Type.String({
 					description: "The ID of the slice to classify",
 				}),
-				tier: StringEnum(["S", "SS", "SSS"] as const, {
+				tier: StringEnum([...TIERS], {
 					description: "Tier: S (simple), SS (standard), SSS (complex)",
 				}),
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
 					const database = getDb();
-					const slice = getSlice(database, params.sliceId);
-					if (!slice) {
-						return {
-							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
-							details: { sliceId: params.sliceId },
-							isError: true,
-						};
-					}
-
-					updateSliceTier(database, params.sliceId, params.tier as Tier);
-
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Slice ${params.sliceId} classified as Tier ${params.tier}`,
-							},
-						],
-						details: { sliceId: params.sliceId, tier: params.tier },
-					};
+					return handleClassify(database, params.sliceId, params.tier as (typeof TIERS)[number]);
 				} catch (err) {
 					return {
 						content: [
@@ -379,6 +304,44 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						isError: true,
 					};
 				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_create_project
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_create_project",
+			label: "TFF Create Project",
+			description:
+				"Create a new TFF project with a first milestone and slices. Call this after brainstorming with the user via /tff new.",
+			parameters: Type.Object({
+				projectName: Type.String({ description: "Name of the project" }),
+				vision: Type.String({ description: "Vision statement for the project" }),
+				milestoneName: Type.String({ description: "Name of the first milestone (M01)" }),
+				slices: Type.Array(Type.String({ description: "Slice title" }), {
+					description: "List of slice titles for M01",
+					minItems: 1,
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				const database = getDb();
+				const root = projectRoot;
+				if (!root) {
+					return {
+						content: [{ type: "text", text: "Error: No project root found." }],
+						details: {},
+						isError: true,
+					};
+				}
+				return handleCreateProject(database, root, {
+					projectName: params.projectName,
+					vision: params.vision,
+					milestoneName: params.milestoneName,
+					slices: params.slices,
+				});
 			},
 		}),
 	);
