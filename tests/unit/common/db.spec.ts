@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
 	exportState,
+	getActiveMilestone,
+	getActiveSlice,
 	getDependencies,
 	getMilestone,
 	getMilestones,
+	getNextMilestoneNumber,
+	getNextSliceNumber,
 	getProject,
 	getSlice,
 	getSlices,
@@ -21,6 +25,7 @@ import {
 	updateSliceStatus,
 	updateSliceTier,
 	updateTaskStatus,
+	updateTaskWave,
 } from "../../../src/common/db.js";
 
 function createTestDb(): Database.Database {
@@ -273,5 +278,134 @@ describe("exportState", () => {
 		expect(state.slices).toHaveLength(1);
 		expect(state.tasks).toHaveLength(2);
 		expect(state.dependencies).toHaveLength(1);
+	});
+});
+
+describe("updateTaskWave", () => {
+	let db: Database.Database;
+	let sliceId: string;
+
+	beforeEach(() => {
+		db = createTestDb();
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const projectId = getProject(db)!.id;
+		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
+		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		sliceId = getSlices(db, milestoneId)[0]!.id;
+	});
+
+	it("sets the wave number on a task", () => {
+		insertTask(db, { sliceId, number: 1, title: "T1" });
+		const id = getTasks(db, sliceId)[0]!.id;
+		expect(getTask(db, id)!.wave).toBeNull();
+		updateTaskWave(db, id, 3);
+		expect(getTask(db, id)!.wave).toBe(3);
+	});
+});
+
+describe("getNextMilestoneNumber", () => {
+	let db: Database.Database;
+	let projectId: string;
+
+	beforeEach(() => {
+		db = createTestDb();
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		projectId = getProject(db)!.id;
+	});
+
+	it("returns 1 when no milestones exist", () => {
+		expect(getNextMilestoneNumber(db, projectId)).toBe(1);
+	});
+
+	it("returns next number after existing milestones", () => {
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		insertMilestone(db, { projectId, number: 2, name: "M2", branch: "milestone/M02" });
+		expect(getNextMilestoneNumber(db, projectId)).toBe(3);
+	});
+});
+
+describe("getActiveMilestone", () => {
+	let db: Database.Database;
+	let projectId: string;
+
+	beforeEach(() => {
+		db = createTestDb();
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		projectId = getProject(db)!.id;
+	});
+
+	it("returns null when no milestones exist", () => {
+		expect(getActiveMilestone(db, projectId)).toBeNull();
+	});
+
+	it("returns the first non-closed milestone", () => {
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		insertMilestone(db, { projectId, number: 2, name: "M2", branch: "milestone/M02" });
+		const m1Id = getMilestones(db, projectId)[0]!.id;
+		updateMilestoneStatus(db, m1Id, "closed");
+		const active = getActiveMilestone(db, projectId);
+		expect(active).not.toBeNull();
+		expect(active!.name).toBe("M2");
+	});
+});
+
+describe("getNextSliceNumber", () => {
+	let db: Database.Database;
+	let milestoneId: string;
+
+	beforeEach(() => {
+		db = createTestDb();
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const projectId = getProject(db)!.id;
+		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
+		milestoneId = getMilestones(db, projectId)[0]!.id;
+	});
+
+	it("returns 1 when no slices exist", () => {
+		expect(getNextSliceNumber(db, milestoneId)).toBe(1);
+	});
+
+	it("returns next number after existing slices", () => {
+		insertSlice(db, { milestoneId, number: 1, title: "S1" });
+		insertSlice(db, { milestoneId, number: 2, title: "S2" });
+		expect(getNextSliceNumber(db, milestoneId)).toBe(3);
+	});
+});
+
+describe("getActiveSlice", () => {
+	let db: Database.Database;
+	let milestoneId: string;
+
+	beforeEach(() => {
+		db = createTestDb();
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const projectId = getProject(db)!.id;
+		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
+		milestoneId = getMilestones(db, projectId)[0]!.id;
+	});
+
+	it("returns null when no slices exist", () => {
+		expect(getActiveSlice(db, milestoneId)).toBeNull();
+	});
+
+	it("returns the first non-closed non-paused slice", () => {
+		insertSlice(db, { milestoneId, number: 1, title: "S1" });
+		insertSlice(db, { milestoneId, number: 2, title: "S2" });
+		const s1Id = getSlices(db, milestoneId)[0]!.id;
+		updateSliceStatus(db, s1Id, "closed");
+		const active = getActiveSlice(db, milestoneId);
+		expect(active).not.toBeNull();
+		expect(active!.title).toBe("S2");
+	});
+
+	it("skips paused slices", () => {
+		insertSlice(db, { milestoneId, number: 1, title: "S1" });
+		insertSlice(db, { milestoneId, number: 2, title: "S2" });
+		const s1Id = getSlices(db, milestoneId)[0]!.id;
+		updateSliceStatus(db, s1Id, "paused");
+		const active = getActiveSlice(db, milestoneId);
+		expect(active).not.toBeNull();
+		expect(active!.title).toBe("S2");
 	});
 });
