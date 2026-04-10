@@ -4,10 +4,12 @@ import { discussPhase } from "./discuss.js";
 import { executePhase } from "./execute.js";
 import { planPhase } from "./plan.js";
 import { researchPhase } from "./research.js";
+import { verifyPhase } from "./verify.js";
 
 export const phaseModules: Partial<Record<Phase, PhaseModule>> = {
 	discuss: discussPhase,
 	research: researchPhase,
 	plan: planPhase,
 	execute: executePhase,
+	verify: verifyPhase,
 };
