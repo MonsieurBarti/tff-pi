@@ -81,3 +81,9 @@ export interface ValidateResult {
 	valid: boolean;
 	error?: string;
 }
+
+export function sanitizeForPrompt(input: string): string {
+	// Strip markdown code fence boundaries that could escape prompt context
+	// Strip system/assistant/user role markers that could manipulate LLM behavior
+	return input.replace(/```/g, "'''").replace(/^(system|assistant|user):/gim, "$1 -");
+}

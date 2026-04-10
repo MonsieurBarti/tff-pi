@@ -372,6 +372,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const MAX_REVIEW_CYCLES = 3;
 					let iterations = 0;
 					let reviewCycles = 0;
+					let lastFeedback: string | undefined;
 					while (currentSlice && iterations < MAX_AUTO_ITERATIONS) {
 						iterations++;
 						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
@@ -386,10 +387,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							slice: currentSlice,
 							milestoneNumber: milestone.number,
 							settings: currentSettings,
+							...(lastFeedback !== undefined ? { feedback: lastFeedback } : {}),
 						};
 						const result = await mod.run(phaseCtx);
 						if (!result.success) {
 							if (result.retry) {
+								lastFeedback = result.feedback;
 								// Only count review denials toward the budget, not verify failures
 								if (phase === "review") {
 									reviewCycles++;
@@ -407,6 +410,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								break;
 							}
 						} else {
+							lastFeedback = undefined;
 							if (phase === "ship") {
 								// Reset review cycles on successful ship (new slice)
 								reviewCycles = 0;

@@ -2,7 +2,7 @@ import { readArtifact } from "../common/artifacts.js";
 import { getTasksByWave, updateSliceStatus, updateTaskStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
-import { milestoneLabel, sliceLabel, taskLabel } from "../common/types.js";
+import { milestoneLabel, sanitizeForPrompt, sliceLabel, taskLabel } from "../common/types.js";
 import { createWorktree } from "../common/worktree.js";
 import { loadPhaseResources } from "../orchestrator.js";
 
@@ -24,6 +24,8 @@ export const executePhase: PhaseModule = {
 		const compressHint = settings.compress.user_artifacts
 			? "\n\nWrite comments and docs in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes."
 			: "";
+
+		const retryContext = ctx.feedback ? `\n\n## Previous Failure Context\n${ctx.feedback}` : "";
 
 		const { agentPrompt, protocol } = loadPhaseResources("execute");
 
@@ -57,7 +59,7 @@ export const executePhase: PhaseModule = {
 							.filter(Boolean)
 							.join("\n\n"),
 						userPrompt: [
-							`## Task: ${tLabel} — ${task.title}`,
+							`## Task: ${tLabel} — ${sanitizeForPrompt(task.title)}`,
 							"",
 							"## SPEC.md (Acceptance Criteria)",
 							specMd,
@@ -65,6 +67,7 @@ export const executePhase: PhaseModule = {
 							"## PLAN.md",
 							planMd,
 							previousWaveOutputs ? `\n## Previous Wave Outputs\n${previousWaveOutputs}` : "",
+							retryContext,
 						].join("\n"),
 						tools: [],
 						label: `executor:${sLabel}:${tLabel}`,

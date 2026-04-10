@@ -117,8 +117,11 @@ describe("determineNextPhase", () => {
 	it("executing -> verify", () => {
 		expect(determineNextPhase("executing")).toBe("verify");
 	});
-	it("verifying -> review", () => {
-		expect(determineNextPhase("verifying")).toBe("review");
+	it("verifying + SS -> review", () => {
+		expect(determineNextPhase("verifying", "SS")).toBe("review");
+	});
+	it("verifying + S -> ship (skip review)", () => {
+		expect(determineNextPhase("verifying", "S")).toBe("ship");
 	});
 	it("reviewing -> ship", () => {
 		expect(determineNextPhase("reviewing")).toBe("ship");
