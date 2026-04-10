@@ -111,12 +111,23 @@ describe("determineNextPhase", () => {
 		expect(determineNextPhase("researching")).toBe("plan");
 	});
 
-	it("planning -> null", () => {
-		expect(determineNextPhase("planning")).toBeNull();
+	it("planning -> execute", () => {
+		expect(determineNextPhase("planning")).toBe("execute");
 	});
-
-	it("executing -> null", () => {
-		expect(determineNextPhase("executing")).toBeNull();
+	it("executing -> verify", () => {
+		expect(determineNextPhase("executing")).toBe("verify");
+	});
+	it("verifying + SS -> review", () => {
+		expect(determineNextPhase("verifying", "SS")).toBe("review");
+	});
+	it("verifying + S -> ship (skip review)", () => {
+		expect(determineNextPhase("verifying", "S")).toBe("ship");
+	});
+	it("reviewing -> ship", () => {
+		expect(determineNextPhase("reviewing")).toBe("ship");
+	});
+	it("shipping -> null", () => {
+		expect(determineNextPhase("shipping")).toBeNull();
 	});
 
 	it("closed -> null", () => {
@@ -149,6 +160,7 @@ describe("collectPhaseContext", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const ctx = collectPhaseContext(root, slice, 1, "discuss");
@@ -166,6 +178,7 @@ describe("collectPhaseContext", () => {
 			title: "Auth",
 			status: "discussing" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const ctx = collectPhaseContext(root, slice, 1, "research");
@@ -183,6 +196,7 @@ describe("collectPhaseContext", () => {
 			title: "Auth",
 			status: "researching" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const ctx = collectPhaseContext(root, slice, 1, "plan");
@@ -200,6 +214,7 @@ describe("buildPhasePrompt", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const context = { "PROJECT.md": "# Project" };
@@ -219,6 +234,7 @@ describe("buildPhasePrompt", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const longContent = "x".repeat(5000);
@@ -238,6 +254,7 @@ describe("buildPhasePrompt", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const context = { "PROJECT.md": "# Project" };
@@ -275,6 +292,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "discussing" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "discuss");
@@ -293,6 +311,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "discussing" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "discuss");
@@ -309,6 +328,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "researching" as const,
 			tier: "SSS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "research");
@@ -325,6 +345,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "researching" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "research");
@@ -339,6 +360,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "planning" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");
@@ -355,6 +377,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "planning" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");

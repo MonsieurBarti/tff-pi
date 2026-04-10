@@ -5,6 +5,8 @@ export interface Settings {
 	compress: {
 		user_artifacts: boolean;
 	};
+	test_command?: string;
+	milestone_target_branch?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -23,7 +25,7 @@ export function parseSettings(yamlString: string): Settings {
 		if (!parsed || typeof parsed !== "object") {
 			return { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
 		}
-		return {
+		const settings: Settings = {
 			model_profile:
 				parsed.model_profile === "quality" ||
 				parsed.model_profile === "balanced" ||
@@ -37,6 +39,13 @@ export function parseSettings(yamlString: string): Settings {
 						: DEFAULT_SETTINGS.compress.user_artifacts,
 			},
 		};
+		if (typeof parsed.test_command === "string") {
+			settings.test_command = parsed.test_command;
+		}
+		if (typeof parsed.milestone_target_branch === "string") {
+			settings.milestone_target_branch = parsed.milestone_target_branch;
+		}
+		return settings;
 	} catch {
 		return { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
 	}

@@ -7,6 +7,7 @@ import {
 	branchExists,
 	createBranch,
 	getCurrentBranch,
+	getDefaultBranch,
 	getGitRoot,
 } from "../../../src/common/git.js";
 import { must } from "../../helpers.js";
@@ -90,6 +91,22 @@ describe("git", () => {
 			const head = execSync("git rev-parse HEAD", { cwd: repoDir, encoding: "utf-8" }).trim();
 			createBranch("dup-branch", head, repoDir);
 			expect(() => createBranch("dup-branch", head, repoDir)).toThrow();
+		});
+	});
+
+	describe("getDefaultBranch", () => {
+		it("returns a branch name string", () => {
+			const branch = getDefaultBranch();
+			// May return null in CI/test environments without remote
+			if (branch !== null) {
+				expect(typeof branch).toBe("string");
+				expect(branch.length).toBeGreaterThan(0);
+			}
+		});
+
+		it("returns null for non-git directory", () => {
+			const branch = getDefaultBranch("/tmp");
+			expect(branch).toBeNull();
 		});
 	});
 });

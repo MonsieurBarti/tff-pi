@@ -32,9 +32,13 @@ export async function dispatchSubAgent(
 	pi: ExtensionAPI,
 	agentName: string,
 	prompt: SubAgentPrompt,
+	cwd?: string,
 ): Promise<SubAgentResult> {
 	const task = buildSubagentTask(prompt);
 	const args = ["--print", "--no-input", "--agent", agentName, "--agent-scope", "both", task];
+	if (cwd) {
+		args.unshift("--cwd", cwd);
+	}
 
 	try {
 		const result = await pi.exec("pi", args, { timeout: 600_000 });

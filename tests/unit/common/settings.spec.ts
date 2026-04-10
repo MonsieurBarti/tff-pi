@@ -55,6 +55,32 @@ describe("settings", () => {
 		});
 	});
 
+	describe("test_command setting", () => {
+		it("defaults to undefined when absent", () => {
+			const s = parseSettings("model_profile: balanced");
+			expect(s.test_command).toBeUndefined();
+		});
+		it("parses test_command string", () => {
+			const s = parseSettings("test_command: bun test");
+			expect(s.test_command).toBe("bun test");
+		});
+		it("parses disabled test_command", () => {
+			const s = parseSettings("test_command: disabled");
+			expect(s.test_command).toBe("disabled");
+		});
+	});
+
+	describe("milestone_target_branch setting", () => {
+		it("defaults to undefined when absent", () => {
+			const s = parseSettings("model_profile: balanced");
+			expect(s.milestone_target_branch).toBeUndefined();
+		});
+		it("parses milestone_target_branch string", () => {
+			const s = parseSettings("milestone_target_branch: develop");
+			expect(s.milestone_target_branch).toBe("develop");
+		});
+	});
+
 	describe("serializeSettings", () => {
 		it("serializes settings to YAML string", () => {
 			const yaml = serializeSettings(DEFAULT_SETTINGS);

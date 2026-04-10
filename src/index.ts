@@ -6,6 +6,7 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { validateAuto } from "./commands/auto.js";
 import { validateDiscuss } from "./commands/discuss.js";
+import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
 import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
@@ -13,14 +14,25 @@ import { handlePause } from "./commands/pause.js";
 import { validatePlan } from "./commands/plan.js";
 import { handleProgress } from "./commands/progress.js";
 import { validateResearch } from "./commands/research.js";
+import { validateShip } from "./commands/ship.js";
 import { handleStatus } from "./commands/status.js";
+import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
-import { applyMigrations, getMilestone, getProject, getSlice, openDatabase } from "./common/db.js";
+import {
+	applyMigrations,
+	getMilestone,
+	getProject,
+	getSlice,
+	openDatabase,
+	updateSliceStatus,
+} from "./common/db.js";
 import { getGitRoot } from "./common/git.js";
+import type { PhaseContext } from "./common/phase.js";
 import { isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { SLICE_STATUSES, TIERS, milestoneLabel } from "./common/types.js";
-import { determineNextPhase, findActiveSlice, runPhase, runPhaseWithGate } from "./orchestrator.js";
+import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
+import { phaseModules } from "./phases/index.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
@@ -158,7 +170,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"- `/tff health` — Quick database health check\n" +
 							"- `/tff settings` — Show current settings\n" +
 							"- `/tff help` — Show this help\n\n" +
-							"Not yet implemented: execute, verify, ship, complete-milestone, rollback",
+							"**Execution:**\n" +
+							"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
+							"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
+							"- `/tff ship [sliceId]` — Ship the slice (PR + merge)\n\n" +
+							"Not yet implemented: complete-milestone, rollback",
 					);
 					break;
 				}
@@ -238,15 +254,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhaseWithGate(
+					const mod = phaseModules.discuss;
+					const phaseCtx: PhaseContext = {
 						pi,
-						database,
+						db: database,
 						root,
 						slice,
-						milestone.number,
-						"discuss",
-						currentSettings,
-					);
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -267,7 +284,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhase(pi, database, root, slice, milestone.number, "research", currentSettings);
+					const mod = phaseModules.research;
+					const phaseCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice,
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -288,15 +314,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhaseWithGate(
+					const mod = phaseModules.plan;
+					const phaseCtx: PhaseContext = {
 						pi,
-						database,
+						db: database,
 						root,
 						slice,
-						milestone.number,
-						"plan",
-						currentSettings,
-					);
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -317,15 +344,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhaseWithGate(
+					const mod = phaseModules[phase];
+					const phaseCtx: PhaseContext = {
 						pi,
-						database,
+						db: database,
 						root,
 						slice,
-						milestone.number,
-						phase,
-						currentSettings,
-					);
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -340,29 +368,149 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					}
 					let currentSlice = findActiveSlice(database);
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					const MAX_AUTO_ITERATIONS = 20;
+					const MAX_AUTO_ITERATIONS = 50;
+					const MAX_REVIEW_CYCLES = 3;
 					let iterations = 0;
+					let reviewCycles = 0;
+					let lastFeedback: string | undefined;
 					while (currentSlice && iterations < MAX_AUTO_ITERATIONS) {
 						iterations++;
 						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
 						if (!phase) break;
+						const mod = phaseModules[phase];
 						const milestone = getMilestone(database, currentSlice.milestoneId);
 						if (!milestone) break;
-						const result = await runPhaseWithGate(
+						const phaseCtx: PhaseContext = {
 							pi,
-							database,
+							db: database,
 							root,
-							currentSlice,
-							milestone.number,
-							phase,
-							currentSettings,
-						);
-						if (!result.completed) break;
+							slice: currentSlice,
+							milestoneNumber: milestone.number,
+							settings: currentSettings,
+							...(lastFeedback !== undefined ? { feedback: lastFeedback } : {}),
+						};
+						const result = await mod.run(phaseCtx);
+						if (!result.success) {
+							if (result.retry) {
+								lastFeedback = result.feedback;
+								// Only count review denials toward the budget, not verify failures
+								if (phase === "review") {
+									reviewCycles++;
+								}
+								if (reviewCycles >= MAX_REVIEW_CYCLES) {
+									updateSliceStatus(database, currentSlice.id, "paused");
+									if (ctx.hasUI)
+										ctx.ui.notify(
+											`Slice paused after ${MAX_REVIEW_CYCLES} review cycles.`,
+											"warning",
+										);
+									break;
+								}
+							} else {
+								break;
+							}
+						} else {
+							lastFeedback = undefined;
+							if (phase === "ship") {
+								// Reset review cycles on successful ship (new slice)
+								reviewCycles = 0;
+							}
+						}
 						currentSlice = findActiveSlice(database);
 					}
 					if (iterations >= MAX_AUTO_ITERATIONS) {
 						if (ctx.hasUI) ctx.ui.notify("Auto mode: max iterations reached.", "warning");
 					}
+					break;
+				}
+
+				case "execute": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					if (!slice) {
+						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						return;
+					}
+					const validation = validateExecute(database, slice.id);
+					if (!validation.valid) {
+						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						return;
+					}
+					const milestone = getMilestone(database, slice.milestoneId);
+					if (!milestone) return;
+					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const mod = phaseModules.execute;
+					const phaseCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice,
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
+					break;
+				}
+
+				case "verify": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					if (!slice) {
+						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						return;
+					}
+					const validation = validateVerify(database, slice.id);
+					if (!validation.valid) {
+						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						return;
+					}
+					const milestone = getMilestone(database, slice.milestoneId);
+					if (!milestone) return;
+					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const mod = phaseModules.verify;
+					const phaseCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice,
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
+					break;
+				}
+
+				case "ship": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					if (!slice) {
+						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						return;
+					}
+					const validation = validateShip(database, slice.id);
+					if (!validation.valid) {
+						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						return;
+					}
+					const milestone = getMilestone(database, slice.milestoneId);
+					if (!milestone) return;
+					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const mod = phaseModules.ship;
+					const phaseCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice,
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+					};
+					await mod.run(phaseCtx);
 					break;
 				}
 
