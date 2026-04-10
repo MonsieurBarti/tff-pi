@@ -45,6 +45,7 @@ export interface Slice {
 	title: string;
 	status: SliceStatus;
 	tier: Tier | null;
+	prUrl: string | null;
 	createdAt: string;
 }
 

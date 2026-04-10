@@ -15,13 +15,16 @@ import {
 	getSlices,
 	getTask,
 	getTasks,
+	getTasksByWave,
 	insertDependency,
 	insertMilestone,
 	insertProject,
 	insertSlice,
 	insertTask,
 	openDatabase,
+	resetTasksToOpen,
 	updateMilestoneStatus,
+	updateSlicePrUrl,
 	updateSliceStatus,
 	updateSliceTier,
 	updateTaskStatus,
@@ -401,5 +404,86 @@ describe("getActiveSlice", () => {
 		updateSliceStatus(db, s1Id, "paused");
 		const active = must(getActiveSlice(db, milestoneId));
 		expect(active.title).toBe("S2");
+	});
+});
+
+describe("pr_url column", () => {
+	let db: Database.Database;
+	beforeEach(() => {
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+	});
+	it("slice has null pr_url by default", () => {
+		const projectId = must(getProject(db)).id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		const slice = must(getSlices(db, milestoneId)[0]);
+		expect(slice.prUrl).toBeNull();
+	});
+	it("updateSlicePrUrl sets the PR URL", () => {
+		const projectId = must(getProject(db)).id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		const sliceId = must(getSlices(db, milestoneId)[0]).id;
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
+		const slice = must(getSlice(db, sliceId));
+		expect(slice.prUrl).toBe("https://github.com/org/repo/pull/42");
+	});
+});
+
+describe("getTasksByWave", () => {
+	let db: Database.Database;
+	let sliceId: string;
+	beforeEach(() => {
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
+	});
+	it("returns tasks grouped by wave number", () => {
+		const t1 = insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const t2 = insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
+		const t3 = insertTask(db, { sliceId, number: 3, title: "API", wave: 2 });
+		const grouped = getTasksByWave(db, sliceId);
+		expect(grouped.get(1)?.map((t) => t.id)).toEqual([t1, t2]);
+		expect(grouped.get(2)?.map((t) => t.id)).toEqual([t3]);
+	});
+	it("returns empty map for slice with no tasks", () => {
+		const grouped = getTasksByWave(db, sliceId);
+		expect(grouped.size).toBe(0);
+	});
+});
+
+describe("resetTasksToOpen", () => {
+	let db: Database.Database;
+	let sliceId: string;
+	beforeEach(() => {
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
+	});
+	it("resets all tasks in a slice to open with null claimedBy", () => {
+		const t1Id = insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const t2Id = insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
+		updateTaskStatus(db, t1Id, "closed", "agent-1");
+		updateTaskStatus(db, t2Id, "in_progress", "agent-2");
+		resetTasksToOpen(db, sliceId);
+		const tasks = getTasks(db, sliceId);
+		for (const t of tasks) {
+			expect(t.status).toBe("open");
+			expect(t.claimedBy).toBeNull();
+		}
 	});
 });

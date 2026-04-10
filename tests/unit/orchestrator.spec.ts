@@ -149,6 +149,7 @@ describe("collectPhaseContext", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const ctx = collectPhaseContext(root, slice, 1, "discuss");
@@ -166,6 +167,7 @@ describe("collectPhaseContext", () => {
 			title: "Auth",
 			status: "discussing" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const ctx = collectPhaseContext(root, slice, 1, "research");
@@ -183,6 +185,7 @@ describe("collectPhaseContext", () => {
 			title: "Auth",
 			status: "researching" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const ctx = collectPhaseContext(root, slice, 1, "plan");
@@ -200,6 +203,7 @@ describe("buildPhasePrompt", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const context = { "PROJECT.md": "# Project" };
@@ -219,6 +223,7 @@ describe("buildPhasePrompt", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const longContent = "x".repeat(5000);
@@ -238,6 +243,7 @@ describe("buildPhasePrompt", () => {
 			title: "Auth",
 			status: "created" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const context = { "PROJECT.md": "# Project" };
@@ -275,6 +281,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "discussing" as const,
 			tier: null,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "discuss");
@@ -293,6 +300,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "discussing" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "discuss");
@@ -309,6 +317,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "researching" as const,
 			tier: "SSS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "research");
@@ -325,6 +334,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "researching" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "research");
@@ -339,6 +349,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "planning" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");
@@ -355,6 +366,7 @@ describe("verifyPhaseArtifacts", () => {
 			title: "Auth",
 			status: "planning" as const,
 			tier: "SS" as const,
+			prUrl: null,
 			createdAt: "",
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");

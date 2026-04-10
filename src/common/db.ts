@@ -86,6 +86,11 @@ export function applyMigrations(db: Database.Database): void {
 			PRIMARY KEY (from_task_id, to_task_id)
 		);
 	`);
+	try {
+		db.exec("ALTER TABLE slice ADD COLUMN pr_url TEXT");
+	} catch {
+		// Column already exists
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +121,7 @@ interface SliceRow {
 	title: string;
 	status: string;
 	tier: string | null;
+	pr_url: string | null;
 	created_at: string;
 }
 
@@ -173,6 +179,7 @@ function rowToSlice(row: SliceRow): Slice {
 		title: row.title,
 		status: row.status as SliceStatus,
 		tier: (row.tier ?? null) as Tier | null,
+		prUrl: row.pr_url ?? null,
 		createdAt: row.created_at,
 	};
 }
@@ -311,6 +318,29 @@ export function updateSliceStatus(db: Database.Database, id: string, status: Sli
 
 export function updateSliceTier(db: Database.Database, id: string, tier: Tier): void {
 	db.prepare("UPDATE slice SET tier = ? WHERE id = ?").run(tier, id);
+}
+
+export function updateSlicePrUrl(db: Database.Database, id: string, prUrl: string): void {
+	db.prepare("UPDATE slice SET pr_url = ? WHERE id = ?").run(prUrl, id);
+}
+
+export function getTasksByWave(db: Database.Database, sliceId: string): Map<number, Task[]> {
+	const tasks = getTasks(db, sliceId);
+	const grouped = new Map<number, Task[]>();
+	for (const task of tasks) {
+		if (task.wave === null) continue;
+		const wave = grouped.get(task.wave);
+		if (wave) {
+			wave.push(task);
+		} else {
+			grouped.set(task.wave, [task]);
+		}
+	}
+	return grouped;
+}
+
+export function resetTasksToOpen(db: Database.Database, sliceId: string): void {
+	db.prepare("UPDATE task SET status = 'open', claimed_by = NULL WHERE slice_id = ?").run(sliceId);
 }
 
 export function getNextSliceNumber(db: Database.Database, milestoneId: string): number {

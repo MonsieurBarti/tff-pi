@@ -93,6 +93,7 @@ describe("types", () => {
 				title: "Auth",
 				status: "created",
 				tier: null,
+				prUrl: null,
 				createdAt: "2026-04-10T00:00:00Z",
 			};
 			expect(s.tier).toBeNull();
