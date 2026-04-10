@@ -118,12 +118,11 @@ export function buildPhasePrompt(
 
 	const contextBlock = Object.entries(context)
 		.map(([name, content]) => {
-			const body = compressed ? content.slice(0, 2000) : content;
-			return `### ${name}\n\n${body}`;
+			return `### ${name}\n\n${content}`;
 		})
 		.join("\n\n");
 
-	const userPrompt = [
+	const parts = [
 		`## Slice: ${sLabel} — "${slice.title}"`,
 		`Slice ID: ${slice.id}`,
 		`Tier: ${slice.tier ?? "unclassified"}`,
@@ -131,7 +130,16 @@ export function buildPhasePrompt(
 		"## Context",
 		"",
 		contextBlock,
-	].join("\n");
+	];
+
+	if (compressed) {
+		parts.push(
+			"",
+			"**IMPORTANT:** Write all artifact content in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes.",
+		);
+	}
+
+	const userPrompt = parts.join("\n");
 
 	return {
 		systemPrompt,
@@ -141,10 +149,46 @@ export function buildPhasePrompt(
 	};
 }
 
+export function verifyPhaseArtifacts(
+	db: Database.Database,
+	root: string,
+	slice: Slice,
+	milestoneNumber: number,
+	phase: Phase,
+): { ok: boolean; missing: string[] } {
+	const mLabel = milestoneLabel(milestoneNumber);
+	const sLabel = sliceLabel(milestoneNumber, slice.number);
+	const missing: string[] = [];
+
+	if (phase === "discuss") {
+		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`)) {
+			missing.push("SPEC.md");
+		}
+		const refreshed = getSlice(db, slice.id);
+		if (!refreshed?.tier) {
+			missing.push("tier classification");
+		}
+	} else if (phase === "research") {
+		const refreshed = getSlice(db, slice.id);
+		if (refreshed?.tier === "SSS") {
+			if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/RESEARCH.md`)) {
+				missing.push("RESEARCH.md (required for SSS)");
+			}
+		}
+	} else if (phase === "plan") {
+		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PLAN.md`)) {
+			missing.push("PLAN.md");
+		}
+	}
+
+	return { ok: missing.length === 0, missing };
+}
+
 export interface RunPhaseResult {
 	advanced: boolean;
 	needsGate: boolean;
 	agentResult?: SubAgentResult;
+	error?: string;
 }
 
 export async function runPhase(
@@ -175,12 +219,25 @@ export async function runPhase(
 		return { advanced: false, needsGate: false, agentResult };
 	}
 
-	const next = nextSliceStatus(entryStatus, slice.tier ?? undefined);
-	if (next) {
-		updateSliceStatus(db, slice.id, next);
+	const verification = verifyPhaseArtifacts(db, root, slice, milestoneNumber, phase);
+	if (!verification.ok) {
+		return {
+			advanced: false,
+			needsGate: false,
+			agentResult,
+			error: `Phase artifacts missing: ${verification.missing.join(", ")}`,
+		};
 	}
 
+	// Only advance status if there's no gate — gated phases advance via advanceAfterGate
 	const needsGate = phase === "discuss" || phase === "plan";
+	if (!needsGate) {
+		const next = nextSliceStatus(entryStatus, slice.tier ?? undefined);
+		if (next) {
+			updateSliceStatus(db, slice.id, next);
+		}
+	}
+
 	return { advanced: true, needsGate, agentResult };
 }
 
@@ -228,4 +285,41 @@ export function advanceAfterGate(
 		updateSliceStatus(db, slice.id, next);
 	}
 	return true;
+}
+
+export async function runPhaseWithGate(
+	pi: ExtensionAPI,
+	db: Database.Database,
+	root: string,
+	slice: Slice,
+	milestoneNumber: number,
+	phase: Phase,
+	settings: Settings,
+	maxRetries = 2,
+): Promise<{ completed: boolean; gateApproved?: boolean }> {
+	const phaseResult = await runPhase(pi, db, root, slice, milestoneNumber, phase, settings);
+	if (!phaseResult.advanced) {
+		return { completed: false };
+	}
+
+	if (!phaseResult.needsGate) {
+		return { completed: true };
+	}
+
+	// Gate loop with retry on denial
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		const gateResult = await handleGate(pi, db, root, slice, milestoneNumber, phase);
+		if (gateResult.approved) {
+			advanceAfterGate(db, slice, gateResult);
+			return { completed: true, gateApproved: true };
+		}
+
+		if (attempt < maxRetries) {
+			// Re-dispatch with feedback
+			const phaseRetry = await runPhase(pi, db, root, slice, milestoneNumber, phase, settings);
+			if (!phaseRetry.advanced) break;
+		}
+	}
+
+	return { completed: false, gateApproved: false };
 }

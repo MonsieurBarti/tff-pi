@@ -11,6 +11,7 @@ import {
 	insertSlice,
 	openDatabase,
 	updateSliceStatus,
+	updateSliceTier,
 } from "../../../src/common/db.js";
 
 function createTestDb(): Database.Database {
@@ -33,10 +34,26 @@ describe("validatePlan", () => {
 		sliceId = getSlices(db, milestoneId)[0]!.id;
 	});
 
-	it("succeeds for discussing status", () => {
+	it("succeeds for a discussing S-tier slice", () => {
 		updateSliceStatus(db, sliceId, "discussing");
+		updateSliceTier(db, sliceId, "S");
 		const result = validatePlan(db, sliceId);
 		expect(result.valid).toBe(true);
+	});
+
+	it("fails for a discussing non-S-tier slice", () => {
+		updateSliceStatus(db, sliceId, "discussing");
+		updateSliceTier(db, sliceId, "SS");
+		const result = validatePlan(db, sliceId);
+		expect(result.valid).toBe(false);
+		expect(result.error).toContain("non-S-tier must complete research first");
+	});
+
+	it("fails for a discussing slice with no tier", () => {
+		updateSliceStatus(db, sliceId, "discussing");
+		const result = validatePlan(db, sliceId);
+		expect(result.valid).toBe(false);
+		expect(result.error).toContain("discussing");
 	});
 
 	it("succeeds for researching status", () => {

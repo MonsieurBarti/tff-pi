@@ -11,11 +11,14 @@ export function validatePlan(db: Database.Database, sliceId: string): ValidateRe
 	if (!slice) {
 		return { valid: false, error: `Slice not found: ${sliceId}` };
 	}
-	if (slice.status !== "discussing" && slice.status !== "researching") {
-		return {
-			valid: false,
-			error: `Cannot start plan: slice is in '${slice.status}' status (expected 'discussing' or 'researching')`,
-		};
+	if (slice.status === "researching") {
+		return { valid: true };
 	}
-	return { valid: true };
+	if (slice.status === "discussing" && slice.tier === "S") {
+		return { valid: true };
+	}
+	return {
+		valid: false,
+		error: `Cannot start plan: slice is in '${slice.status}' status${slice.tier !== "S" ? " (non-S-tier must complete research first)" : ""}`,
+	};
 }

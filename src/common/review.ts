@@ -42,33 +42,39 @@ export function requestReview(
 		const requestId = randomUUID();
 		const REVIEW_RESULT_CHANNEL = "plannotator:review-result";
 		const REVIEW_REQUEST_CHANNEL = "plannotator:request";
+		let resolved = false;
 
-		// Listen for the review result
+		const finish = (result: ReviewResult) => {
+			if (resolved) return;
+			resolved = true;
+			unsubscribe();
+			clearTimeout(timer);
+			resolve(result);
+		};
+
+		// Timeout: auto-approve after 60s if no response
+		const timer = setTimeout(() => {
+			finish({ approved: true, feedback: "Review timed out — auto-approved" });
+		}, 60_000);
+
 		const unsubscribe = pi.events.on(REVIEW_RESULT_CHANNEL, (data: unknown) => {
-			const result = data as {
-				reviewId: string;
-				approved: boolean;
-				feedback?: string;
-			};
+			const result = data as { reviewId: string; approved: boolean; feedback?: string };
 			if (result.reviewId === requestId) {
-				unsubscribe();
 				const reviewResult: ReviewResult = { approved: result.approved };
 				if (result.feedback !== undefined) {
 					reviewResult.feedback = result.feedback;
 				}
-				resolve(reviewResult);
+				finish(reviewResult);
 			}
 		});
 
-		// Emit the review request
 		const request = buildReviewRequest(requestId, artifactPath, content, reviewType);
 		pi.events.emit(REVIEW_REQUEST_CHANNEL, {
 			...request,
 			respond: (response: unknown) => {
-				const resp = response as { status: string; result?: { reviewId: string } };
+				const resp = response as { status: string };
 				if (resp.status === "unavailable" || resp.status === "error") {
-					unsubscribe();
-					resolve({ approved: true, feedback: "Plannotator unavailable — auto-approved" });
+					finish({ approved: true, feedback: "Plannotator unavailable — auto-approved" });
 				}
 			},
 		});
