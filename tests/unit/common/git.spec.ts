@@ -12,8 +12,18 @@ import {
 
 describe("git", () => {
 	let repoDir: string;
+	const savedGitEnv: Record<string, string | undefined> = {};
 
 	beforeEach(() => {
+		// Save and clear GIT_* env vars to isolate from lefthook/worktree context
+		for (const key of Object.keys(process.env)) {
+			if (key.startsWith("GIT_")) {
+				savedGitEnv[key] = process.env[key];
+				// biome-ignore lint/performance/noDelete: only way to unset env vars
+				delete process.env[key];
+			}
+		}
+
 		repoDir = mkdtempSync(join(tmpdir(), "tff-git-test-"));
 		execSync("git init", { cwd: repoDir, stdio: "pipe" });
 		execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: "pipe" });
@@ -23,6 +33,10 @@ describe("git", () => {
 
 	afterEach(() => {
 		rmSync(repoDir, { recursive: true, force: true });
+		// Restore GIT_* env vars
+		for (const [key, value] of Object.entries(savedGitEnv)) {
+			if (value !== undefined) process.env[key] = value;
+		}
 	});
 
 	describe("getGitRoot", () => {

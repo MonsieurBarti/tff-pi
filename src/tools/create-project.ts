@@ -13,15 +13,15 @@ export function handleCreateProject(
 	input: NewProjectInput,
 ): ToolResult {
 	try {
-		const { projectId, milestoneId } = handleNew(db, root, input);
+		const { projectId } = handleNew(db, root, input);
 		return {
 			content: [
 				{
 					type: "text",
-					text: `Project "${input.projectName}" created with milestone M01 "${input.milestoneName}" and ${input.slices.length} slice(s).`,
+					text: `Project "${input.projectName}" created. Use /tff new-milestone to add a milestone.`,
 				},
 			],
-			details: { projectId, milestoneId, sliceCount: input.slices.length },
+			details: { projectId },
 		};
 	} catch (err) {
 		return {

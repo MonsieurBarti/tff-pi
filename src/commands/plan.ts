@@ -1,0 +1,24 @@
+import type Database from "better-sqlite3";
+import { getSlice } from "../common/db.js";
+
+export interface ValidateResult {
+	valid: boolean;
+	error?: string;
+}
+
+export function validatePlan(db: Database.Database, sliceId: string): ValidateResult {
+	const slice = getSlice(db, sliceId);
+	if (!slice) {
+		return { valid: false, error: `Slice not found: ${sliceId}` };
+	}
+	if (slice.status === "researching") {
+		return { valid: true };
+	}
+	if (slice.status === "discussing" && slice.tier === "S") {
+		return { valid: true };
+	}
+	return {
+		valid: false,
+		error: `Cannot start plan: slice is in '${slice.status}' status${slice.tier !== "S" ? " (non-S-tier must complete research first)" : ""}`,
+	};
+}
