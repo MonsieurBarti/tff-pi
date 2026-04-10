@@ -15,12 +15,14 @@ import {
 	openDatabase,
 	updateMilestoneStatus,
 	updateSliceStatus,
+	updateSliceTier,
 } from "../../src/common/db.js";
 import {
 	buildPhasePrompt,
 	collectPhaseContext,
 	determineNextPhase,
 	findActiveSlice,
+	verifyPhaseArtifacts,
 } from "../../src/orchestrator.js";
 
 function createTestDb(): Database.Database {
@@ -210,7 +212,7 @@ describe("buildPhasePrompt", () => {
 		expect(prompt.userPrompt).toContain("s1");
 	});
 
-	it("truncates context when compressed", () => {
+	it("adds compression instruction when compressed", () => {
 		const slice = {
 			id: "s1",
 			milestoneId: "m1",
@@ -223,7 +225,140 @@ describe("buildPhasePrompt", () => {
 		const longContent = "x".repeat(5000);
 		const context = { "PROJECT.md": longContent };
 		const prompt = buildPhasePrompt(slice, 1, "discuss", context, true);
-		// compressed truncates to 2000 chars
-		expect(prompt.userPrompt.length).toBeLessThan(longContent.length);
+		// Full content is preserved
+		expect(prompt.userPrompt).toContain(longContent);
+		// Compression instruction is appended
+		expect(prompt.userPrompt).toContain("compressed R1-R10 notation");
+	});
+
+	it("does not add compression instruction when not compressed", () => {
+		const slice = {
+			id: "s1",
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "created" as const,
+			tier: null,
+			createdAt: "",
+		};
+		const context = { "PROJECT.md": "# Project" };
+		const prompt = buildPhasePrompt(slice, 1, "discuss", context, false);
+		expect(prompt.userPrompt).not.toContain("compressed R1-R10 notation");
+	});
+});
+
+describe("verifyPhaseArtifacts", () => {
+	let root: string;
+	let db: Database.Database;
+	let sliceId: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "tff-verify-test-"));
+		initTffDirectory(root);
+		db = createTestDb();
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const projectId = getProject(db)!.id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		sliceId = getSlices(db, milestoneId)[0]!.id;
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("reports missing SPEC.md and tier for discuss phase", () => {
+		const slice = {
+			id: sliceId,
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "discussing" as const,
+			tier: null,
+			createdAt: "",
+		};
+		const result = verifyPhaseArtifacts(db, root, slice, 1, "discuss");
+		expect(result.ok).toBe(false);
+		expect(result.missing).toContain("SPEC.md");
+		expect(result.missing).toContain("tier classification");
+	});
+
+	it("passes discuss phase when SPEC.md and tier exist", () => {
+		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
+		updateSliceTier(db, sliceId, "SS");
+		const slice = {
+			id: sliceId,
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "discussing" as const,
+			tier: "SS" as const,
+			createdAt: "",
+		};
+		const result = verifyPhaseArtifacts(db, root, slice, 1, "discuss");
+		expect(result.ok).toBe(true);
+		expect(result.missing).toHaveLength(0);
+	});
+
+	it("reports missing RESEARCH.md for SSS research phase", () => {
+		updateSliceTier(db, sliceId, "SSS");
+		const slice = {
+			id: sliceId,
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "researching" as const,
+			tier: "SSS" as const,
+			createdAt: "",
+		};
+		const result = verifyPhaseArtifacts(db, root, slice, 1, "research");
+		expect(result.ok).toBe(false);
+		expect(result.missing).toContain("RESEARCH.md (required for SSS)");
+	});
+
+	it("passes research phase for SS tier without RESEARCH.md", () => {
+		updateSliceTier(db, sliceId, "SS");
+		const slice = {
+			id: sliceId,
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "researching" as const,
+			tier: "SS" as const,
+			createdAt: "",
+		};
+		const result = verifyPhaseArtifacts(db, root, slice, 1, "research");
+		expect(result.ok).toBe(true);
+	});
+
+	it("reports missing PLAN.md for plan phase", () => {
+		const slice = {
+			id: sliceId,
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "planning" as const,
+			tier: "SS" as const,
+			createdAt: "",
+		};
+		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");
+		expect(result.ok).toBe(false);
+		expect(result.missing).toContain("PLAN.md");
+	});
+
+	it("passes plan phase when PLAN.md exists", () => {
+		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan");
+		const slice = {
+			id: sliceId,
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "planning" as const,
+			tier: "SS" as const,
+			createdAt: "",
+		};
+		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");
+		expect(result.ok).toBe(true);
 	});
 });

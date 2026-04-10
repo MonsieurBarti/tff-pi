@@ -20,13 +20,7 @@ import { getGitRoot } from "./common/git.js";
 import { isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { SLICE_STATUSES, TIERS, milestoneLabel } from "./common/types.js";
-import {
-	advanceAfterGate,
-	determineNextPhase,
-	findActiveSlice,
-	handleGate,
-	runPhase,
-} from "./orchestrator.js";
+import { determineNextPhase, findActiveSlice, runPhase, runPhaseWithGate } from "./orchestrator.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
@@ -244,16 +238,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhase(pi, database, root, slice, milestone.number, "discuss", currentSettings);
-					const gateResult = await handleGate(
+					await runPhaseWithGate(
 						pi,
 						database,
 						root,
 						slice,
 						milestone.number,
 						"discuss",
+						currentSettings,
 					);
-					advanceAfterGate(database, slice, gateResult);
 					break;
 				}
 
@@ -295,9 +288,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					await runPhase(pi, database, root, slice, milestone.number, "plan", currentSettings);
-					const gateResult = await handleGate(pi, database, root, slice, milestone.number, "plan");
-					advanceAfterGate(database, slice, gateResult);
+					await runPhaseWithGate(
+						pi,
+						database,
+						root,
+						slice,
+						milestone.number,
+						"plan",
+						currentSettings,
+					);
 					break;
 				}
 
@@ -318,7 +317,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					const phaseResult = await runPhase(
+					await runPhaseWithGate(
 						pi,
 						database,
 						root,
@@ -327,10 +326,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						phase,
 						currentSettings,
 					);
-					if (phaseResult.needsGate) {
-						const gateResult = await handleGate(pi, database, root, slice, milestone.number, phase);
-						advanceAfterGate(database, slice, gateResult);
-					}
 					break;
 				}
 
@@ -345,12 +340,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					}
 					let currentSlice = findActiveSlice(database);
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					while (currentSlice) {
+					const MAX_AUTO_ITERATIONS = 20;
+					let iterations = 0;
+					while (currentSlice && iterations < MAX_AUTO_ITERATIONS) {
+						iterations++;
 						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
 						if (!phase) break;
 						const milestone = getMilestone(database, currentSlice.milestoneId);
 						if (!milestone) break;
-						const phaseResult = await runPhase(
+						const result = await runPhaseWithGate(
 							pi,
 							database,
 							root,
@@ -359,20 +357,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							phase,
 							currentSettings,
 						);
-						if (!phaseResult.advanced) break;
-						if (phaseResult.needsGate) {
-							const gateResult = await handleGate(
-								pi,
-								database,
-								root,
-								currentSlice,
-								milestone.number,
-								phase,
-							);
-							if (!gateResult.approved) break;
-							advanceAfterGate(database, currentSlice, gateResult);
-						}
+						if (!result.completed) break;
 						currentSlice = findActiveSlice(database);
+					}
+					if (iterations >= MAX_AUTO_ITERATIONS) {
+						if (ctx.hasUI) ctx.ui.notify("Auto mode: max iterations reached.", "warning");
 					}
 					break;
 				}
