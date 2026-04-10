@@ -41,3 +41,17 @@ export function createBranch(branchName: string, startPoint: string, cwd?: strin
 		encoding: "utf-8",
 	});
 }
+
+export function getDefaultBranch(cwd?: string): string | null {
+	try {
+		const ref = execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"], {
+			cwd: cwd ?? process.cwd(),
+			encoding: "utf-8",
+			stdio: "pipe",
+		}).trim();
+		// ref is like "refs/remotes/origin/main" — extract last segment
+		return ref.split("/").pop() ?? null;
+	} catch {
+		return null;
+	}
+}
