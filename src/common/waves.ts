@@ -12,16 +12,13 @@ export function computeWaves(tasks: TaskRef[], dependencies: DependencyRef[]): M
 	if (tasks.length === 0) return new Map();
 
 	const dependsOn = new Map<string, Set<string>>();
-	const dependedBy = new Map<string, Set<string>>();
 
 	for (const t of tasks) {
 		dependsOn.set(t.id, new Set());
-		dependedBy.set(t.id, new Set());
 	}
 
 	for (const dep of dependencies) {
 		dependsOn.get(dep.fromTaskId)?.add(dep.toTaskId);
-		dependedBy.get(dep.toTaskId)?.add(dep.fromTaskId);
 	}
 
 	const waves = new Map<string, number>();
