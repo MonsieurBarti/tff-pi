@@ -14,6 +14,7 @@ import {
 	openDatabase,
 } from "../../../src/common/db.js";
 import { queryState } from "../../../src/tools/query-state.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -36,16 +37,16 @@ describe("queryState overview", () => {
 
 	it("returns project and all milestones", () => {
 		insertProject(db, { name: "TFF", vision: "Make coding great" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
 		insertMilestone(db, { projectId, number: 2, name: "Core", branch: "milestone/M02" });
 
 		const result = queryState(db, "overview");
 		expect(result.project).not.toBeNull();
-		expect(result.project!.name).toBe("TFF");
+		expect(must(result.project).name).toBe("TFF");
 		expect(result.milestones).toHaveLength(2);
-		expect(result.milestones[0]!.name).toBe("Foundation");
-		expect(result.milestones[1]!.name).toBe("Core");
+		expect(must(result.milestones[0]).name).toBe("Foundation");
+		expect(must(result.milestones[1]).name).toBe("Core");
 	});
 
 	it("returns project with no milestones when none exist", () => {
@@ -64,9 +65,9 @@ describe("queryState milestone", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		milestoneId = getMilestones(db, projectId)[0]!.id;
+		milestoneId = must(getMilestones(db, projectId)[0]).id;
 	});
 
 	it("returns null milestone and empty slices for unknown id", () => {
@@ -81,10 +82,10 @@ describe("queryState milestone", () => {
 
 		const result = queryState(db, "milestone", milestoneId);
 		expect(result.milestone).not.toBeNull();
-		expect(result.milestone!.name).toBe("Foundation");
+		expect(must(result.milestone).name).toBe("Foundation");
 		expect(result.slices).toHaveLength(2);
-		expect(result.slices[0]!.title).toBe("Auth");
-		expect(result.slices[1]!.title).toBe("DB");
+		expect(must(result.slices[0]).title).toBe("Auth");
+		expect(must(result.slices[1]).title).toBe("DB");
 	});
 
 	it("returns milestone with no slices when none exist", () => {
@@ -101,11 +102,11 @@ describe("queryState slice", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = getProject(db)!.id;
+		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
-		const milestoneId = getMilestones(db, projectId)[0]!.id;
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		sliceId = getSlices(db, milestoneId)[0]!.id;
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
 	});
 
 	it("returns null slice, empty tasks, and empty dependencies for unknown id", () => {
@@ -121,10 +122,10 @@ describe("queryState slice", () => {
 
 		const result = queryState(db, "slice", sliceId);
 		expect(result.slice).not.toBeNull();
-		expect(result.slice!.title).toBe("Auth");
+		expect(must(result.slice).title).toBe("Auth");
 		expect(result.tasks).toHaveLength(2);
-		expect(result.tasks[0]!.title).toBe("User entity");
-		expect(result.tasks[1]!.title).toBe("Auth service");
+		expect(must(result.tasks[0]).title).toBe("User entity");
+		expect(must(result.tasks[1]).title).toBe("Auth service");
 	});
 
 	it("returns slice with tasks and dependencies", () => {
@@ -132,9 +133,9 @@ describe("queryState slice", () => {
 		insertTask(db, { sliceId, number: 2, title: "T2" });
 		insertTask(db, { sliceId, number: 3, title: "T3" });
 		const tasks = getTasks(db, sliceId);
-		const t1Id = tasks[0]!.id;
-		const t2Id = tasks[1]!.id;
-		const t3Id = tasks[2]!.id;
+		const t1Id = must(tasks[0]).id;
+		const t2Id = must(tasks[1]).id;
+		const t3Id = must(tasks[2]).id;
 
 		insertDependency(db, { fromTaskId: t2Id, toTaskId: t1Id });
 		insertDependency(db, { fromTaskId: t3Id, toTaskId: t2Id });

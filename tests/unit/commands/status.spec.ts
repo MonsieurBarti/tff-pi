@@ -9,6 +9,7 @@ import {
 	insertProject,
 	insertSlice,
 } from "../../../src/common/db.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = new Database(":memory:");
@@ -30,7 +31,7 @@ describe("handleStatus", () => {
 
 	it("shows project name as heading", () => {
 		insertProject(db, { name: "MyProject", vision: "Build something great" });
-		const project = getProject(db)!;
+		const project = must(getProject(db));
 		insertMilestone(db, {
 			projectId: project.id,
 			number: 1,
@@ -44,7 +45,7 @@ describe("handleStatus", () => {
 
 	it("shows milestones with label, name, and status", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const project = getProject(db)!;
+		const project = must(getProject(db));
 		insertMilestone(db, {
 			projectId: project.id,
 			number: 1,
@@ -60,7 +61,7 @@ describe("handleStatus", () => {
 
 	it("shows slices with label, title, and status", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const project = getProject(db)!;
+		const project = must(getProject(db));
 		insertMilestone(db, {
 			projectId: project.id,
 			number: 1,
@@ -68,7 +69,7 @@ describe("handleStatus", () => {
 			branch: "milestone/M01",
 		});
 		const milestones = getMilestones(db, project.id);
-		insertSlice(db, { milestoneId: milestones[0]!.id, number: 1, title: "Auth" });
+		insertSlice(db, { milestoneId: must(milestones[0]).id, number: 1, title: "Auth" });
 
 		const result = handleStatus(db);
 		expect(result).toContain("M01-S01");
@@ -78,7 +79,7 @@ describe("handleStatus", () => {
 
 	it("suggests next action for the first non-closed slice in created status", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
-		const project = getProject(db)!;
+		const project = must(getProject(db));
 		insertMilestone(db, {
 			projectId: project.id,
 			number: 1,
@@ -86,7 +87,7 @@ describe("handleStatus", () => {
 			branch: "milestone/M01",
 		});
 		const milestones = getMilestones(db, project.id);
-		insertSlice(db, { milestoneId: milestones[0]!.id, number: 1, title: "Auth" });
+		insertSlice(db, { milestoneId: must(milestones[0]).id, number: 1, title: "Auth" });
 
 		const result = handleStatus(db);
 		expect(result).toContain("/tff discuss M01-S01");

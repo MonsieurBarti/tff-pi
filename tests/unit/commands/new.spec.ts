@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleNew } from "../../../src/commands/new.js";
 import { artifactExists, readArtifact } from "../../../src/common/artifacts.js";
 import { applyMigrations, getMilestones, getProject } from "../../../src/common/db.js";
+import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
 	const db = new Database(":memory:");
@@ -32,10 +33,9 @@ describe("handleNew", () => {
 			vision: "Make coding great",
 		});
 
-		const project = getProject(db);
-		expect(project).not.toBeNull();
-		expect(project!.name).toBe("TFF");
-		expect(project!.vision).toBe("Make coding great");
+		const project = must(getProject(db));
+		expect(project.name).toBe("TFF");
+		expect(project.vision).toBe("Make coding great");
 	});
 
 	it("writes PROJECT.md artifact", () => {
@@ -56,8 +56,8 @@ describe("handleNew", () => {
 			vision: "Make coding great",
 		});
 
-		const project = getProject(db);
-		const milestones = getMilestones(db, project!.id);
+		const project = must(getProject(db));
+		const milestones = getMilestones(db, project.id);
 		expect(milestones).toHaveLength(0);
 		expect(result.projectId).toBeDefined();
 		expect(typeof result.projectId).toBe("string");
