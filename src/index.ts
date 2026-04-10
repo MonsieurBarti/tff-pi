@@ -316,15 +316,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_create_project",
 			label: "TFF Create Project",
 			description:
-				"Create a new TFF project with a first milestone and slices. Call this after brainstorming with the user via /tff new.",
+				"Create a new TFF project with name and vision. Call this after brainstorming with the user via /tff new. Use /tff new-milestone to add milestones afterwards.",
 			parameters: Type.Object({
 				projectName: Type.String({ description: "Name of the project" }),
 				vision: Type.String({ description: "Vision statement for the project" }),
-				milestoneName: Type.String({ description: "Name of the first milestone (M01)" }),
-				slices: Type.Array(Type.String({ description: "Slice title" }), {
-					description: "List of slice titles for M01",
-					minItems: 1,
-				}),
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				const database = getDb();
@@ -339,8 +334,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				return handleCreateProject(database, root, {
 					projectName: params.projectName,
 					vision: params.vision,
-					milestoneName: params.milestoneName,
-					slices: params.slices,
 				});
 			},
 		}),
