@@ -1,10 +1,15 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+
+export function gitEnv(): Record<string, string | undefined> {
+	return { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined };
+}
 
 export function getGitRoot(cwd?: string): string | null {
 	try {
-		return execSync("git rev-parse --show-toplevel", {
+		return execFileSync("git", ["rev-parse", "--show-toplevel"], {
 			cwd: cwd ?? process.cwd(),
 			encoding: "utf-8",
+			stdio: "pipe",
 		}).trim();
 	} catch {
 		return null;
@@ -13,9 +18,23 @@ export function getGitRoot(cwd?: string): string | null {
 
 export function getCurrentBranch(cwd?: string): string | null {
 	try {
-		return execSync("git rev-parse --abbrev-ref HEAD", {
+		return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
 			cwd: cwd ?? process.cwd(),
 			encoding: "utf-8",
+			stdio: "pipe",
+		}).trim();
+	} catch {
+		return null;
+	}
+}
+
+export function getDiff(baseBranch: string, cwd?: string): string | null {
+	try {
+		return execFileSync("git", ["diff", `${baseBranch}...HEAD`], {
+			cwd: cwd ?? process.cwd(),
+			encoding: "utf-8",
+			stdio: "pipe",
+			env: gitEnv(),
 		}).trim();
 	} catch {
 		return null;

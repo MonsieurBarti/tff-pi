@@ -4,6 +4,7 @@ import { dispatchSubAgent } from "../common/dispatch.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel, taskLabel } from "../common/types.js";
 import { createWorktree } from "../common/worktree.js";
+import { loadPhaseResources } from "../orchestrator.js";
 
 const MAX_TASK_RETRIES = 2;
 
@@ -23,6 +24,8 @@ export const executePhase: PhaseModule = {
 		const compressHint = settings.compress.user_artifacts
 			? "\n\nWrite comments and docs in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes."
 			: "";
+
+		const { agentPrompt, protocol } = loadPhaseResources("execute");
 
 		const waveMap = getTasksByWave(db, slice.id);
 		if (waveMap.size === 0) {
@@ -45,7 +48,14 @@ export const executePhase: PhaseModule = {
 				tasks.map(async (task) => {
 					const tLabel = taskLabel(task.number);
 					const prompt = {
-						systemPrompt: `You are an executor agent implementing task ${tLabel} for slice ${sLabel}.\n\nStrict TDD: write failing test first, then implement.\n\nCommit format: feat(${sLabel}): ${tLabel} — <description>${compressHint}`,
+						systemPrompt: [
+							agentPrompt,
+							protocol,
+							`\nSlice: ${sLabel}, Task: ${tLabel}`,
+							compressHint,
+						]
+							.filter(Boolean)
+							.join("\n\n"),
 						userPrompt: [
 							`## Task: ${tLabel} — ${task.title}`,
 							"",
@@ -93,7 +103,14 @@ export const executePhase: PhaseModule = {
 				for (let attempt = 0; attempt < MAX_TASK_RETRIES; attempt++) {
 					const tLabel = taskLabel(failed.task.number);
 					const retryPrompt = {
-						systemPrompt: `You are an executor agent retrying task ${tLabel} for slice ${sLabel}.\n\nPrevious attempt failed: ${failed.output}\n\nStrict TDD: write failing test first, then implement.\n\nCommit format: feat(${sLabel}): ${tLabel} — <description>${compressHint}`,
+						systemPrompt: [
+							agentPrompt,
+							protocol,
+							`\nSlice: ${sLabel}, Task: ${tLabel}\n\nPrevious attempt failed: ${failed.output}`,
+							compressHint,
+						]
+							.filter(Boolean)
+							.join("\n\n"),
 						userPrompt: [
 							`## Task: ${tLabel} — ${failed.task.title}`,
 							"",

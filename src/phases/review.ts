@@ -1,6 +1,20 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readArtifact } from "../common/artifacts.js";
+
+const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "..", "resources");
+
+function loadResource(path: string): string {
+	try {
+		return readFileSync(path, "utf-8");
+	} catch {
+		return "";
+	}
+}
 import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
+import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
@@ -38,7 +52,18 @@ export const reviewPhase: PhaseModule = {
 			? "\n\nWrite all feedback in compressed R1-R10 notation. Preserve: code blocks, file paths."
 			: "";
 
+		const codeReviewerAgent = loadResource(join(RESOURCES_DIR, "agents", "code-reviewer.md"));
+		const securityReviewerAgent = loadResource(
+			join(RESOURCES_DIR, "agents", "security-reviewer.md"),
+		);
+		const reviewProtocol = loadResource(join(RESOURCES_DIR, "protocols", "reviewing.md"));
+
+		const milestoneBranch = `milestone/${mLabel}`;
+		const diff = getDiff(milestoneBranch, wtPath) ?? "";
+
 		const sharedContext = [
+			`## Slice: ${sLabel}`,
+			"",
 			"## SPEC.md",
 			specMd,
 			"",
@@ -47,17 +72,24 @@ export const reviewPhase: PhaseModule = {
 			"",
 			"## VERIFICATION.md",
 			verifyMd,
+			"",
+			"## Diff from milestone branch",
+			"```diff",
+			diff,
+			"```",
 		].join("\n");
 
 		const codeReviewPrompt = {
-			systemPrompt: `You are a code reviewer agent. Review for quality, spec alignment, and correctness.${compressHint}`,
+			systemPrompt: [codeReviewerAgent, reviewProtocol, compressHint].filter(Boolean).join("\n\n"),
 			userPrompt: `${sharedContext}\n\nReview the code changes and return a JSON verdict.`,
 			tools: [],
 			label: `code-reviewer:${sLabel}`,
 		};
 
 		const securityReviewPrompt = {
-			systemPrompt: `You are a security reviewer agent. Review for OWASP top 10 vulnerabilities.${compressHint}`,
+			systemPrompt: [securityReviewerAgent, reviewProtocol, compressHint]
+				.filter(Boolean)
+				.join("\n\n"),
 			userPrompt: `${sharedContext}\n\nReview the code changes for security issues and return a JSON verdict.`,
 			tools: [],
 			label: `security-reviewer:${sLabel}`,

@@ -1,9 +1,11 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
+import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
+import { loadPhaseResources } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -31,14 +33,26 @@ export const verifyPhase: PhaseModule = {
 			? "\n\nWrite VERIFICATION.md in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes."
 			: "";
 
+		const { agentPrompt, protocol } = loadPhaseResources("verify");
+
+		const milestoneBranch = `milestone/${mLabel}`;
+		const diff = getDiff(milestoneBranch, wtPath) ?? "";
+
 		const prompt = {
-			systemPrompt: `You are a verifier agent for slice ${sLabel}. Verify acceptance criteria and run tests.${compressHint}`,
+			systemPrompt: [agentPrompt, protocol, compressHint].filter(Boolean).join("\n\n"),
 			userPrompt: [
+				`## Slice: ${sLabel}`,
+				"",
 				"## SPEC.md (Acceptance Criteria)",
 				specMd,
 				"",
 				"## PLAN.md",
 				planMd,
+				"",
+				"## Diff from milestone branch",
+				"```diff",
+				diff,
+				"```",
 				"",
 				"## Test Instructions",
 				testInstruction,

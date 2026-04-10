@@ -30,6 +30,8 @@ vi.mock("../../../src/common/git.js", () => ({
 	getCurrentBranch: vi.fn().mockReturnValue("main"),
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
+	getDiff: vi.fn().mockReturnValue(""),
+	gitEnv: vi.fn().mockReturnValue({}),
 }));
 
 vi.mock("../../../src/common/worktree.js", () => ({

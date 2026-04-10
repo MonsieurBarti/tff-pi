@@ -1,10 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-
-function gitEnv(): Record<string, string | undefined> {
-	return { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined };
-}
+import { gitEnv } from "./git.js";
 
 export function getWorktreePath(root: string, sliceLabel: string): string {
 	return join(root, ".tff", "worktrees", sliceLabel);

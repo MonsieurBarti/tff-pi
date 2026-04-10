@@ -4,19 +4,16 @@ import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import {
 	getMilestone,
 	getSlices,
+	resetTasksToOpen,
 	updateMilestoneStatus,
 	updateSlicePrUrl,
 	updateSliceStatus,
 } from "../common/db.js";
-import { getDefaultBranch } from "../common/git.js";
+import { getDefaultBranch, gitEnv } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import type { Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath, removeWorktree } from "../common/worktree.js";
-
-function gitEnv(): Record<string, string | undefined> {
-	return { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined };
-}
 
 export const shipPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -103,6 +100,9 @@ export const shipPhase: PhaseModule = {
 					timeout: 600_000,
 				});
 			} catch {
+				// CI failed — loop back to executing for fixes
+				updateSliceStatus(db, slice.id, "executing");
+				resetTasksToOpen(db, slice.id);
 				return { success: false, retry: true, error: "CI checks failed" };
 			}
 
@@ -116,7 +116,23 @@ export const shipPhase: PhaseModule = {
 			// Cleanup worktree
 			removeWorktree(root, sLabel);
 
-			// Pull milestone branch
+			// Pull milestone branch — stash any uncommitted work first
+			try {
+				const status = execFileSync("git", ["status", "--porcelain"], {
+					cwd: root,
+					encoding: "utf-8",
+					env,
+				}).trim();
+				if (status) {
+					execFileSync("git", ["stash", "push", "-m", `tff-ship-${sLabel}`], {
+						cwd: root,
+						encoding: "utf-8",
+						env,
+					});
+				}
+			} catch {
+				// Ignore stash errors
+			}
 			execFileSync("git", ["checkout", milestoneBranch], {
 				cwd: root,
 				encoding: "utf-8",

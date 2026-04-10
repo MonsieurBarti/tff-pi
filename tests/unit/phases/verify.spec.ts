@@ -31,6 +31,29 @@ vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
 
+vi.mock("../../../src/common/git.js", () => ({
+	getDiff: vi.fn().mockReturnValue("diff content"),
+	gitEnv: vi.fn().mockReturnValue({}),
+	getGitRoot: vi.fn().mockReturnValue("/tmp"),
+	getCurrentBranch: vi.fn().mockReturnValue("main"),
+	branchExists: vi.fn().mockReturnValue(true),
+	createBranch: vi.fn(),
+	getDefaultBranch: vi.fn().mockReturnValue("main"),
+}));
+
+vi.mock("../../../src/orchestrator.js", () => ({
+	loadPhaseResources: vi
+		.fn()
+		.mockReturnValue({ agentPrompt: "# Verifier", protocol: "# Protocol" }),
+	determineNextPhase: vi.fn(),
+	findActiveSlice: vi.fn(),
+	collectPhaseContext: vi.fn().mockReturnValue({}),
+	buildPhasePrompt: vi
+		.fn()
+		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
+}));
+
 import { verifyPhase } from "../../../src/phases/verify.js";
 
 describe("verifyPhase", () => {

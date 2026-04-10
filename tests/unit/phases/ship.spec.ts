@@ -41,6 +41,8 @@ vi.mock("../../../src/common/git.js", () => ({
 	getCurrentBranch: vi.fn().mockReturnValue("main"),
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
+	getDiff: vi.fn().mockReturnValue(""),
+	gitEnv: vi.fn().mockReturnValue({}),
 }));
 
 import { shipPhase } from "../../../src/phases/ship.js";

@@ -255,7 +255,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.discuss;
-					if (!mod) return;
 					const phaseCtx: PhaseContext = {
 						pi,
 						db: database,
@@ -286,7 +285,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.research;
-					if (!mod) return;
 					const phaseCtx: PhaseContext = {
 						pi,
 						db: database,
@@ -317,7 +315,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.plan;
-					if (!mod) return;
 					const phaseCtx: PhaseContext = {
 						pi,
 						db: database,
@@ -348,7 +345,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules[phase];
-					if (!mod) return;
 					const phaseCtx: PhaseContext = {
 						pi,
 						db: database,
@@ -381,7 +377,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
 						if (!phase) break;
 						const mod = phaseModules[phase];
-						if (!mod) break;
 						const milestone = getMilestone(database, currentSlice.milestoneId);
 						if (!milestone) break;
 						const phaseCtx: PhaseContext = {
@@ -395,7 +390,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						const result = await mod.run(phaseCtx);
 						if (!result.success) {
 							if (result.retry) {
-								reviewCycles++;
+								// Only count review denials toward the budget, not verify failures
+								if (phase === "review") {
+									reviewCycles++;
+								}
 								if (reviewCycles >= MAX_REVIEW_CYCLES) {
 									updateSliceStatus(database, currentSlice.id, "paused");
 									if (ctx.hasUI)
@@ -409,7 +407,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								break;
 							}
 						} else {
-							reviewCycles = 0;
+							if (phase === "ship") {
+								// Reset review cycles on successful ship (new slice)
+								reviewCycles = 0;
+							}
 						}
 						currentSlice = findActiveSlice(database);
 					}
@@ -437,7 +438,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.execute;
-					if (!mod) return;
 					const phaseCtx: PhaseContext = {
 						pi,
 						db: database,
@@ -468,7 +468,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.verify;
-					if (!mod) return;
 					const phaseCtx: PhaseContext = {
 						pi,
 						db: database,
@@ -499,7 +498,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) return;
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.ship;
-					if (!mod) return;
 					const phaseCtx: PhaseContext = {
 						pi,
 						db: database,

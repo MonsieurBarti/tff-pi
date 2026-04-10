@@ -35,6 +35,19 @@ vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
 
+vi.mock("../../../src/orchestrator.js", () => ({
+	loadPhaseResources: vi
+		.fn()
+		.mockReturnValue({ agentPrompt: "# Executor", protocol: "# Protocol" }),
+	determineNextPhase: vi.fn(),
+	findActiveSlice: vi.fn(),
+	collectPhaseContext: vi.fn().mockReturnValue({}),
+	buildPhasePrompt: vi
+		.fn()
+		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
+}));
+
 import { executePhase } from "../../../src/phases/execute.js";
 
 describe("executePhase", () => {

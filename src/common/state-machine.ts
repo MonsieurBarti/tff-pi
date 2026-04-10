@@ -8,7 +8,7 @@ export const SLICE_TRANSITIONS: Record<SliceStatus, SliceStatus[]> = {
 	executing: ["verifying", "paused"],
 	verifying: ["reviewing", "executing", "paused"],
 	reviewing: ["shipping", "executing", "paused"],
-	shipping: ["closed", "paused"],
+	shipping: ["closed", "executing", "paused"],
 	closed: [],
 	paused: [
 		"discussing",

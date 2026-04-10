@@ -8,7 +8,7 @@ import { reviewPhase } from "./review.js";
 import { shipPhase } from "./ship.js";
 import { verifyPhase } from "./verify.js";
 
-export const phaseModules: Partial<Record<Phase, PhaseModule>> = {
+export const phaseModules: Record<Phase, PhaseModule> = {
 	discuss: discussPhase,
 	research: researchPhase,
 	plan: planPhase,

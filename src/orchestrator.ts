@@ -55,8 +55,8 @@ const PHASE_AGENT: Record<Phase, string> = {
 	plan: "planner",
 	execute: "executor",
 	verify: "verifier",
-	review: "reviewer",
-	ship: "shipper",
+	review: "code-reviewer",
+	ship: "executor",
 };
 
 const PHASE_TOOLS: Record<Phase, string[]> = {
@@ -68,6 +68,13 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 	review: ["tff_query_state"],
 	ship: ["tff_query_state"],
 };
+
+export function loadPhaseResources(phase: Phase): { agentPrompt: string; protocol: string } {
+	const agentName = PHASE_AGENT[phase];
+	const agentPrompt = loadResource(join(RESOURCES_DIR, "agents", `${agentName}.md`));
+	const protocol = loadResource(join(RESOURCES_DIR, "protocols", `${phase}.md`));
+	return { agentPrompt, protocol };
+}
 
 export function collectPhaseContext(
 	root: string,
