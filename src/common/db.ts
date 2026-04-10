@@ -259,6 +259,22 @@ export function updateMilestoneStatus(
 	db.prepare("UPDATE milestone SET status = ? WHERE id = ?").run(status, id);
 }
 
+export function getNextMilestoneNumber(db: Database.Database, projectId: string): number {
+	const row = db
+		.prepare("SELECT MAX(number) as max_num FROM milestone WHERE project_id = ?")
+		.get(projectId) as { max_num: number | null } | undefined;
+	return (row?.max_num ?? 0) + 1;
+}
+
+export function getActiveMilestone(db: Database.Database, projectId: string): Milestone | null {
+	const row = db
+		.prepare(
+			"SELECT * FROM milestone WHERE project_id = ? AND status != 'closed' ORDER BY number LIMIT 1",
+		)
+		.get(projectId) as MilestoneRow | undefined;
+	return row ? rowToMilestone(row) : null;
+}
+
 // ---------------------------------------------------------------------------
 // Slice
 // ---------------------------------------------------------------------------
@@ -295,6 +311,22 @@ export function updateSliceStatus(db: Database.Database, id: string, status: Sli
 
 export function updateSliceTier(db: Database.Database, id: string, tier: Tier): void {
 	db.prepare("UPDATE slice SET tier = ? WHERE id = ?").run(tier, id);
+}
+
+export function getNextSliceNumber(db: Database.Database, milestoneId: string): number {
+	const row = db
+		.prepare("SELECT MAX(number) as max_num FROM slice WHERE milestone_id = ?")
+		.get(milestoneId) as { max_num: number | null } | undefined;
+	return (row?.max_num ?? 0) + 1;
+}
+
+export function getActiveSlice(db: Database.Database, milestoneId: string): Slice | null {
+	const row = db
+		.prepare(
+			"SELECT * FROM slice WHERE milestone_id = ? AND status NOT IN ('closed', 'paused') ORDER BY number LIMIT 1",
+		)
+		.get(milestoneId) as SliceRow | undefined;
+	return row ? rowToSlice(row) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +371,10 @@ export function updateTaskStatus(
 		claimedBy ?? null,
 		id,
 	);
+}
+
+export function updateTaskWave(db: Database.Database, id: string, wave: number): void {
+	db.prepare("UPDATE task SET wave = ? WHERE id = ?").run(wave, id);
 }
 
 // ---------------------------------------------------------------------------

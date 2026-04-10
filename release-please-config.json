@@ -1,6 +1,12 @@
 {
-	"release-type": "node",
 	"packages": {
-		".": {}
+		".": {
+			"release-type": "node",
+			"package-name": "@the-forge-flow/tff-pi",
+			"bump-minor-pre-major": true,
+			"bump-patch-for-minor-pre-major": true,
+			"draft": false,
+			"prerelease": false
+		}
 	}
 }
