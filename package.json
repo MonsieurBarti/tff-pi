@@ -1,6 +1,6 @@
 {
 	"name": "@the-forge-flow/tff-pi",
-	"version": "0.0.0",
+	"version": "0.1.1",
 	"description": "TFF PI",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -11,7 +11,11 @@
 			"import": "./dist/index.js"
 		}
 	},
-	"files": ["dist", "README.md", "LICENSE"],
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json && cp -r src/resources dist/resources",
 		"dev": "tsc -p tsconfig.build.json --watch",
@@ -25,7 +29,13 @@
 		"clean": "rm -rf dist",
 		"prepare": "lefthook install || true"
 	},
-	"keywords": ["pi", "pi-coding-agent", "extension", "tff", "the-forge-flow"],
+	"keywords": [
+		"pi",
+		"pi-coding-agent",
+		"extension",
+		"tff",
+		"the-forge-flow"
+	],
 	"author": "The Forge Flow",
 	"license": "MIT",
 	"repository": {
@@ -43,7 +53,9 @@
 		"node": ">=20.0.0"
 	},
 	"pi": {
-		"extensions": ["./dist/index.js"]
+		"extensions": [
+			"./dist/index.js"
+		]
 	},
 	"peerDependencies": {
 		"@mariozechner/pi-coding-agent": "*",
