@@ -1112,13 +1112,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Called by the planner agent during the plan phase. Do NOT call directly — use /tff plan instead.",
-			promptSnippet:
-				"Do NOT call tff_write_plan directly. Use /tff plan <slice> to run the plan phase which writes the plan via a sub-agent with review gates.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Triggers plannotator review after writing.",
 			promptGuidelines: [
-				"This tool is for sub-agents during phase execution, not for direct use",
-				"To write a plan, tell the user to run /tff plan <slice>",
-				"The plan phase includes a plannotator review gate that direct tool calls bypass",
+				"Write PLAN.md with tasks, dependencies, and implementation details",
+				"Plannotator review opens automatically after writing",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1165,13 +1162,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWritePlan(
+					const writeResult = handleWritePlan(
 						database,
 						root,
 						slice.id,
 						params.content,
 						params.tasks as TaskInput[],
 					);
+					if (!writeResult.isError) {
+						const { requestReview } = await import("./common/plannotator-review.js");
+						requestReview(pi, writeResult.details.path as string, params.content, "plan");
+					}
+					return writeResult;
 				} catch (err) {
 					return {
 						content: [
