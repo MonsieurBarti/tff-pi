@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	DISCUSS_GATES,
 	isGateUnlocked,
+	resetAllGates,
 	resetGates,
 	unlockGate,
 } from "../../../src/common/discuss-gates.js";
@@ -38,5 +39,13 @@ describe("discuss-gates", () => {
 		resetGates("test-slice-1");
 		expect(isGateUnlocked("test-slice-1", "depth_verified")).toBe(false);
 		expect(isGateUnlocked("test-slice-1", "tier_confirmed")).toBe(false);
+	});
+
+	it("resetAllGates clears all slices", () => {
+		unlockGate("test-slice-1", "depth_verified");
+		unlockGate("test-slice-2", "tier_confirmed");
+		resetAllGates();
+		expect(isGateUnlocked("test-slice-1", "depth_verified")).toBe(false);
+		expect(isGateUnlocked("test-slice-2", "tier_confirmed")).toBe(false);
 	});
 });
