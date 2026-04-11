@@ -7,10 +7,10 @@ export function validateVerify(db: Database.Database, sliceId: string): Validate
 	if (!slice) {
 		return { valid: false, error: `Slice not found: ${sliceId}` };
 	}
-	if (slice.status !== "executing") {
+	if (slice.status !== "executing" && slice.status !== "verifying") {
 		return {
 			valid: false,
-			error: `Cannot verify: slice is in '${slice.status}' status (expected 'executing')`,
+			error: `Cannot verify: slice is in '${slice.status}' status (expected 'executing' or 'verifying')`,
 		};
 	}
 	return { valid: true };

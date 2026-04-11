@@ -35,6 +35,12 @@ describe("validateShip", () => {
 		expect(result.valid).toBe(true);
 	});
 
+	it("succeeds when slice is in shipping status (re-run stuck phase)", () => {
+		updateSliceStatus(db, sliceId, "shipping");
+		const result = validateShip(db, sliceId);
+		expect(result.valid).toBe(true);
+	});
+
 	it("fails for wrong status", () => {
 		updateSliceStatus(db, sliceId, "executing");
 		const result = validateShip(db, sliceId);

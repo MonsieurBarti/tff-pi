@@ -35,6 +35,12 @@ describe("validateVerify", () => {
 		expect(result.valid).toBe(true);
 	});
 
+	it("succeeds when slice is in verifying status (re-run stuck phase)", () => {
+		updateSliceStatus(db, sliceId, "verifying");
+		const result = validateVerify(db, sliceId);
+		expect(result.valid).toBe(true);
+	});
+
 	it("fails for wrong status", () => {
 		updateSliceStatus(db, sliceId, "planning");
 		const result = validateVerify(db, sliceId);

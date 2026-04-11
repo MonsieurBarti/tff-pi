@@ -7,10 +7,10 @@ export function validateResearch(db: Database.Database, sliceId: string): Valida
 	if (!slice) {
 		return { valid: false, error: `Slice not found: ${sliceId}` };
 	}
-	if (slice.status !== "discussing") {
+	if (slice.status !== "discussing" && slice.status !== "researching") {
 		return {
 			valid: false,
-			error: `Cannot start research: slice is in '${slice.status}' status (expected 'discussing')`,
+			error: `Cannot start research: slice is in '${slice.status}' status (expected 'discussing' or 'researching')`,
 		};
 	}
 	if (slice.tier === "S") {

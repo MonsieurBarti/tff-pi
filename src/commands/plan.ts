@@ -7,7 +7,7 @@ export function validatePlan(db: Database.Database, sliceId: string): ValidateRe
 	if (!slice) {
 		return { valid: false, error: `Slice not found: ${sliceId}` };
 	}
-	if (slice.status === "researching") {
+	if (slice.status === "researching" || slice.status === "planning") {
 		return { valid: true };
 	}
 	if (slice.status === "discussing" && slice.tier === "S") {

@@ -346,7 +346,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					await mod.run(phaseCtx);
+					pi.sendUserMessage(
+						`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
+					);
+					const result = await mod.run(phaseCtx);
+					if (result.success) {
+						pi.sendUserMessage("Discuss phase complete.");
+					} else {
+						pi.sendUserMessage(`Discuss phase failed: ${result.error ?? "unknown error"}`);
+					}
 					break;
 				}
 
@@ -380,7 +388,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					await mod.run(phaseCtx);
+					pi.sendUserMessage(
+						`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
+					);
+					const result = await mod.run(phaseCtx);
+					if (result.success) {
+						pi.sendUserMessage("Research phase complete.");
+					} else {
+						pi.sendUserMessage(`Research phase failed: ${result.error ?? "unknown error"}`);
+					}
 					break;
 				}
 
@@ -414,7 +430,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					await mod.run(phaseCtx);
+					pi.sendUserMessage(
+						`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
+					);
+					const result = await mod.run(phaseCtx);
+					if (result.success) {
+						pi.sendUserMessage("Plan phase complete.");
+					} else {
+						pi.sendUserMessage(`Plan phase failed: ${result.error ?? "unknown error"}`);
+					}
 					break;
 				}
 
@@ -585,7 +609,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					await mod.run(phaseCtx);
+					pi.sendUserMessage(
+						`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
+					);
+					const result = await mod.run(phaseCtx);
+					if (result.success) {
+						pi.sendUserMessage("Execute phase complete.");
+					} else {
+						pi.sendUserMessage(`Execute phase failed: ${result.error ?? "unknown error"}`);
+					}
 					break;
 				}
 
@@ -619,7 +651,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					await mod.run(phaseCtx);
+					pi.sendUserMessage(
+						`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
+					);
+					const result = await mod.run(phaseCtx);
+					if (result.success) {
+						pi.sendUserMessage("Verify phase complete.");
+					} else {
+						pi.sendUserMessage(`Verify phase failed: ${result.error ?? "unknown error"}`);
+					}
 					break;
 				}
 
@@ -653,7 +693,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					await mod.run(phaseCtx);
+					pi.sendUserMessage(
+						`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
+					);
+					const result = await mod.run(phaseCtx);
+					if (result.success) {
+						pi.sendUserMessage("Ship phase complete.");
+					} else {
+						pi.sendUserMessage(`Ship phase failed: ${result.error ?? "unknown error"}`);
+					}
 					break;
 				}
 

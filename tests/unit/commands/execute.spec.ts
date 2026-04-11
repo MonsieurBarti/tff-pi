@@ -35,6 +35,12 @@ describe("validateExecute", () => {
 		expect(result.valid).toBe(true);
 	});
 
+	it("succeeds when slice is in executing status (re-run stuck phase)", () => {
+		updateSliceStatus(db, sliceId, "executing");
+		const result = validateExecute(db, sliceId);
+		expect(result.valid).toBe(true);
+	});
+
 	it("fails for wrong status", () => {
 		updateSliceStatus(db, sliceId, "discussing");
 		const result = validateExecute(db, sliceId);
