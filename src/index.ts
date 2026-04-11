@@ -47,6 +47,7 @@ import { handleTransition } from "./tools/transition.js";
 import { handleWritePlan } from "./tools/write-plan.js";
 import { handleWriteResearch } from "./tools/write-research.js";
 import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
+import { checkForUpdates } from "./update-check.js";
 
 // ---------------------------------------------------------------------------
 // Module-level state
@@ -162,6 +163,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			} catch (err) {
 				initError = err instanceof Error ? err.message : String(err);
 			}
+		}
+
+		// Check for extension updates
+		const updateInfo = await checkForUpdates(pi);
+		if (updateInfo?.updateAvailable && ctx.hasUI) {
+			ctx.ui.notify(
+				`📦 Update available: ${updateInfo.latestVersion} (you have ${updateInfo.currentVersion}). Run: pi install npm:@the-forge-flow/tff-pi`,
+				"info",
+			);
 		}
 	});
 
