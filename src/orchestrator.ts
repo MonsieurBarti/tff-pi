@@ -5,10 +5,10 @@ import type Database from "better-sqlite3";
 import { readArtifact } from "./common/artifacts.js";
 import { getActiveMilestone, getActiveSlice, getProject, getSlice } from "./common/db.js";
 import type { SubAgentPrompt } from "./common/dispatch.js";
-import type { Slice, SliceStatus, Task, Tier } from "./common/types.js";
+import type { Phase, Slice, SliceStatus, Task, Tier } from "./common/types.js";
 import { milestoneLabel, sliceLabel } from "./common/types.js";
 
-export type Phase = "discuss" | "research" | "plan" | "execute" | "verify" | "review" | "ship";
+export type { Phase };
 
 const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
 

@@ -1,8 +1,9 @@
-import type { Phase } from "../orchestrator.js";
 import type { EventBus } from "./events.js";
 import { TFF_CHANNELS } from "./events.js";
 import type { PhaseEvent, PipelineEvent, ReviewEvent, TaskEvent, WaveEvent } from "./events.js";
 import { formatDuration } from "./format.js";
+import type { Phase } from "./types.js";
+import { ALL_PHASES } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Interfaces (no PI imports)
@@ -17,8 +18,6 @@ interface UIContext {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const ALL_PHASES: Phase[] = ["discuss", "research", "plan", "execute", "verify", "review", "ship"];
 
 function phaseIcon(
 	phase: Phase,

@@ -1,5 +1,4 @@
-import type { Phase } from "../orchestrator.js";
-import type { Tier } from "./types.js";
+import type { Phase, Tier } from "./types.js";
 
 export const TFF_CHANNELS = [
 	"tff:phase",

@@ -21,6 +21,17 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TIERS = ["S", "SS", "SSS"] as const;
 export type Tier = (typeof TIERS)[number];
 
+export type Phase = "discuss" | "research" | "plan" | "execute" | "verify" | "review" | "ship";
+export const ALL_PHASES: Phase[] = [
+	"discuss",
+	"research",
+	"plan",
+	"execute",
+	"verify",
+	"review",
+	"ship",
+];
+
 export interface Project {
 	id: string;
 	name: string;
