@@ -30,7 +30,14 @@ import {
 import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
-import { getGitRoot, initRepo } from "./common/git.js";
+import {
+	addRemote,
+	createGitignore,
+	getGitRoot,
+	hasRemote,
+	initRepo,
+	initialCommitAndPush,
+} from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
@@ -211,13 +218,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						initRepo(process.cwd());
 						root = getGitRoot() ?? process.cwd();
 					}
+					createGitignore(root);
 					projectRoot = root;
 					initDb(root);
 					loadSettings(root);
 
 					const projectName = rest[0] ?? "New Project";
+					const remoteInstruction = hasRemote(root)
+						? ""
+						: "\n\nIMPORTANT: No git remote is configured. Ask the user for their GitHub repository URL and call the tff_add_remote tool with it. This is required for the ship phase to create PRs.";
 					pi.sendUserMessage(
-						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n\nOnce agreed, call the tff_create_project tool with the project name and vision. After creating the project, suggest the user run /tff new-milestone.`,
+						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n\nOnce agreed, call the tff_create_project tool with the project name and vision. After creating the project, suggest the user run /tff new-milestone.${remoteInstruction}`,
 					);
 					break;
 				}
@@ -887,6 +898,69 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					projectName: params.projectName,
 					vision: params.vision,
 				});
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_add_remote
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_add_remote",
+			label: "TFF Add Remote",
+			description:
+				"Add a git remote origin and push the initial commit. Call this during /tff new when no remote is configured.",
+			parameters: Type.Object({
+				url: Type.String({
+					description: "GitHub repository URL (e.g. https://github.com/user/repo.git)",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					if (!/^https?:\/\//.test(params.url) && !/^git@/.test(params.url)) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "Error: URL must start with https:// or git@",
+								},
+							],
+							details: { url: params.url },
+							isError: true,
+						};
+					}
+					addRemote(params.url, root);
+					initialCommitAndPush(root);
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Remote origin added (${params.url}) and initial commit pushed.`,
+							},
+						],
+						details: { url: params.url },
+					};
+				} catch (err) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+							},
+						],
+						details: { url: params.url },
+						isError: true,
+					};
+				}
 			},
 		}),
 	);
