@@ -29,10 +29,13 @@ import {
 	openDatabase,
 	updateSliceStatus,
 } from "./common/db.js";
+import { EventLogger } from "./common/event-logger.js";
+import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
 import { isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
+import { TUIMonitor } from "./common/tui-monitor.js";
 import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel } from "./common/types.js";
 import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
@@ -53,6 +56,9 @@ let db: Database.Database | null = null;
 let projectRoot: string | null = null;
 let settings: Settings | null = null;
 let initError: string | null = null;
+let eventLogger: EventLogger | null = null;
+let tuiMonitor: TUIMonitor | null = null;
+let _fffBridge: FffBridge | null = null;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -115,9 +121,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				applyMigrations(db);
 				loadSettings(root);
 				initError = null;
+
+				// Initialize monitoring
+				const logsDir = tffPath(root, "logs");
+				eventLogger = new EventLogger(db, logsDir);
+				eventLogger.subscribe(pi.events);
+
 				if (ctx.hasUI) {
+					tuiMonitor = new TUIMonitor(ctx.ui);
+					tuiMonitor.subscribe(pi.events);
 					ctx.ui.notify("TFF ready", "info");
 				}
+
+				// Discover fff-pi
+				_fffBridge = discoverFffService(pi);
 			} catch (err) {
 				initError = err instanceof Error ? err.message : String(err);
 			}
@@ -128,6 +145,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	// Lifecycle: session_shutdown
 	// -------------------------------------------------------------------------
 	pi.on("session_shutdown", async () => {
+		eventLogger = null;
+		tuiMonitor = null;
+		_fffBridge = null;
 		if (db) {
 			db.close();
 			db = null;
