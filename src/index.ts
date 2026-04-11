@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { StringEnum } from "@mariozechner/pi-ai";
-import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	defineTool,
+} from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { handleCompleteMilestone } from "./commands/complete-milestone.js";
@@ -18,9 +22,11 @@ import { validateShip } from "./commands/ship.js";
 import { handleStatus } from "./commands/status.js";
 import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
+import { buildContextBlock } from "./common/context-injection.js";
 import {
 	applyMigrations,
 	getActiveMilestone,
+	getActiveSlice,
 	getMilestone,
 	getMilestones,
 	getProject,
@@ -28,7 +34,7 @@ import {
 	getSlices,
 	openDatabase,
 } from "./common/db.js";
-import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
+import { DISCUSS_GATES, resetAllGates, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
 import {
@@ -68,6 +74,11 @@ let initError: string | null = null;
 let eventLogger: EventLogger | null = null;
 let tuiMonitor: TUIMonitor | null = null;
 let _fffBridge: FffBridge | null = null;
+let cmdCtx: ExtensionCommandContext | null = null;
+
+export function getCmdCtx() {
+	return cmdCtx;
+}
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -154,6 +165,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				applyMigrations(db);
 				loadSettings(root);
 				initError = null;
+				resetAllGates();
 
 				// Initialize monitoring
 				const logsDir = tffPath(root, "logs");
@@ -197,6 +209,32 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	});
 
 	// -------------------------------------------------------------------------
+	// Lifecycle: before_agent_start — inject TFF context into system prompt
+	// -------------------------------------------------------------------------
+	pi.on("before_agent_start", async (event, _ctx) => {
+		if (!db || !projectRoot) return undefined;
+
+		const project = getProject(db);
+		if (!project) return undefined;
+
+		const milestone = getActiveMilestone(db, project.id);
+		const slice = milestone ? getActiveSlice(db, milestone.id) : null;
+
+		const contextBlock = buildContextBlock({
+			root: projectRoot,
+			project,
+			milestone,
+			slice,
+		});
+
+		if (!contextBlock) return undefined;
+
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n${contextBlock}`,
+		};
+	});
+
+	// -------------------------------------------------------------------------
 	// /tff command
 	// -------------------------------------------------------------------------
 	pi.registerCommand("tff", {
@@ -213,6 +251,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {
+			cmdCtx = ctx;
 			const { subcommand, args: rest } = parseSubcommand(args);
 
 			if (!isValidSubcommand(subcommand)) {
