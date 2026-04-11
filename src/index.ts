@@ -34,7 +34,7 @@ import { makeBaseEvent } from "./common/events.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
-import { isValidSubcommand, parseSubcommand } from "./common/router.js";
+import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
@@ -100,6 +100,19 @@ function findSliceByLabel(db: Database.Database, label: string): Slice | null {
 	return slices.find((s) => s.number === sNum) ?? null;
 }
 
+function findMilestoneByLabel(
+	db: Database.Database,
+	label: string,
+): ReturnType<typeof getMilestones>[number] | null {
+	const match = label.match(/^M(\d+)$/i);
+	if (!match || !match[1]) return null;
+	const mNum = Number.parseInt(match[1], 10);
+	const project = getProject(db);
+	if (!project) return null;
+	const milestones = getMilestones(db, project.id);
+	return milestones.find((m) => m.number === mNum) ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -161,6 +174,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("tff", {
 		description:
 			"The Forge Flow — project workflow manager. Subcommands: new, status, progress, health, settings, help (and more)",
+		getArgumentCompletions: (prefix: string) => {
+			const { subcommand, args } = parseSubcommand(prefix);
+			// Only suggest subcommands when the user hasn't completed the first word yet
+			if (args.length > 0) return null;
+			const items = VALID_SUBCOMMANDS.filter((cmd) => cmd.startsWith(subcommand)).map((cmd) => ({
+				value: cmd,
+				label: cmd,
+			}));
+			return items.length > 0 ? items : null;
+		},
 		handler: async (args, ctx) => {
 			const { subcommand, args: rest } = parseSubcommand(args);
 
@@ -297,9 +320,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateDiscuss(database, slice.id);
@@ -327,9 +354,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateResearch(database, slice.id);
@@ -357,9 +388,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validatePlan(database, slice.id);
@@ -524,9 +559,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateExecute(database, slice.id);
@@ -554,9 +593,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateVerify(database, slice.id);
@@ -584,9 +627,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateShip(database, slice.id);
@@ -612,9 +659,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 				case "pause": {
 					const database = getDb();
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const pauseResult = handlePause(database, slice.id);
@@ -796,7 +847,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				"Create a new slice within a milestone. A slice is a unit of work that goes through the discuss → research → plan → execute → verify → ship lifecycle.",
 			parameters: Type.Object({
 				milestoneId: Type.String({
-					description: "The ID of the milestone to add this slice to",
+					description: "The ID or label (e.g. 'M01') of the milestone to add this slice to",
 				}),
 				title: Type.String({
 					description: "Short descriptive title for the slice",
@@ -813,7 +864,19 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleCreateSlice(database, root, params.milestoneId, params.title);
+					const milestone =
+						findMilestoneByLabel(database, params.milestoneId) ??
+						getMilestone(database, params.milestoneId);
+					if (!milestone) {
+						return {
+							content: [
+								{ type: "text", text: `Error: Milestone not found: ${params.milestoneId}` },
+							],
+							details: { milestoneId: params.milestoneId },
+							isError: true,
+						};
+					}
+					return handleCreateSlice(database, root, milestone.id, params.title);
 				} catch (err) {
 					return {
 						content: [
