@@ -1029,7 +1029,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteRequirements(database, root, slice.id, params.content);
+					const writeResult = handleWriteRequirements(database, root, slice.id, params.content);
+					if (!writeResult.isError) {
+						const { requestReview } = await import("./common/plannotator-review.js");
+						requestReview(pi, writeResult.details.path as string, params.content, "spec");
+					}
+					return writeResult;
 				} catch (err) {
 					return {
 						content: [
