@@ -35,6 +35,19 @@ vi.mock("../../../src/common/git.js", () => ({
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
+vi.mock("../../../src/common/checkpoint.js", () => ({
+	createCheckpoint: vi.fn(),
+}));
+
+vi.mock("../../../src/common/verify-commands.js", () => ({
+	detectVerifyCommands: vi.fn().mockReturnValue([]),
+}));
+
+vi.mock("../../../src/common/mechanical-verifier.js", () => ({
+	runMechanicalVerification: vi.fn(),
+	formatMechanicalReport: vi.fn().mockReturnValue(""),
+}));
+
 vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()

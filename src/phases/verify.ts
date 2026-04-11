@@ -1,9 +1,15 @@
-import { readArtifact } from "../common/artifacts.js";
+import { readArtifact, writeArtifact } from "../common/artifacts.js";
+import { createCheckpoint } from "../common/checkpoint.js";
 import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
+import {
+	formatMechanicalReport,
+	runMechanicalVerification,
+} from "../common/mechanical-verifier.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
+import { detectVerifyCommands } from "../common/verify-commands.js";
 import { getWorktreePath } from "../common/worktree.js";
 import { loadPhaseResources } from "../orchestrator.js";
 
@@ -68,6 +74,45 @@ export const verifyPhase: PhaseModule = {
 		].join("\n");
 
 		pi.sendUserMessage(message);
+
+		// --- Mechanical verification (runs independently of AI) ---
+		const verifyCommands = detectVerifyCommands(root, settings);
+		if (verifyCommands.length > 0) {
+			const report = await runMechanicalVerification(verifyCommands, wtPath);
+			const reportMd = formatMechanicalReport(report);
+			writeArtifact(
+				root,
+				`milestones/${mLabel}/slices/${sLabel}/VERIFICATION-MECHANICAL.md`,
+				reportMd,
+			);
+
+			if (!report.allPassed) {
+				const failures = report.commands
+					.filter((c) => !c.passed)
+					.map(
+						(c) =>
+							`- ${c.name}: exit ${c.exitCode}${c.stderr ? `\n  ${c.stderr.split("\n")[0]}` : ""}`,
+					)
+					.join("\n");
+
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "verify",
+					error: "Mechanical verification failed",
+				});
+
+				return {
+					success: false,
+					retry: true,
+					feedback: `Mechanical verification found failures:\n${failures}\n\nFull report written to VERIFICATION-MECHANICAL.md. Fix the issues and retry.`,
+				};
+			}
+		}
+
+		// Post-verify checkpoint
+		createCheckpoint(wtPath, sLabel, "post-verify");
+
 		return { success: true, retry: false };
 	},
 };
