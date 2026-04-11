@@ -5,7 +5,7 @@ import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { loadAgentResource, loadPhaseResources } from "../orchestrator.js";
 
 export const reviewPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -31,6 +31,7 @@ export const reviewPhase: PhaseModule = {
 			: "";
 
 		const { agentPrompt, protocol } = loadPhaseResources("review");
+		const securityReviewerPrompt = loadAgentResource("security-reviewer");
 		const milestoneBranch = `milestone/${mLabel}`;
 		const diff = getDiff(milestoneBranch, wtPath) ?? "";
 
@@ -56,6 +57,13 @@ export const reviewPhase: PhaseModule = {
 			"```diff",
 			diff,
 			"```",
+			"",
+			"---",
+			"",
+			"## Security Review",
+			securityReviewerPrompt,
+			"",
+			"After completing the code review above, perform a security-focused review pass on the same diff using the security reviewer guidelines above.",
 			compressHint,
 		].join("\n");
 
