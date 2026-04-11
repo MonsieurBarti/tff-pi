@@ -113,18 +113,19 @@ describe("git", () => {
 	});
 
 	describe("getDefaultBranch", () => {
-		it("returns a branch name string", () => {
-			const branch = getDefaultBranch();
-			// May return null in CI/test environments without remote
-			if (branch !== null) {
-				expect(typeof branch).toBe("string");
-				expect(branch.length).toBeGreaterThan(0);
-			}
+		it("returns null for a repo without remote", () => {
+			// repoDir has no remote, so getDefaultBranch should return null
+			const branch = getDefaultBranch(repoDir);
+			expect(branch).toBeNull();
 		});
 
 		it("returns null for non-git directory", () => {
-			const branch = getDefaultBranch("/tmp");
-			expect(branch).toBeNull();
+			const nonGitDir = mkdtempSync(join(tmpdir(), "tff-nodefault-"));
+			try {
+				expect(getDefaultBranch(nonGitDir)).toBeNull();
+			} finally {
+				rmSync(nonGitDir, { recursive: true, force: true });
+			}
 		});
 	});
 });
