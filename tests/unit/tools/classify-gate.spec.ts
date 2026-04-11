@@ -33,25 +33,19 @@ describe("classify gate", () => {
 	});
 
 	it("rejects classify when tier_confirmed gate is locked", () => {
-		const result = handleClassify(db, sliceId, "SS", { headless: false });
+		const result = handleClassify(db, sliceId, "SS");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Tier must be confirmed");
 	});
 
 	it("allows classify when tier_confirmed gate is unlocked", () => {
 		unlockGate(sliceId, "tier_confirmed");
-		const result = handleClassify(db, sliceId, "SS", { headless: false });
+		const result = handleClassify(db, sliceId, "SS");
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("classified as Tier SS");
 	});
 
-	it("bypasses gate in headless mode", () => {
-		const result = handleClassify(db, sliceId, "SS", { headless: true });
-		expect(result.isError).toBeUndefined();
-		expect(must(result.content[0]).text).toContain("classified as Tier SS");
-	});
-
-	it("enforces gate when options not provided", () => {
+	it("enforces gate always (no headless bypass)", () => {
 		const result = handleClassify(db, sliceId, "SS");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Tier must be confirmed");

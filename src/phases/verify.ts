@@ -1,13 +1,11 @@
-import { readArtifact, writeArtifact } from "../common/artifacts.js";
-import { getTasks, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
-import { dispatchSubAgent } from "../common/dispatch.js";
+import { readArtifact } from "../common/artifacts.js";
+import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import { discoverFffService } from "../common/fff-integration.js";
 import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
-import { enrichContextWithFff, loadPhaseResources } from "../orchestrator.js";
+import { loadPhaseResources } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -16,14 +14,13 @@ export const verifyPhase: PhaseModule = {
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
-		const startTime = Date.now();
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",
 			phase: "verify",
 		});
-		const wtPath = getWorktreePath(root, sLabel);
 
+		const wtPath = getWorktreePath(root, sLabel);
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
 		const planMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PLAN.md`) ?? "";
 
@@ -38,142 +35,39 @@ export const verifyPhase: PhaseModule = {
 		}
 
 		const compressHint = settings.compress.user_artifacts
-			? "\n\nWrite VERIFICATION.md in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes."
+			? "\n\nWrite VERIFICATION.md in compressed R1-R10 notation."
 			: "";
 
 		const { agentPrompt, protocol } = loadPhaseResources("verify");
-
 		const milestoneBranch = `milestone/${mLabel}`;
 		const diff = getDiff(milestoneBranch, wtPath) ?? "";
 
-		const prompt = {
-			systemPrompt: [agentPrompt, protocol, compressHint].filter(Boolean).join("\n\n"),
-			userPrompt: [
-				`## Slice: ${sLabel}`,
-				"",
-				"## SPEC.md (Acceptance Criteria)",
-				specMd,
-				"",
-				"## PLAN.md",
-				planMd,
-				"",
-				"## Diff from milestone branch",
-				"```diff",
-				diff,
-				"```",
-				"",
-				"## Test Instructions",
-				testInstruction,
-				"",
-				"## Instructions",
-				"1. Check each AC from SPEC.md against the implementation",
-				"2. Run scoped tests for changed files",
-				"3. Return structured JSON verdict with acResults and testResults",
-			].join("\n"),
-			tools: [],
-			label: `verifier:${sLabel}`,
-		};
+		const message = [
+			agentPrompt,
+			protocol,
+			"",
+			"---",
+			"",
+			`## Slice: ${sLabel}`,
+			`Working directory: ${wtPath}`,
+			"",
+			"## SPEC.md (Acceptance Criteria)",
+			specMd,
+			"",
+			"## PLAN.md",
+			planMd,
+			"",
+			"## Diff from milestone branch",
+			"```diff",
+			diff,
+			"```",
+			"",
+			"## Test Instructions",
+			testInstruction,
+			compressHint,
+		].join("\n");
 
-		const fffBridge = discoverFffService(pi);
-		if (fffBridge) {
-			const tasks = getTasks(db, slice.id);
-			const extraCtx: Record<string, string> = {};
-			await enrichContextWithFff(extraCtx, tasks, fffBridge);
-			if (extraCtx.RELATED_FILES) {
-				prompt.userPrompt += `\n\n## Related Files\n${extraCtx.RELATED_FILES}`;
-			}
-		}
-
-		const result = await dispatchSubAgent(pi, "verifier", prompt, wtPath, ctx.onSubAgentActivity);
-
-		if (!result.success) {
-			updateSliceStatus(db, slice.id, "executing");
-			resetTasksToOpen(db, slice.id);
-			pi.events.emit("tff:phase", {
-				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-				type: "phase_failed",
-				phase: "verify",
-				durationMs: Date.now() - startTime,
-				error: "Verification failed",
-			});
-			return {
-				success: false,
-				retry: true,
-				error: "Verification failed",
-				feedback: result.output,
-			};
-		}
-
-		const compressed = settings.compress.user_artifacts;
-		let verificationContent: string;
-		try {
-			const verdict = JSON.parse(result.output);
-			const acLines = (verdict.acResults ?? [])
-				.map(
-					(ac: { ac: string; status: string; explanation: string }) =>
-						`| ${ac.ac} | ${ac.status} | ${ac.explanation} |`,
-				)
-				.join("\n");
-			const testSummary = verdict.testResults
-				? `Passed: ${verdict.testResults.passed}, Failed: ${verdict.testResults.failed}, Skipped: ${verdict.testResults.skipped}`
-				: "No test results";
-
-			verificationContent = [
-				compressed ? "# Verification" : "# Verification Results",
-				"",
-				compressed ? "## AC" : "## Acceptance Criteria",
-				"",
-				"| AC | Status | Explanation |",
-				"|---|---|---|",
-				acLines,
-				"",
-				compressed ? "## Tests" : "## Test Results",
-				"",
-				testSummary,
-			].join("\n");
-
-			const hasFailed = (verdict.acResults ?? []).some(
-				(ac: { status: string }) => ac.status === "FAIL",
-			);
-			const testsFailed = verdict.testResults?.failed > 0;
-
-			if (hasFailed || testsFailed) {
-				writeArtifact(
-					root,
-					`milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`,
-					verificationContent,
-				);
-				updateSliceStatus(db, slice.id, "executing");
-				resetTasksToOpen(db, slice.id);
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "verify",
-					durationMs: Date.now() - startTime,
-					error: "Verification found failures",
-				});
-				return {
-					success: false,
-					retry: true,
-					error: "Verification found failures",
-					feedback: verificationContent,
-				};
-			}
-		} catch {
-			verificationContent = ["# Verification Results", "", result.output].join("\n");
-		}
-
-		writeArtifact(
-			root,
-			`milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`,
-			verificationContent,
-		);
-		pi.events.emit("tff:phase", {
-			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-			type: "phase_complete",
-			phase: "verify",
-			durationMs: Date.now() - startTime,
-		});
+		pi.sendUserMessage(message);
 		return { success: true, retry: false };
 	},
 };

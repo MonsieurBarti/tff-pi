@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import type { Settings } from "./settings.js";
-import type { Slice, SubAgentActivity } from "./types.js";
+import type { Slice } from "./types.js";
 
 export interface PhaseContext {
 	pi: ExtensionAPI;
@@ -11,8 +11,6 @@ export interface PhaseContext {
 	milestoneNumber: number;
 	settings: Settings;
 	feedback?: string;
-	headless?: boolean;
-	onSubAgentActivity?: (activity: SubAgentActivity) => void;
 }
 
 export interface PhaseResult {

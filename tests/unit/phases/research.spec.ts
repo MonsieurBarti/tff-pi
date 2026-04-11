@@ -21,16 +21,6 @@ import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
 
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: vi.fn().mockResolvedValue({ success: true, output: "done" }),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
-
-vi.mock("../../../src/common/plannotator-review.js", () => ({
-	requestReview: vi.fn().mockResolvedValue({ approved: true }),
-	buildReviewRequest: vi.fn(),
-}));
-
 import { researchPhase } from "../../../src/phases/research.js";
 
 describe("researchPhase", () => {
@@ -63,11 +53,14 @@ describe("researchPhase", () => {
 		expect(typeof researchPhase.run).toBe("function");
 	});
 
-	it("returns success and advances status", async () => {
-		writeArtifact(root, "milestones/M01/slices/M01-S01/RESEARCH.md", "# Research");
+	it("returns success and sends message via pi.sendUserMessage", async () => {
 		const slice = must(getSlice(db, sliceId));
+		const sendUserMessage = vi.fn();
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -76,15 +69,17 @@ describe("researchPhase", () => {
 		};
 		const result = await researchPhase.run(ctx);
 		expect(result.success).toBe(true);
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("planning");
+		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
-	it("transitions to researching during run", async () => {
-		writeArtifact(root, "milestones/M01/slices/M01-S01/RESEARCH.md", "# Research");
+	it("emits phase_start event", async () => {
 		const slice = must(getSlice(db, sliceId));
+		const mockEmit = vi.fn();
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -92,8 +87,48 @@ describe("researchPhase", () => {
 			settings: DEFAULT_SETTINGS,
 		};
 		await researchPhase.run(ctx);
-		// Slice should have passed through "researching" and advanced
+		const startCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "research",
+		);
+		expect(startCalls).toHaveLength(1);
+	});
+
+	it("does NOT emit phase_complete (tracked on /tff next)", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const mockEmit = vi.fn();
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await researchPhase.run(ctx);
+		const completeCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "research",
+		);
+		expect(completeCalls).toHaveLength(0);
+	});
+
+	it("transitions to researching during run", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await researchPhase.run(ctx);
 		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).not.toBe("discussing");
+		expect(updated.status).toBe("researching");
 	});
 });

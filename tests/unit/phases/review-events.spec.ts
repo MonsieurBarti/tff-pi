@@ -21,12 +21,6 @@ import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
 
-const mockDispatch = vi.fn();
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: (...args: unknown[]) => mockDispatch(...args),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
-
 vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
@@ -42,23 +36,12 @@ vi.mock("../../../src/common/git.js", () => ({
 }));
 
 vi.mock("../../../src/orchestrator.js", () => ({
-	enrichContextWithFff: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../../../src/common/fff-integration.js", () => ({
-	discoverFffService: vi.fn().mockReturnValue(null),
-	FffBridge: vi.fn(),
+	loadPhaseResources: vi
+		.fn()
+		.mockReturnValue({ agentPrompt: "# Reviewer", protocol: "# Protocol" }),
 }));
 
 import { reviewPhase } from "../../../src/phases/review.js";
-
-const APPROVED_VERDICT = JSON.stringify({ verdict: "approved", summary: "LGTM", findings: [] });
-const DENIED_VERDICT = JSON.stringify({
-	verdict: "denied",
-	summary: "Bad code",
-	findings: [{ file: "src/foo.ts", message: "Issue" }],
-	tasksToRework: ["T01"],
-});
 
 function makeCtx(
 	db: Database.Database,
@@ -68,7 +51,10 @@ function makeCtx(
 ): PhaseContext {
 	const slice = must(getSlice(db, sliceId));
 	return {
-		pi: { events: { emit: mockEmit, on: vi.fn() } } as unknown as PhaseContext["pi"],
+		pi: {
+			sendUserMessage: vi.fn(),
+			events: { emit: mockEmit, on: vi.fn() },
+		} as unknown as PhaseContext["pi"],
 		db,
 		root,
 		slice,
@@ -83,7 +69,6 @@ describe("reviewPhase event emission", () => {
 	let sliceId: string;
 
 	beforeEach(() => {
-		mockDispatch.mockReset();
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-review-events-test-"));
@@ -106,7 +91,6 @@ describe("reviewPhase event emission", () => {
 	});
 
 	it("emits phase_start on entry", async () => {
-		mockDispatch.mockResolvedValue({ success: true, output: APPROVED_VERDICT });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		await reviewPhase.run(ctx);
@@ -117,8 +101,7 @@ describe("reviewPhase event emission", () => {
 		expect(startCalls).toHaveLength(1);
 	});
 
-	it("emits phase_complete when both reviewers approve", async () => {
-		mockDispatch.mockResolvedValue({ success: true, output: APPROVED_VERDICT });
+	it("does NOT emit phase_complete (interactive mode, tracked on /tff next)", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		const result = await reviewPhase.run(ctx);
@@ -127,91 +110,19 @@ describe("reviewPhase event emission", () => {
 		const completeCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "review",
 		);
-		expect(completeCalls).toHaveLength(1);
-		expect(completeCalls[0]?.[1]).toHaveProperty("durationMs");
+		expect(completeCalls).toHaveLength(0);
 	});
 
-	it("emits phase_failed when review is denied", async () => {
-		mockDispatch
-			.mockResolvedValueOnce({ success: true, output: DENIED_VERDICT })
-			.mockResolvedValueOnce({ success: true, output: APPROVED_VERDICT });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		const result = await reviewPhase.run(ctx);
-
-		expect(result.success).toBe(false);
-		const failedCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "review",
-		);
-		expect(failedCalls).toHaveLength(1);
-		expect(failedCalls[0]?.[1]).toHaveProperty("durationMs");
-	});
-
-	it("emits review_verdict for both code and security reviewers on approval", async () => {
-		mockDispatch.mockResolvedValue({ success: true, output: APPROVED_VERDICT });
+	it("includes base event fields on phase_start", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		await reviewPhase.run(ctx);
 
-		const verdictCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:review" && e.type === "review_verdict",
+		const startCall = mockEmit.mock.calls.find(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start",
 		);
-		expect(verdictCalls).toHaveLength(2);
-
-		const reviewers = verdictCalls.map(([, e]) => e.reviewer);
-		expect(reviewers).toContain("code");
-		expect(reviewers).toContain("security");
-	});
-
-	it("emits review_verdict with correct verdict and findingCount", async () => {
-		mockDispatch
-			.mockResolvedValueOnce({ success: true, output: DENIED_VERDICT })
-			.mockResolvedValueOnce({ success: true, output: APPROVED_VERDICT });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await reviewPhase.run(ctx);
-
-		const verdictCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:review" && e.type === "review_verdict",
-		);
-		expect(verdictCalls).toHaveLength(2);
-
-		const codeVerdict = verdictCalls.find(([, e]) => e.reviewer === "code")?.[1];
-		expect(codeVerdict).toBeDefined();
-		expect(codeVerdict).toHaveProperty("verdict", "denied");
-		expect(codeVerdict).toHaveProperty("findingCount", 1);
-		expect(codeVerdict).toHaveProperty("summary", "Bad code");
-		expect(codeVerdict).toHaveProperty("tasksToRework");
-
-		const securityVerdict = verdictCalls.find(([, e]) => e.reviewer === "security")?.[1];
-		expect(securityVerdict).toBeDefined();
-		expect(securityVerdict).toHaveProperty("verdict", "approved");
-		expect(securityVerdict).toHaveProperty("findingCount", 0);
-	});
-
-	it("emits review_verdict even when both deny", async () => {
-		mockDispatch.mockResolvedValue({ success: true, output: DENIED_VERDICT });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await reviewPhase.run(ctx);
-
-		const verdictCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:review" && e.type === "review_verdict",
-		);
-		expect(verdictCalls).toHaveLength(2);
-	});
-
-	it("includes base event fields on review_verdict events", async () => {
-		mockDispatch.mockResolvedValue({ success: true, output: APPROVED_VERDICT });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await reviewPhase.run(ctx);
-
-		const verdictCall = mockEmit.mock.calls.find(
-			([ch, e]) => ch === "tff:review" && e.type === "review_verdict",
-		);
-		expect(verdictCall).toBeDefined();
-		const event = verdictCall?.[1];
+		expect(startCall).toBeDefined();
+		const event = startCall?.[1];
 		expect(event).toHaveProperty("sliceId");
 		expect(event).toHaveProperty("sliceLabel", "M01-S01");
 		expect(event).toHaveProperty("milestoneNumber", 1);

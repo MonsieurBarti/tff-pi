@@ -14,21 +14,10 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceTier,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
-
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: vi.fn().mockResolvedValue({ success: true, output: "done" }),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
-
-vi.mock("../../../src/common/plannotator-review.js", () => ({
-	requestReview: vi.fn().mockResolvedValue({ approved: true }),
-	buildReviewRequest: vi.fn(),
-}));
 
 import { discussPhase } from "../../../src/phases/discuss.js";
 
@@ -59,14 +48,12 @@ describe("discussPhase", () => {
 		expect(typeof discussPhase.run).toBe("function");
 	});
 
-	it("returns success when agent and gate pass", async () => {
-		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
-		writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# Requirements");
-		updateSliceTier(db, sliceId, "SS");
+	it("returns success and sends message", async () => {
 		const slice = must(getSlice(db, sliceId));
+		const sendUserMessage = vi.fn();
 		const ctx: PhaseContext = {
 			pi: {
-				sendUserMessage: vi.fn(),
+				sendUserMessage,
 				events: { emit: vi.fn(), on: vi.fn() },
 			} as unknown as PhaseContext["pi"],
 			db,
@@ -77,5 +64,6 @@ describe("discussPhase", () => {
 		};
 		const result = await discussPhase.run(ctx);
 		expect(result.success).toBe(true);
+		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 });

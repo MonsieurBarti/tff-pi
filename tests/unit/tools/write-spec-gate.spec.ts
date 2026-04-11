@@ -46,25 +46,19 @@ describe("write-spec gate", () => {
 	});
 
 	it("rejects write when depth_verified gate is locked", () => {
-		const result = handleWriteSpec(db, root, sliceId, "# Spec", { headless: false });
+		const result = handleWriteSpec(db, root, sliceId, "# Spec");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Depth verification required");
 	});
 
 	it("allows write when depth_verified gate is unlocked", () => {
 		unlockGate(sliceId, "depth_verified");
-		const result = handleWriteSpec(db, root, sliceId, "# Spec", { headless: false });
+		const result = handleWriteSpec(db, root, sliceId, "# Spec");
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("SPEC.md written");
 	});
 
-	it("bypasses gate in headless mode", () => {
-		const result = handleWriteSpec(db, root, sliceId, "# Spec", { headless: true });
-		expect(result.isError).toBeUndefined();
-		expect(must(result.content[0]).text).toContain("SPEC.md written");
-	});
-
-	it("enforces gate when options not provided", () => {
+	it("enforces gate always (no headless bypass)", () => {
 		const result = handleWriteSpec(db, root, sliceId, "# Spec");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Depth verification required");

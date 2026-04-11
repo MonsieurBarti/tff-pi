@@ -4,11 +4,18 @@ import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { readArtifact } from "./common/artifacts.js";
 import { getActiveMilestone, getActiveSlice, getProject, getSlice } from "./common/db.js";
-import type { SubAgentPrompt } from "./common/dispatch.js";
 import type { Phase, Slice, SliceStatus, Task, Tier } from "./common/types.js";
 import { milestoneLabel, sliceLabel } from "./common/types.js";
 
 export type { Phase };
+
+/** Prompt structure for phase prompts (kept for backward compat with tests). */
+export interface PhasePrompt {
+	systemPrompt: string;
+	userPrompt: string;
+	tools: string[];
+	label: string;
+}
 
 const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
 
@@ -124,7 +131,7 @@ export function buildPhasePrompt(
 	phase: Phase,
 	context: Record<string, string>,
 	compressed: boolean,
-): SubAgentPrompt {
+): PhasePrompt {
 	const agentName = PHASE_AGENT[phase];
 	const agentMd = loadResource(join(RESOURCES_DIR, "agents", `${agentName}.md`));
 	const protocolMd = loadResource(join(RESOURCES_DIR, "protocols", `${phase}.md`));
@@ -166,51 +173,6 @@ export function buildPhasePrompt(
 		userPrompt,
 		tools: PHASE_TOOLS[phase],
 		label: `${phase}:${sLabel}`,
-	};
-}
-
-export function buildHeadlessDiscussPrompt(
-	slice: Slice,
-	milestoneNumber: number,
-	context: Record<string, string>,
-	compressed: boolean,
-): SubAgentPrompt {
-	const agentMd = loadResource(join(RESOURCES_DIR, "agents", "brainstormer-headless.md"));
-	const protocolMd = loadResource(join(RESOURCES_DIR, "protocols", "discuss-headless.md"));
-
-	const sLabel = sliceLabel(milestoneNumber, slice.number);
-
-	let systemPrompt = agentMd;
-	if (protocolMd) {
-		systemPrompt += `\n\n${protocolMd}`;
-	}
-
-	const contextBlock = Object.entries(context)
-		.map(([name, content]) => `### ${name}\n\n${content}`)
-		.join("\n\n");
-
-	const parts = [
-		`## Slice: ${sLabel} — "${slice.title}"`,
-		`Slice ID: ${slice.id}`,
-		`Tier: ${slice.tier ?? "unclassified"}`,
-		"",
-		"## Context",
-		"",
-		contextBlock,
-	];
-
-	if (compressed) {
-		parts.push(
-			"",
-			"**IMPORTANT:** Write all artifact content in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes.",
-		);
-	}
-
-	return {
-		systemPrompt,
-		userPrompt: parts.join("\n"),
-		tools: PHASE_TOOLS.discuss,
-		label: `discuss:${sLabel}`,
 	};
 }
 

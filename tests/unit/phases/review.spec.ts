@@ -21,12 +21,6 @@ import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
 
-const mockDispatch = vi.fn();
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: (...args: unknown[]) => mockDispatch(...args),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
-
 vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
@@ -42,12 +36,9 @@ vi.mock("../../../src/common/git.js", () => ({
 }));
 
 vi.mock("../../../src/orchestrator.js", () => ({
-	enrichContextWithFff: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../../../src/common/fff-integration.js", () => ({
-	discoverFffService: vi.fn().mockReturnValue(null),
-	FffBridge: vi.fn(),
+	loadPhaseResources: vi
+		.fn()
+		.mockReturnValue({ agentPrompt: "# Reviewer", protocol: "# Protocol" }),
 }));
 
 import { reviewPhase } from "../../../src/phases/review.js";
@@ -58,7 +49,6 @@ describe("reviewPhase", () => {
 	let sliceId: string;
 
 	beforeEach(() => {
-		mockDispatch.mockReset();
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-review-test-"));
@@ -80,14 +70,14 @@ describe("reviewPhase", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("succeeds when both reviewers approve", async () => {
-		mockDispatch.mockResolvedValue({
-			success: true,
-			output: JSON.stringify({ verdict: "approved", summary: "LGTM", findings: [] }),
-		});
+	it("returns success and sends message", async () => {
+		const sendUserMessage = vi.fn();
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -96,46 +86,17 @@ describe("reviewPhase", () => {
 		};
 		const result = await reviewPhase.run(ctx);
 		expect(result.success).toBe(true);
+		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
-	it("fails with retry when code reviewer denies", async () => {
-		mockDispatch
-			.mockResolvedValueOnce({
-				success: true,
-				output: JSON.stringify({
-					verdict: "denied",
-					summary: "Bad code",
-					findings: [],
-					tasksToRework: ["T01"],
-				}),
-			})
-			.mockResolvedValueOnce({
-				success: true,
-				output: JSON.stringify({ verdict: "approved", summary: "OK", findings: [] }),
-			});
+	it("message includes spec, plan, verification, and diff", async () => {
+		const sendUserMessage = vi.fn();
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
-		const result = await reviewPhase.run(ctx);
-		expect(result.success).toBe(false);
-		expect(result.retry).toBe(true);
-		expect(result.feedback).toContain("Bad code");
-	});
-
-	it("dispatches two reviewers in parallel", async () => {
-		mockDispatch.mockResolvedValue({
-			success: true,
-			output: JSON.stringify({ verdict: "approved", summary: "OK", findings: [] }),
-		});
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -143,6 +104,31 @@ describe("reviewPhase", () => {
 			settings: DEFAULT_SETTINGS,
 		};
 		await reviewPhase.run(ctx);
-		expect(mockDispatch).toHaveBeenCalledTimes(2);
+		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		expect(msg).toContain("SPEC.md");
+		expect(msg).toContain("PLAN.md");
+		expect(msg).toContain("VERIFICATION.md");
+		expect(msg).toContain("diff content");
+	});
+
+	it("emits phase_start event", async () => {
+		const mockEmit = vi.fn();
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await reviewPhase.run(ctx);
+		const startCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "review",
+		);
+		expect(startCalls).toHaveLength(1);
 	});
 });

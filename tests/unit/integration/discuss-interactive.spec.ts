@@ -48,9 +48,9 @@ describe("discuss interactive integration", () => {
 	});
 
 	describe("write-spec gate flow", () => {
-		it("locked → unlock → write succeeds", () => {
+		it("locked -> unlock -> write succeeds", () => {
 			// Step 1: write-spec is blocked
-			const blocked = handleWriteSpec(db, root, sliceId, "# Spec", { headless: false });
+			const blocked = handleWriteSpec(db, root, sliceId, "# Spec");
 			expect(blocked.isError).toBe(true);
 			expect(must(blocked.content[0]).text).toContain("Depth verification required");
 
@@ -59,30 +59,28 @@ describe("discuss interactive integration", () => {
 			expect(isGateUnlocked(sliceId, "depth_verified")).toBe(true);
 
 			// Step 3: write-spec succeeds
-			const success = handleWriteSpec(db, root, sliceId, "# Spec Content", {
-				headless: false,
-			});
+			const success = handleWriteSpec(db, root, sliceId, "# Spec Content");
 			expect(success.isError).toBeUndefined();
 			expect(must(success.content[0]).text).toContain("SPEC.md written");
 		});
 	});
 
 	describe("classify gate flow", () => {
-		it("locked → unlock → classify succeeds", () => {
-			const blocked = handleClassify(db, sliceId, "SS", { headless: false });
+		it("locked -> unlock -> classify succeeds", () => {
+			const blocked = handleClassify(db, sliceId, "SS");
 			expect(blocked.isError).toBe(true);
 			expect(must(blocked.content[0]).text).toContain("Tier must be confirmed");
 
 			unlockGate(sliceId, "tier_confirmed");
 
-			const success = handleClassify(db, sliceId, "SS", { headless: false });
+			const success = handleClassify(db, sliceId, "SS");
 			expect(success.isError).toBeUndefined();
 			expect(must(success.content[0]).text).toContain("classified as Tier SS");
 		});
 	});
 
 	describe("gate isolation", () => {
-		it("gates are per-slice — unlocking one slice doesn't affect another", () => {
+		it("gates are per-slice -- unlocking one slice doesn't affect another", () => {
 			// Add second slice
 			const milestoneId = must(getMilestones(db, must(getProject(db)).id)[0]).id;
 			insertSlice(db, { milestoneId, number: 2, title: "Other Slice" });
@@ -108,19 +106,17 @@ describe("discuss interactive integration", () => {
 		});
 	});
 
-	describe("headless bypass", () => {
-		it("write-spec bypasses gate in headless mode", () => {
-			const result = handleWriteSpec(db, root, sliceId, "# Headless Spec", {
-				headless: true,
-			});
-			expect(result.isError).toBeUndefined();
-			expect(must(result.content[0]).text).toContain("SPEC.md written");
+	describe("gates always enforced", () => {
+		it("write-spec always requires gate", () => {
+			const result = handleWriteSpec(db, root, sliceId, "# Spec");
+			expect(result.isError).toBe(true);
+			expect(must(result.content[0]).text).toContain("Depth verification required");
 		});
 
-		it("classify bypasses gate in headless mode", () => {
-			const result = handleClassify(db, sliceId, "SSS", { headless: true });
-			expect(result.isError).toBeUndefined();
-			expect(must(result.content[0]).text).toContain("classified as Tier SSS");
+		it("classify always requires gate", () => {
+			const result = handleClassify(db, sliceId, "SSS");
+			expect(result.isError).toBe(true);
+			expect(must(result.content[0]).text).toContain("Tier must be confirmed");
 		});
 	});
 });

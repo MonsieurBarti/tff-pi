@@ -1,78 +1,49 @@
-import { getSlice, updateSliceStatus } from "../common/db.js";
-import { dispatchSubAgent } from "../common/dispatch.js";
+import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
-import { nextSliceStatus } from "../common/state-machine.js";
 import { sliceLabel } from "../common/types.js";
-import { buildPhasePrompt, collectPhaseContext, verifyPhaseArtifacts } from "../orchestrator.js";
+import { collectPhaseContext, loadPhaseResources } from "../orchestrator.js";
 
 export const researchPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
-		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
+		const { pi, db, slice, milestoneNumber, root, settings } = ctx;
 		updateSliceStatus(db, slice.id, "researching");
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
-		const startTime = Date.now();
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",
 			phase: "research",
 		});
 
+		const { agentPrompt, protocol } = loadPhaseResources("research");
 		const context = collectPhaseContext(root, slice, milestoneNumber, "research");
-		const prompt = buildPhasePrompt(
-			slice,
-			milestoneNumber,
-			"research",
-			context,
-			settings.compress.user_artifacts,
-		);
-		const agentResult = await dispatchSubAgent(
-			pi,
-			"researcher",
-			prompt,
-			root,
-			ctx.onSubAgentActivity,
-		);
-		if (!agentResult.success) {
-			pi.events.emit("tff:phase", {
-				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-				type: "phase_failed",
-				phase: "research",
-				durationMs: Date.now() - startTime,
-				error: agentResult.output,
-			});
-			return { success: false, retry: false, error: agentResult.output };
-		}
 
-		const verification = verifyPhaseArtifacts(db, root, slice, milestoneNumber, "research");
-		if (!verification.ok) {
-			const error = `Phase artifacts missing: ${verification.missing.join(", ")}. Sub-agent output: ${agentResult.output.substring(0, 500)}`;
-			pi.events.emit("tff:phase", {
-				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-				type: "phase_failed",
-				phase: "research",
-				durationMs: Date.now() - startTime,
-				error,
-			});
-			return {
-				success: false,
-				retry: false,
-				error,
-			};
-		}
+		const contextBlock = Object.entries(context)
+			.map(([name, content]) => `### ${name}\n\n${content}`)
+			.join("\n\n");
 
-		const current = getSlice(db, slice.id);
-		if (current) {
-			const next = nextSliceStatus(current.status, current.tier ?? undefined);
-			if (next) updateSliceStatus(db, slice.id, next);
-		}
-		pi.events.emit("tff:phase", {
-			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-			type: "phase_complete",
-			phase: "research",
-			durationMs: Date.now() - startTime,
-		});
+		const compressHint = settings.compress.user_artifacts
+			? "\n\n**IMPORTANT:** Write all artifact content in compressed R1-R10 notation."
+			: "";
+
+		const message = [
+			agentPrompt,
+			protocol,
+			"",
+			"---",
+			"",
+			`## Slice: ${sLabel} — "${slice.title}"`,
+			`Slice ID: ${slice.id}`,
+			`Tier: ${slice.tier ?? "unclassified"}`,
+			"",
+			"## Context",
+			"",
+			contextBlock,
+			compressHint,
+		].join("\n");
+
+		pi.sendUserMessage(message);
 		return { success: true, retry: false };
 	},
 };

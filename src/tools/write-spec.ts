@@ -10,16 +10,11 @@ export interface ToolResult {
 	isError?: boolean;
 }
 
-export interface WriteSpecOptions {
-	headless?: boolean;
-}
-
 export function handleWriteSpec(
 	db: Database.Database,
 	root: string,
 	sliceId: string,
 	content: string,
-	options?: WriteSpecOptions,
 ): ToolResult {
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
@@ -29,7 +24,7 @@ export function handleWriteSpec(
 			isError: true,
 		};
 	}
-	if (options?.headless !== true && !isGateUnlocked(sliceId, "depth_verified")) {
+	if (!isGateUnlocked(sliceId, "depth_verified")) {
 		return {
 			content: [
 				{

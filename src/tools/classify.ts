@@ -9,16 +9,7 @@ export interface ToolResult {
 	isError?: boolean;
 }
 
-export interface ClassifyOptions {
-	headless?: boolean;
-}
-
-export function handleClassify(
-	db: Database.Database,
-	sliceId: string,
-	tier: Tier,
-	options?: ClassifyOptions,
-): ToolResult {
+export function handleClassify(db: Database.Database, sliceId: string, tier: Tier): ToolResult {
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
 		return {
@@ -28,7 +19,7 @@ export function handleClassify(
 		};
 	}
 
-	if (options?.headless !== true && !isGateUnlocked(sliceId, "tier_confirmed")) {
+	if (!isGateUnlocked(sliceId, "tier_confirmed")) {
 		return {
 			content: [
 				{

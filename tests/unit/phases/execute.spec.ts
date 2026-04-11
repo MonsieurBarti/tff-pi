@@ -10,7 +10,6 @@ import {
 	getProject,
 	getSlice,
 	getSlices,
-	getTask,
 	insertMilestone,
 	insertProject,
 	insertSlice,
@@ -22,12 +21,6 @@ import {
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
-
-const mockDispatch = vi.fn().mockResolvedValue({ success: true, output: "done" });
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: (...args: unknown[]) => mockDispatch(...args),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
 
 vi.mock("../../../src/common/worktree.js", () => ({
 	createWorktree: vi.fn().mockReturnValue("/tmp/fake-worktree"),
@@ -42,10 +35,6 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
-	buildPhasePrompt: vi
-		.fn()
-		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
-	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";
@@ -56,7 +45,6 @@ describe("executePhase", () => {
 	let sliceId: string;
 
 	beforeEach(() => {
-		mockDispatch.mockResolvedValue({ success: true, output: "done" });
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-exec-test-"));
@@ -79,53 +67,18 @@ describe("executePhase", () => {
 		expect(typeof executePhase.run).toBe("function");
 	});
 
-	it("dispatches agents for each task in wave order", async () => {
-		const t1 = insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		const t2 = insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
-		const t3 = insertTask(db, { sliceId, number: 3, title: "API", wave: 2 });
-
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
-		const result = await executePhase.run(ctx);
-		expect(result.success).toBe(true);
-		expect(must(getTask(db, t1)).status).toBe("closed");
-		expect(must(getTask(db, t2)).status).toBe("closed");
-		expect(must(getTask(db, t3)).status).toBe("closed");
-	});
-
-	it("aborts if a wave task fails after retries", async () => {
+	it("sends message with task list via sendUserMessage", async () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		const t2 = insertTask(db, { sliceId, number: 2, title: "Broken", wave: 1 });
+		insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
+		insertTask(db, { sliceId, number: 3, title: "API", wave: 2 });
 
-		mockDispatch
-			.mockResolvedValueOnce({ success: true, output: "done" })
-			.mockResolvedValue({ success: false, output: "error" });
-
+		const sendUserMessage = vi.fn();
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
-		const result = await executePhase.run(ctx);
-		expect(result.success).toBe(false);
-		expect(must(getTask(db, t2)).status).toBe("in_progress");
-	});
-
-	it("returns success with no tasks", async () => {
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -134,5 +87,31 @@ describe("executePhase", () => {
 		};
 		const result = await executePhase.run(ctx);
 		expect(result.success).toBe(true);
+		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		expect(msg).toContain("Wave 1");
+		expect(msg).toContain("Wave 2");
+	});
+
+	it("returns success with no tasks (emits phase_complete)", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const mockEmit = vi.fn();
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await executePhase.run(ctx);
+		expect(result.success).toBe(true);
+		const completeCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete",
+		);
+		expect(completeCalls).toHaveLength(1);
 	});
 });

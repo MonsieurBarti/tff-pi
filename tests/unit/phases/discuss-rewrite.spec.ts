@@ -7,14 +7,6 @@ import { isGateUnlocked, resetGates, unlockGate } from "../../../src/common/disc
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { discussPhase } from "../../../src/phases/discuss.js";
 
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: vi.fn(async () => ({ success: true, output: "mocked" })),
-}));
-
-vi.mock("../../../src/common/plannotator-review.js", () => ({
-	requestReview: vi.fn(async () => ({ approved: true, feedback: null })),
-}));
-
 function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
 	const root = mkdtempSync(join(tmpdir(), "tff-discuss-"));
 	mkdirSync(join(root, ".tff"), { recursive: true });
@@ -57,80 +49,57 @@ describe("discuss phase rewrite", () => {
 		resetGates("s1");
 	});
 
-	describe("interactive mode", () => {
-		it("sends protocol message via pi.sendUserMessage", async () => {
-			const ctx = makeCtx({ headless: false });
-			const result = await discussPhase.run(ctx);
+	it("sends protocol message via pi.sendUserMessage", async () => {
+		const ctx = makeCtx();
+		const result = await discussPhase.run(ctx);
 
-			expect(ctx.pi.sendUserMessage).toHaveBeenCalledTimes(1);
-			expect(result.success).toBe(true);
-		});
-
-		it("includes slice context in the message", async () => {
-			const ctx = makeCtx({ headless: false });
-			await discussPhase.run(ctx);
-
-			const calls = (ctx.pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls;
-			const msg = calls[0]?.[0] as string;
-			expect(msg).toContain("Test Slice");
-			expect(msg).toContain("s1");
-		});
-
-		it("resets gates for the slice", async () => {
-			unlockGate("s1", "depth_verified");
-			unlockGate("s1", "tier_confirmed");
-
-			const ctx = makeCtx({ headless: false });
-			await discussPhase.run(ctx);
-
-			expect(isGateUnlocked("s1", "depth_verified")).toBe(false);
-			expect(isGateUnlocked("s1", "tier_confirmed")).toBe(false);
-		});
-
-		it("emits phase_start but NOT phase_complete (completion tracked on /tff next)", async () => {
-			const ctx = makeCtx({ headless: false });
-			await discussPhase.run(ctx);
-
-			const emitCalls = (ctx.pi.events.emit as ReturnType<typeof vi.fn>).mock.calls;
-			const phaseEvents = emitCalls.filter((call: unknown[]) => call[0] === "tff:phase");
-			expect(phaseEvents).toHaveLength(1);
-			expect(phaseEvents[0]?.[1]).toMatchObject({ type: "phase_start", phase: "discuss" });
-		});
-
-		it("does NOT dispatch a sub-agent", async () => {
-			const ctx = makeCtx({ headless: false });
-			await discussPhase.run(ctx);
-
-			// sendUserMessage should be called, but no sub-agent
-			expect(ctx.pi.sendUserMessage).toHaveBeenCalled();
-		});
-
-		it("defaults to interactive when headless is undefined", async () => {
-			const ctx = makeCtx(); // no headless flag
-			await discussPhase.run(ctx);
-
-			expect(ctx.pi.sendUserMessage).toHaveBeenCalled();
-		});
+		expect(ctx.pi.sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(result.success).toBe(true);
 	});
 
-	describe("headless mode", () => {
-		it("does NOT call sendUserMessage", async () => {
-			const ctx = makeCtx({ headless: true });
-			await discussPhase.run(ctx);
+	it("includes slice context in the message", async () => {
+		const ctx = makeCtx();
+		await discussPhase.run(ctx);
 
-			expect(ctx.pi.sendUserMessage).not.toHaveBeenCalled();
-		});
+		const calls = (ctx.pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls;
+		const msg = calls[0]?.[0] as string;
+		expect(msg).toContain("Test Slice");
+		expect(msg).toContain("s1");
+	});
 
-		it("emits phase_start event", async () => {
-			const ctx = makeCtx({ headless: true });
-			await discussPhase.run(ctx);
+	it("resets gates for the slice", async () => {
+		unlockGate("s1", "depth_verified");
+		unlockGate("s1", "tier_confirmed");
 
-			const emitCalls = (ctx.pi.events.emit as ReturnType<typeof vi.fn>).mock.calls;
-			const startEvent = emitCalls.find(
-				(call: unknown[]) =>
-					call[0] === "tff:phase" && (call[1] as { type: string }).type === "phase_start",
-			);
-			expect(startEvent).toBeTruthy();
-		});
+		const ctx = makeCtx();
+		await discussPhase.run(ctx);
+
+		expect(isGateUnlocked("s1", "depth_verified")).toBe(false);
+		expect(isGateUnlocked("s1", "tier_confirmed")).toBe(false);
+	});
+
+	it("emits phase_start but NOT phase_complete (completion tracked on /tff next)", async () => {
+		const ctx = makeCtx();
+		await discussPhase.run(ctx);
+
+		const emitCalls = (ctx.pi.events.emit as ReturnType<typeof vi.fn>).mock.calls;
+		const phaseEvents = emitCalls.filter((call: unknown[]) => call[0] === "tff:phase");
+		expect(phaseEvents).toHaveLength(1);
+		expect(phaseEvents[0]?.[1]).toMatchObject({ type: "phase_start", phase: "discuss" });
+	});
+
+	it("does NOT dispatch a sub-agent", async () => {
+		const ctx = makeCtx();
+		await discussPhase.run(ctx);
+
+		// sendUserMessage should be called, but no sub-agent
+		expect(ctx.pi.sendUserMessage).toHaveBeenCalled();
+	});
+
+	it("always runs interactive mode", async () => {
+		const ctx = makeCtx();
+		await discussPhase.run(ctx);
+
+		expect(ctx.pi.sendUserMessage).toHaveBeenCalled();
 	});
 });
