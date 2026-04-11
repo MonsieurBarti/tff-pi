@@ -84,7 +84,7 @@ export const verifyPhase: PhaseModule = {
 			}
 		}
 
-		const result = await dispatchSubAgent(pi, "verifier", prompt, wtPath);
+		const result = await dispatchSubAgent(pi, "verifier", prompt, wtPath, ctx.onSubAgentActivity);
 
 		if (!result.success) {
 			updateSliceStatus(db, slice.id, "executing");

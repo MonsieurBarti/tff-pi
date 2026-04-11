@@ -27,7 +27,13 @@ export const researchPhase: PhaseModule = {
 			context,
 			settings.compress.user_artifacts,
 		);
-		const agentResult = await dispatchSubAgent(pi, "researcher", prompt);
+		const agentResult = await dispatchSubAgent(
+			pi,
+			"researcher",
+			prompt,
+			undefined,
+			ctx.onSubAgentActivity,
+		);
 		if (!agentResult.success) {
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),

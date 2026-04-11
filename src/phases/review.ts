@@ -116,8 +116,14 @@ export const reviewPhase: PhaseModule = {
 		};
 
 		const [codeResult, securityResult] = await Promise.allSettled([
-			dispatchSubAgent(pi, "code-reviewer", codeReviewPrompt, wtPath),
-			dispatchSubAgent(pi, "security-reviewer", securityReviewPrompt, wtPath),
+			dispatchSubAgent(pi, "code-reviewer", codeReviewPrompt, wtPath, ctx.onSubAgentActivity),
+			dispatchSubAgent(
+				pi,
+				"security-reviewer",
+				securityReviewPrompt,
+				wtPath,
+				ctx.onSubAgentActivity,
+			),
 		]);
 
 		const codeOutput =

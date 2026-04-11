@@ -32,7 +32,13 @@ export const discussPhase: PhaseModule = {
 			context,
 			settings.compress.user_artifacts,
 		);
-		const agentResult = await dispatchSubAgent(pi, "brainstormer", prompt);
+		const agentResult = await dispatchSubAgent(
+			pi,
+			"brainstormer",
+			prompt,
+			undefined,
+			ctx.onSubAgentActivity,
+		);
 		if (!agentResult.success) {
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
@@ -90,7 +96,13 @@ export const discussPhase: PhaseModule = {
 					durationMs: Date.now() - startTime,
 					feedback: "Gate denied, retrying",
 				});
-				const retryResult = await dispatchSubAgent(pi, "brainstormer", prompt);
+				const retryResult = await dispatchSubAgent(
+					pi,
+					"brainstormer",
+					prompt,
+					undefined,
+					ctx.onSubAgentActivity,
+				);
 				if (!retryResult.success) break;
 			}
 		}

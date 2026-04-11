@@ -104,7 +104,7 @@ export const executePhase: PhaseModule = {
 					};
 					return {
 						task,
-						result: await dispatchSubAgent(pi, "executor", prompt, wtPath),
+						result: await dispatchSubAgent(pi, "executor", prompt, wtPath, ctx.onSubAgentActivity),
 					};
 				}),
 			);
@@ -179,7 +179,13 @@ export const executePhase: PhaseModule = {
 						tools: [],
 						label: `executor:${sLabel}:${tLabel}:retry${attempt + 1}`,
 					};
-					const retryResult = await dispatchSubAgent(pi, "executor", retryPrompt, wtPath);
+					const retryResult = await dispatchSubAgent(
+						pi,
+						"executor",
+						retryPrompt,
+						wtPath,
+						ctx.onSubAgentActivity,
+					);
 					if (retryResult.success) {
 						updateTaskStatus(db, failed.task.id, "closed");
 						waveOutputs.push(`${tLabel}: ${retryResult.output}`);

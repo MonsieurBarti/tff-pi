@@ -29,6 +29,7 @@ import {
 	openDatabase,
 	updateSliceStatus,
 } from "./common/db.js";
+import type { SubAgentActivity } from "./common/dispatch.js";
 import { EventLogger } from "./common/event-logger.js";
 import { makeBaseEvent } from "./common/events.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
@@ -356,6 +357,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -363,6 +385,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"info",
 						);
 					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Discuss phase complete.", "info");
 					} else {
@@ -401,6 +424,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -408,6 +452,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"info",
 						);
 					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Research phase complete.", "info");
 					} else {
@@ -446,6 +491,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -453,6 +519,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"info",
 						);
 					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Plan phase complete.", "info");
 					} else {
@@ -487,6 +554,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					await mod.run(phaseCtx);
 					break;
@@ -628,6 +716,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -635,6 +744,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"info",
 						);
 					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Execute phase complete.", "info");
 					} else {
@@ -673,6 +783,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -680,6 +811,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"info",
 						);
 					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Verify phase complete.", "info");
 					} else {
@@ -718,6 +850,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -725,6 +878,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"info",
 						);
 					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
 					} else {
