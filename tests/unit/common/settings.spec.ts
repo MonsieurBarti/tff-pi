@@ -96,6 +96,28 @@ describe("settings", () => {
 		});
 	});
 
+	describe("verify_commands setting", () => {
+		it("defaults to undefined when absent", () => {
+			const s = parseSettings("model_profile: balanced");
+			expect(s.verify_commands).toBeUndefined();
+		});
+
+		it("parses verify_commands array", () => {
+			const yaml = `verify_commands:\n  - name: test\n    command: "bun test"\n  - name: lint\n    command: "bun run lint"`;
+			const s = parseSettings(yaml);
+			expect(s.verify_commands).toEqual([
+				{ name: "test", command: "bun test" },
+				{ name: "lint", command: "bun run lint" },
+			]);
+		});
+
+		it("filters invalid entries from verify_commands", () => {
+			const yaml = `verify_commands:\n  - name: test\n    command: "bun test"\n  - invalid: true`;
+			const s = parseSettings(yaml);
+			expect(s.verify_commands).toHaveLength(1);
+		});
+	});
+
 	describe("serializeSettings", () => {
 		it("serializes settings to YAML string", () => {
 			const yaml = serializeSettings(DEFAULT_SETTINGS);

@@ -10,6 +10,7 @@ export interface Settings {
 	};
 	test_command?: string;
 	milestone_target_branch?: string;
+	verify_commands?: { name: string; command: string }[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -64,6 +65,15 @@ export function parseSettings(yamlString: string): Settings {
 		}
 		if (typeof parsed.milestone_target_branch === "string") {
 			settings.milestone_target_branch = parsed.milestone_target_branch;
+		}
+		if (Array.isArray(parsed.verify_commands)) {
+			settings.verify_commands = parsed.verify_commands.filter(
+				(v: unknown) =>
+					typeof v === "object" &&
+					v !== null &&
+					typeof (v as { name?: unknown }).name === "string" &&
+					typeof (v as { command?: unknown }).command === "string",
+			) as { name: string; command: string }[];
 		}
 		return settings;
 	} catch {
