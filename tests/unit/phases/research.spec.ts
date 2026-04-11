@@ -67,7 +67,7 @@ describe("researchPhase", () => {
 		writeArtifact(root, "milestones/M01/slices/M01-S01/RESEARCH.md", "# Research");
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -84,7 +84,7 @@ describe("researchPhase", () => {
 		writeArtifact(root, "milestones/M01/slices/M01-S01/RESEARCH.md", "# Research");
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,

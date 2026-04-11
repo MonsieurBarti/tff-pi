@@ -1,6 +1,7 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
+import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
@@ -14,6 +15,12 @@ export const verifyPhase: PhaseModule = {
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+		const startTime = Date.now();
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "phase_start",
+			phase: "verify",
+		});
 		const wtPath = getWorktreePath(root, sLabel);
 
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
@@ -71,6 +78,13 @@ export const verifyPhase: PhaseModule = {
 		if (!result.success) {
 			updateSliceStatus(db, slice.id, "executing");
 			resetTasksToOpen(db, slice.id);
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "verify",
+				durationMs: Date.now() - startTime,
+				error: "Verification failed",
+			});
 			return {
 				success: false,
 				retry: true,
@@ -120,6 +134,13 @@ export const verifyPhase: PhaseModule = {
 				);
 				updateSliceStatus(db, slice.id, "executing");
 				resetTasksToOpen(db, slice.id);
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "verify",
+					durationMs: Date.now() - startTime,
+					error: "Verification found failures",
+				});
 				return {
 					success: false,
 					retry: true,
@@ -136,6 +157,12 @@ export const verifyPhase: PhaseModule = {
 			`milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`,
 			verificationContent,
 		);
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "phase_complete",
+			phase: "verify",
+			durationMs: Date.now() - startTime,
+		});
 		return { success: true, retry: false };
 	},
 };
