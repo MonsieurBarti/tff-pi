@@ -11,6 +11,7 @@ export interface PhaseContext {
 	milestoneNumber: number;
 	settings: Settings;
 	feedback?: string;
+	headless?: boolean;
 	onSubAgentActivity?: (activity: SubAgentActivity) => void;
 }
 

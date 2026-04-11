@@ -200,6 +200,9 @@ export function verifyPhaseArtifacts(
 		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`)) {
 			missing.push("SPEC.md");
 		}
+		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REQUIREMENTS.md`)) {
+			missing.push("REQUIREMENTS.md");
+		}
 		const refreshed = getSlice(db, slice.id);
 		if (!refreshed?.tier) {
 			missing.push("tier classification");

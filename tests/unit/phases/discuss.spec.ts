@@ -61,6 +61,7 @@ describe("discussPhase", () => {
 
 	it("returns success when agent and gate pass", async () => {
 		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
+		writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# Requirements");
 		updateSliceTier(db, sliceId, "SS");
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
