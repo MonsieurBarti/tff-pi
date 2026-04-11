@@ -22,14 +22,10 @@ export function createMilestone(
 	const milestoneId = insertMilestone(db, { projectId, number, name, branch });
 	initMilestoneDir(root, number);
 
-	// Create the milestone branch if it doesn't exist
-	try {
-		if (!branchExists(branch, root)) {
-			const current = getCurrentBranch(root) ?? "HEAD";
-			createBranch(branch, current, root);
-		}
-	} catch {
-		// Not a git repo or git unavailable — branch will be created when needed
+	// Create the milestone branch — git repo must exist at this point
+	if (!branchExists(branch, root)) {
+		const current = getCurrentBranch(root) ?? "HEAD";
+		createBranch(branch, current, root);
 	}
 	writeArtifact(
 		root,
