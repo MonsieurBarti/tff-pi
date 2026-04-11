@@ -14,6 +14,7 @@ function loadResource(path: string): string {
 }
 import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
+import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
@@ -41,6 +42,13 @@ export const reviewPhase: PhaseModule = {
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+		const startTime = Date.now();
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "phase_start",
+			phase: "review",
+		});
+
 		const wtPath = getWorktreePath(root, sLabel);
 
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
@@ -112,16 +120,43 @@ export const reviewPhase: PhaseModule = {
 		if (!codeOutput.success || !securityOutput.success) {
 			updateSliceStatus(db, slice.id, "executing");
 			resetTasksToOpen(db, slice.id);
+			const errorMsg = "Review agent dispatch failed";
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "review",
+				durationMs: Date.now() - startTime,
+				error: errorMsg,
+			});
 			return {
 				success: false,
 				retry: true,
-				error: "Review agent dispatch failed",
+				error: errorMsg,
 				feedback: [codeOutput.output, securityOutput.output].join("\n"),
 			};
 		}
 
 		const codeVerdict = parseVerdict(codeOutput.output);
 		const securityVerdict = parseVerdict(securityOutput.output);
+
+		pi.events.emit("tff:review", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "review_verdict",
+			reviewer: "code",
+			verdict: codeVerdict.verdict,
+			findingCount: codeVerdict.findings.length,
+			summary: codeVerdict.summary,
+			tasksToRework: codeVerdict.tasksToRework,
+		});
+		pi.events.emit("tff:review", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "review_verdict",
+			reviewer: "security",
+			verdict: securityVerdict.verdict,
+			findingCount: securityVerdict.findings.length,
+			summary: securityVerdict.summary,
+			tasksToRework: securityVerdict.tasksToRework,
+		});
 
 		if (codeVerdict.verdict === "denied" || securityVerdict.verdict === "denied") {
 			updateSliceStatus(db, slice.id, "executing");
@@ -132,6 +167,14 @@ export const reviewPhase: PhaseModule = {
 			]
 				.filter(Boolean)
 				.join("\n");
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "review",
+				durationMs: Date.now() - startTime,
+				error: "Review denied",
+				feedback,
+			});
 			return {
 				success: false,
 				retry: true,
@@ -140,6 +183,12 @@ export const reviewPhase: PhaseModule = {
 			};
 		}
 
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "phase_complete",
+			phase: "review",
+			durationMs: Date.now() - startTime,
+		});
 		return { success: true, retry: false };
 	},
 };
