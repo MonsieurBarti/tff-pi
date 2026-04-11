@@ -60,7 +60,7 @@ const PHASE_AGENT: Record<Phase, string> = {
 };
 
 const PHASE_TOOLS: Record<Phase, string[]> = {
-	discuss: ["tff_classify", "tff_write_spec", "tff_query_state"],
+	discuss: ["tff_classify", "tff_write_spec", "tff_query_state", "tff_confirm_gate"],
 	research: [
 		"tff_write_research",
 		"tff_query_state",
@@ -78,7 +78,8 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 export function loadPhaseResources(phase: Phase): { agentPrompt: string; protocol: string } {
 	const agentName = PHASE_AGENT[phase];
 	const agentPrompt = loadResource(join(RESOURCES_DIR, "agents", `${agentName}.md`));
-	const protocol = loadResource(join(RESOURCES_DIR, "protocols", `${phase}.md`));
+	const protocolFile = phase === "discuss" ? "discuss-interactive" : phase;
+	const protocol = loadResource(join(RESOURCES_DIR, "protocols", `${protocolFile}.md`));
 	return { agentPrompt, protocol };
 }
 
