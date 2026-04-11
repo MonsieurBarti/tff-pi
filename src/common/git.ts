@@ -61,6 +61,14 @@ export function createBranch(branchName: string, startPoint: string, cwd?: strin
 	});
 }
 
+export function initRepo(cwd?: string): void {
+	execFileSync("git", ["init"], {
+		cwd: cwd ?? process.cwd(),
+		encoding: "utf-8",
+		stdio: "pipe",
+	});
+}
+
 export function getDefaultBranch(cwd?: string): string | null {
 	try {
 		const ref = execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"], {

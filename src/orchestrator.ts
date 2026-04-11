@@ -4,11 +4,18 @@ import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { readArtifact } from "./common/artifacts.js";
 import { getActiveMilestone, getActiveSlice, getProject, getSlice } from "./common/db.js";
-import type { SubAgentPrompt } from "./common/dispatch.js";
 import type { Phase, Slice, SliceStatus, Task, Tier } from "./common/types.js";
 import { milestoneLabel, sliceLabel } from "./common/types.js";
 
 export type { Phase };
+
+/** Prompt structure for phase prompts (kept for backward compat with tests). */
+export interface PhasePrompt {
+	systemPrompt: string;
+	userPrompt: string;
+	tools: string[];
+	label: string;
+}
 
 const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
 
@@ -60,7 +67,13 @@ const PHASE_AGENT: Record<Phase, string> = {
 };
 
 const PHASE_TOOLS: Record<Phase, string[]> = {
-	discuss: ["tff_classify", "tff_write_spec", "tff_query_state"],
+	discuss: [
+		"tff_classify",
+		"tff_write_spec",
+		"tff_write_requirements",
+		"tff_query_state",
+		"tff_confirm_gate",
+	],
 	research: [
 		"tff_write_research",
 		"tff_query_state",
@@ -78,7 +91,8 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 export function loadPhaseResources(phase: Phase): { agentPrompt: string; protocol: string } {
 	const agentName = PHASE_AGENT[phase];
 	const agentPrompt = loadResource(join(RESOURCES_DIR, "agents", `${agentName}.md`));
-	const protocol = loadResource(join(RESOURCES_DIR, "protocols", `${phase}.md`));
+	const protocolFile = phase === "discuss" ? "discuss-interactive" : phase;
+	const protocol = loadResource(join(RESOURCES_DIR, "protocols", `${protocolFile}.md`));
 	return { agentPrompt, protocol };
 }
 
@@ -117,7 +131,7 @@ export function buildPhasePrompt(
 	phase: Phase,
 	context: Record<string, string>,
 	compressed: boolean,
-): SubAgentPrompt {
+): PhasePrompt {
 	const agentName = PHASE_AGENT[phase];
 	const agentMd = loadResource(join(RESOURCES_DIR, "agents", `${agentName}.md`));
 	const protocolMd = loadResource(join(RESOURCES_DIR, "protocols", `${phase}.md`));
@@ -199,6 +213,9 @@ export function verifyPhaseArtifacts(
 	if (phase === "discuss") {
 		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`)) {
 			missing.push("SPEC.md");
+		}
+		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REQUIREMENTS.md`)) {
+			missing.push("REQUIREMENTS.md");
 		}
 		const refreshed = getSlice(db, slice.id);
 		if (!refreshed?.tier) {

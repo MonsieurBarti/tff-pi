@@ -21,16 +21,6 @@ import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
 
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: vi.fn().mockResolvedValue({ success: true, output: "done" }),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
-
-vi.mock("../../../src/common/plannotator-review.js", () => ({
-	requestReview: vi.fn().mockResolvedValue({ approved: true }),
-	buildReviewRequest: vi.fn(),
-}));
-
 import { planPhase } from "../../../src/phases/plan.js";
 
 describe("planPhase", () => {
@@ -64,11 +54,14 @@ describe("planPhase", () => {
 		expect(typeof planPhase.run).toBe("function");
 	});
 
-	it("returns success when agent and gate pass", async () => {
-		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan");
+	it("returns success and sends message", async () => {
 		const slice = must(getSlice(db, sliceId));
+		const sendUserMessage = vi.fn();
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -77,13 +70,16 @@ describe("planPhase", () => {
 		};
 		const result = await planPhase.run(ctx);
 		expect(result.success).toBe(true);
+		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
-	it("advances status after gate approval", async () => {
-		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan");
+	it("transitions to planning during run", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -92,6 +88,6 @@ describe("planPhase", () => {
 		};
 		await planPhase.run(ctx);
 		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("executing");
+		expect(updated.status).toBe("planning");
 	});
 });

@@ -9,6 +9,7 @@ import {
 	getCurrentBranch,
 	getDefaultBranch,
 	getGitRoot,
+	initRepo,
 } from "../../../src/common/git.js";
 import { must } from "../../helpers.js";
 
@@ -94,19 +95,37 @@ describe("git", () => {
 		});
 	});
 
-	describe("getDefaultBranch", () => {
-		it("returns a branch name string", () => {
-			const branch = getDefaultBranch();
-			// May return null in CI/test environments without remote
-			if (branch !== null) {
-				expect(typeof branch).toBe("string");
-				expect(branch.length).toBeGreaterThan(0);
+	describe("initRepo", () => {
+		it("initializes a git repository in a non-git directory", () => {
+			const nonGitDir = mkdtempSync(join(tmpdir(), "tff-initrepo-"));
+			try {
+				expect(getGitRoot(nonGitDir)).toBeNull();
+				initRepo(nonGitDir);
+				expect(getGitRoot(nonGitDir)).not.toBeNull();
+			} finally {
+				rmSync(nonGitDir, { recursive: true, force: true });
 			}
 		});
 
-		it("returns null for non-git directory", () => {
-			const branch = getDefaultBranch("/tmp");
+		it("is idempotent — does not throw on existing repo", () => {
+			expect(() => initRepo(repoDir)).not.toThrow();
+		});
+	});
+
+	describe("getDefaultBranch", () => {
+		it("returns null for a repo without remote", () => {
+			// repoDir has no remote, so getDefaultBranch should return null
+			const branch = getDefaultBranch(repoDir);
 			expect(branch).toBeNull();
+		});
+
+		it("returns null for non-git directory", () => {
+			const nonGitDir = mkdtempSync(join(tmpdir(), "tff-nodefault-"));
+			try {
+				expect(getDefaultBranch(nonGitDir)).toBeNull();
+			} finally {
+				rmSync(nonGitDir, { recursive: true, force: true });
+			}
 		});
 	});
 });

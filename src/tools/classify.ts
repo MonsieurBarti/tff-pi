@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getSlice, updateSliceTier } from "../common/db.js";
+import { isGateUnlocked } from "../common/discuss-gates.js";
 import type { Tier } from "../common/types.js";
 
 export interface ToolResult {
@@ -13,6 +14,19 @@ export function handleClassify(db: Database.Database, sliceId: string, tier: Tie
 	if (!slice) {
 		return {
 			content: [{ type: "text", text: `Slice not found: ${sliceId}` }],
+			details: { sliceId },
+			isError: true,
+		};
+	}
+
+	if (!isGateUnlocked(sliceId, "tier_confirmed")) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "Tier must be confirmed by the user. Propose a tier with justification and ask the user to confirm, then call tff_confirm_gate(sliceId, 'tier_confirmed').",
+				},
+			],
 			details: { sliceId },
 			isError: true,
 		};

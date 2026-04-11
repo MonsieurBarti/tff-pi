@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { initTffDirectory, readArtifact, writeArtifact } from "../../../src/common/artifacts.js";
+import { initTffDirectory, writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -20,12 +20,6 @@ import {
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
-
-const mockDispatch = vi.fn();
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: (...args: unknown[]) => mockDispatch(...args),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
 
 vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
@@ -48,16 +42,6 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
-	buildPhasePrompt: vi
-		.fn()
-		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
-	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
-	enrichContextWithFff: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../../../src/common/fff-integration.js", () => ({
-	discoverFffService: vi.fn().mockReturnValue(null),
-	FffBridge: vi.fn(),
 }));
 
 import { verifyPhase } from "../../../src/phases/verify.js";
@@ -68,13 +52,6 @@ describe("verifyPhase", () => {
 	let sliceId: string;
 
 	beforeEach(() => {
-		mockDispatch.mockResolvedValue({
-			success: true,
-			output: JSON.stringify({
-				acResults: [{ ac: "AC-1", status: "PASS", explanation: "OK" }],
-				testResults: { passed: 5, failed: 0, skipped: 0, output: "All pass" },
-			}),
-		});
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-verify-test-"));
@@ -99,10 +76,14 @@ describe("verifyPhase", () => {
 		expect(typeof verifyPhase.run).toBe("function");
 	});
 
-	it("succeeds when AC verification and tests pass", async () => {
+	it("returns success and sends message via sendUserMessage", async () => {
+		const sendUserMessage = vi.fn();
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -111,12 +92,17 @@ describe("verifyPhase", () => {
 		};
 		const result = await verifyPhase.run(ctx);
 		expect(result.success).toBe(true);
+		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
-	it("writes VERIFICATION.md artifact", async () => {
+	it("message includes spec and diff", async () => {
+		const sendUserMessage = vi.fn();
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -124,24 +110,29 @@ describe("verifyPhase", () => {
 			settings: DEFAULT_SETTINGS,
 		};
 		await verifyPhase.run(ctx);
-		const verification = readArtifact(root, "milestones/M01/slices/M01-S01/VERIFICATION.md");
-		expect(verification).not.toBeNull();
-		expect(verification).toContain("AC-1");
+		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		expect(msg).toContain("SPEC.md");
+		expect(msg).toContain("diff content");
 	});
 
-	it("fails and requests retry when agent reports failure", async () => {
-		mockDispatch.mockResolvedValue({ success: false, output: "AC-2 failed" });
+	it("emits phase_start event", async () => {
+		const mockEmit = vi.fn();
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await verifyPhase.run(ctx);
-		expect(result.success).toBe(false);
-		expect(result.retry).toBe(true);
+		await verifyPhase.run(ctx);
+		const startCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "verify",
+		);
+		expect(startCalls).toHaveLength(1);
 	});
 });

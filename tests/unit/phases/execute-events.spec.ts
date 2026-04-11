@@ -22,12 +22,6 @@ import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
 
-const mockDispatch = vi.fn();
-vi.mock("../../../src/common/dispatch.js", () => ({
-	dispatchSubAgent: (...args: unknown[]) => mockDispatch(...args),
-	buildSubagentTask: vi.fn().mockReturnValue("task"),
-}));
-
 vi.mock("../../../src/common/worktree.js", () => ({
 	createWorktree: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	worktreeExists: vi.fn().mockReturnValue(false),
@@ -41,10 +35,6 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
-	buildPhasePrompt: vi
-		.fn()
-		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
-	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";
@@ -57,7 +47,10 @@ function makeCtx(
 ): PhaseContext {
 	const slice = must(getSlice(db, sliceId));
 	return {
-		pi: { events: { emit: mockEmit, on: vi.fn() } } as unknown as PhaseContext["pi"],
+		pi: {
+			sendUserMessage: vi.fn(),
+			events: { emit: mockEmit, on: vi.fn() },
+		} as unknown as PhaseContext["pi"],
 		db,
 		root,
 		slice,
@@ -72,7 +65,6 @@ describe("executePhase event emission", () => {
 	let sliceId: string;
 
 	beforeEach(() => {
-		mockDispatch.mockResolvedValue({ success: true, output: "done" });
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-exec-events-test-"));
@@ -103,8 +95,7 @@ describe("executePhase event emission", () => {
 		expect(startCalls).toHaveLength(1);
 	});
 
-	it("emits phase_complete on success", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+	it("emits phase_complete when no tasks (immediate completion)", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		const result = await executePhase.run(ctx);
@@ -117,115 +108,30 @@ describe("executePhase event emission", () => {
 		expect(completeCalls[0]?.[1]).toHaveProperty("durationMs");
 	});
 
-	it("emits phase_failed when all retries exhausted", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Broken", wave: 1 });
-		mockDispatch.mockResolvedValue({ success: false, output: "executor error" });
+	it("does NOT emit phase_complete when tasks exist (interactive)", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		const result = await executePhase.run(ctx);
 
-		expect(result.success).toBe(false);
-		const failedCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "execute",
+		expect(result.success).toBe(true);
+		const completeCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "execute",
 		);
-		expect(failedCalls).toHaveLength(1);
-		expect(failedCalls[0]?.[1]).toHaveProperty("durationMs");
+		expect(completeCalls).toHaveLength(0);
 	});
 
-	it("emits wave_started for each wave with correct metadata", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
-		insertTask(db, { sliceId, number: 3, title: "API", wave: 2 });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
-
-		const waveStarted = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:wave" && e.type === "wave_started",
-		);
-		expect(waveStarted).toHaveLength(2);
-		const wave1 = waveStarted.find(([, e]) => e.wave === 1)?.[1];
-		expect(wave1).toBeDefined();
-		expect(wave1).toHaveProperty("taskCount", 2);
-		expect(wave1).toHaveProperty("totalWaves", 2);
-		const wave2 = waveStarted.find(([, e]) => e.wave === 2)?.[1];
-		expect(wave2).toBeDefined();
-		expect(wave2).toHaveProperty("taskCount", 1);
-	});
-
-	it("emits wave_completed with durationMs after each wave", async () => {
+	it("includes base event fields on phase events", async () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		await executePhase.run(ctx);
 
-		const waveCompleted = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:wave" && e.type === "wave_completed",
+		const startCall = mockEmit.mock.calls.find(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start",
 		);
-		expect(waveCompleted).toHaveLength(1);
-		expect(waveCompleted[0]?.[1]).toHaveProperty("wave", 1);
-		expect(waveCompleted[0]?.[1]).toHaveProperty("durationMs");
-	});
-
-	it("emits task_dispatched before each task", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
-
-		const dispatched = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:task" && e.type === "task_dispatched",
-		);
-		expect(dispatched).toHaveLength(2);
-		expect(dispatched[0]?.[1]).toHaveProperty("wave", 1);
-		expect(dispatched[0]?.[1]).toHaveProperty("taskTitle");
-	});
-
-	it("emits task_completed for successful tasks", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
-
-		const completed = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:task" && e.type === "task_completed",
-		);
-		expect(completed).toHaveLength(1);
-		expect(completed[0]?.[1]).toHaveProperty("wave", 1);
-	});
-
-	it("emits task_failed then task_retried for failing tasks", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Broken", wave: 1 });
-		mockDispatch.mockResolvedValue({ success: false, output: "error" });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
-
-		const failed = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:task" && e.type === "task_failed",
-		);
-		expect(failed.length).toBeGreaterThanOrEqual(1);
-
-		const retried = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:task" && e.type === "task_retried",
-		);
-		// MAX_TASK_RETRIES = 2, so 2 retry events
-		expect(retried).toHaveLength(2);
-		expect(retried[0]?.[1]).toHaveProperty("attempt");
-	});
-
-	it("includes base event fields on wave events", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		const mockEmit = vi.fn();
-		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
-
-		const waveStarted = mockEmit.mock.calls.find(
-			([ch, e]) => ch === "tff:wave" && e.type === "wave_started",
-		);
-		expect(waveStarted).toBeDefined();
-		const event = waveStarted?.[1];
+		expect(startCall).toBeDefined();
+		const event = startCall?.[1];
 		expect(event).toHaveProperty("sliceId");
 		expect(event).toHaveProperty("sliceLabel", "M01-S01");
 		expect(event).toHaveProperty("milestoneNumber", 1);

@@ -11,6 +11,7 @@ import {
 	insertSlice,
 	openDatabase,
 } from "../../../src/common/db.js";
+import { unlockGate } from "../../../src/common/discuss-gates.js";
 import { handleClassify } from "../../../src/tools/classify.js";
 import { must } from "../../helpers.js";
 
@@ -35,12 +36,14 @@ describe("handleClassify", () => {
 	});
 
 	it("returns error for non-existent slice", () => {
+		unlockGate("nonexistent", "tier_confirmed");
 		const result = handleClassify(db, "nonexistent", "S");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");
 	});
 
 	it("classifies a slice as S tier", () => {
+		unlockGate(sliceId, "tier_confirmed");
 		const result = handleClassify(db, sliceId, "S");
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("Tier S");
@@ -48,18 +51,21 @@ describe("handleClassify", () => {
 	});
 
 	it("classifies a slice as SS tier", () => {
+		unlockGate(sliceId, "tier_confirmed");
 		const result = handleClassify(db, sliceId, "SS");
 		expect(result.isError).toBeUndefined();
 		expect(must(getSlice(db, sliceId)).tier).toBe("SS");
 	});
 
 	it("classifies a slice as SSS tier", () => {
+		unlockGate(sliceId, "tier_confirmed");
 		const result = handleClassify(db, sliceId, "SSS");
 		expect(result.isError).toBeUndefined();
 		expect(must(getSlice(db, sliceId)).tier).toBe("SSS");
 	});
 
 	it("reclassifies an already-classified slice", () => {
+		unlockGate(sliceId, "tier_confirmed");
 		handleClassify(db, sliceId, "S");
 		expect(must(getSlice(db, sliceId)).tier).toBe("S");
 		handleClassify(db, sliceId, "SSS");

@@ -4,7 +4,6 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
-import { validateAuto } from "./commands/auto.js";
 import { validateDiscuss } from "./commands/discuss.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
@@ -27,28 +26,27 @@ import {
 	getSlice,
 	getSlices,
 	openDatabase,
-	updateSliceStatus,
 } from "./common/db.js";
+import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
-import { makeBaseEvent } from "./common/events.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
-import { getGitRoot } from "./common/git.js";
+import { getGitRoot, initRepo } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
+import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
-import type { SubAgentActivity } from "./common/types.js";
 import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
-import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
+import { findActiveSlice } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
 import { queryState } from "./tools/query-state.js";
 import { handleTransition } from "./tools/transition.js";
-import { type TaskInput, handleWritePlan } from "./tools/write-plan.js";
+import { handleWritePlan } from "./tools/write-plan.js";
 import { handleWriteResearch } from "./tools/write-research.js";
-import { handleWriteSpec } from "./tools/write-spec.js";
+import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
 
 // ---------------------------------------------------------------------------
 // Module-level state
@@ -208,10 +206,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 			switch (subcommand) {
 				case "new": {
-					const root = getGitRoot() ?? projectRoot;
+					let root = getGitRoot() ?? projectRoot;
 					if (!root) {
-						if (ctx.hasUI) ctx.ui.notify("Not inside a git repository.", "error");
-						return;
+						initRepo(process.cwd());
+						root = getGitRoot() ?? process.cwd();
 					}
 					projectRoot = root;
 					initDb(root);
@@ -235,7 +233,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"- `/tff research [sliceId]` — Run the research phase on a slice\n" +
 							"- `/tff plan [sliceId]` — Run the plan phase on a slice\n" +
 							"- `/tff next` — Advance the active slice to its next phase\n" +
-							"- `/tff auto` — Automatically advance slices through phases\n" +
 							"- `/tff pause [sliceId]` — Pause the active slice\n\n" +
 							"**Monitoring:**\n" +
 							"- `/tff status` — Show current project status\n" +
@@ -357,41 +354,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						...(ctx.hasUI
-							? {
-									onSubAgentActivity: (activity: SubAgentActivity) => {
-										const lines: string[] = [];
-										if (activity.currentTool) {
-											const args = activity.currentToolArgs
-												? Object.entries(activity.currentToolArgs)
-														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-														.join(", ")
-												: "";
-											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
-										}
-										if (activity.completedTools.length > 0) {
-											lines.push(`✓ ${activity.completedTools.join(", ")}`);
-										}
-										const sec = Math.round(activity.elapsedMs / 1000);
-										lines.push(`${activity.turns} turns · ${sec}s`);
-										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
-									},
-								}
-							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					const result = await mod.run(phaseCtx);
-					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
-					if (result.success) {
-						if (ctx.hasUI) ctx.ui.notify("Discuss phase complete.", "info");
-					} else {
-						if (ctx.hasUI)
-							ctx.ui.notify(`Discuss phase failed: ${result.error ?? "unknown error"}`, "error");
-					}
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -424,41 +393,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						...(ctx.hasUI
-							? {
-									onSubAgentActivity: (activity: SubAgentActivity) => {
-										const lines: string[] = [];
-										if (activity.currentTool) {
-											const args = activity.currentToolArgs
-												? Object.entries(activity.currentToolArgs)
-														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-														.join(", ")
-												: "";
-											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
-										}
-										if (activity.completedTools.length > 0) {
-											lines.push(`✓ ${activity.completedTools.join(", ")}`);
-										}
-										const sec = Math.round(activity.elapsedMs / 1000);
-										lines.push(`${activity.turns} turns · ${sec}s`);
-										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
-									},
-								}
-							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					const result = await mod.run(phaseCtx);
-					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
-					if (result.success) {
-						if (ctx.hasUI) ctx.ui.notify("Research phase complete.", "info");
-					} else {
-						if (ctx.hasUI)
-							ctx.ui.notify(`Research phase failed: ${result.error ?? "unknown error"}`, "error");
-					}
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -491,41 +432,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						...(ctx.hasUI
-							? {
-									onSubAgentActivity: (activity: SubAgentActivity) => {
-										const lines: string[] = [];
-										if (activity.currentTool) {
-											const args = activity.currentToolArgs
-												? Object.entries(activity.currentToolArgs)
-														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-														.join(", ")
-												: "";
-											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
-										}
-										if (activity.completedTools.length > 0) {
-											lines.push(`✓ ${activity.completedTools.join(", ")}`);
-										}
-										const sec = Math.round(activity.elapsedMs / 1000);
-										lines.push(`${activity.turns} turns · ${sec}s`);
-										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
-									},
-								}
-							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					const result = await mod.run(phaseCtx);
-					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
-					if (result.success) {
-						if (ctx.hasUI) ctx.ui.notify("Plan phase complete.", "info");
-					} else {
-						if (ctx.hasUI)
-							ctx.ui.notify(`Plan phase failed: ${result.error ?? "unknown error"}`, "error");
-					}
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -554,135 +467,22 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						...(ctx.hasUI
-							? {
-									onSubAgentActivity: (activity: SubAgentActivity) => {
-										const lines: string[] = [];
-										if (activity.currentTool) {
-											const args = activity.currentToolArgs
-												? Object.entries(activity.currentToolArgs)
-														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-														.join(", ")
-												: "";
-											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
-										}
-										if (activity.completedTools.length > 0) {
-											lines.push(`✓ ${activity.completedTools.join(", ")}`);
-										}
-										const sec = Math.round(activity.elapsedMs / 1000);
-										lines.push(`${activity.turns} turns · ${sec}s`);
-										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
-									},
-								}
-							: {}),
 					};
 					await mod.run(phaseCtx);
 					break;
 				}
 
 				case "auto": {
-					const database = getDb();
-					const root = projectRoot;
-					if (!root) return;
-					const validation = validateAuto(database);
-					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
-						return;
-					}
-					let currentSlice = findActiveSlice(database);
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					const MAX_AUTO_ITERATIONS = 50;
-					const MAX_REVIEW_CYCLES = 3;
-					let iterations = 0;
-					let reviewCycles = 0;
-					let lastFeedback: string | undefined;
-					let pipelinePaused = false;
-					const pipelineStartTime = Date.now();
-
-					if (currentSlice) {
-						const initMilestone = getMilestone(database, currentSlice.milestoneId);
-						if (initMilestone) {
-							const initSLabel = sliceLabel(initMilestone.number, currentSlice.number);
-							const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
-							pi.events.emit("tff:pipeline", {
-								...makeBaseEvent(currentSlice.id, initSLabel, initMilestone.number),
-								type: "pipeline_start",
-								fromPhase: phase ?? undefined,
-							});
-						}
-					}
-
-					while (currentSlice && iterations < MAX_AUTO_ITERATIONS) {
-						iterations++;
-						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
-						if (!phase) break;
-						const mod = phaseModules[phase];
-						const milestone = getMilestone(database, currentSlice.milestoneId);
-						if (!milestone) break;
-						const phaseCtx: PhaseContext = {
-							pi,
-							db: database,
-							root,
-							slice: currentSlice,
-							milestoneNumber: milestone.number,
-							settings: currentSettings,
-							...(lastFeedback !== undefined ? { feedback: lastFeedback } : {}),
-						};
-						const result = await mod.run(phaseCtx);
-						if (!result.success) {
-							if (result.retry) {
-								lastFeedback = result.feedback;
-								if (phase === "review" || phase === "verify") {
-									reviewCycles++;
-								}
-								if (reviewCycles >= MAX_REVIEW_CYCLES) {
-									updateSliceStatus(database, currentSlice.id, "paused");
-									if (ctx.hasUI)
-										ctx.ui.notify(
-											`Slice paused after ${MAX_REVIEW_CYCLES} retry cycles.`,
-											"warning",
-										);
-									const pausedMilestone = getMilestone(database, currentSlice.milestoneId);
-									if (pausedMilestone) {
-										const pausedSLabel = sliceLabel(pausedMilestone.number, currentSlice.number);
-										pi.events.emit("tff:pipeline", {
-											...makeBaseEvent(currentSlice.id, pausedSLabel, pausedMilestone.number),
-											type: "pipeline_paused",
-										});
-									}
-									pipelinePaused = true;
-									break;
-								}
-							} else {
-								break;
-							}
-						} else {
-							lastFeedback = undefined;
-							if (phase === "ship") {
-								// Reset review cycles on successful ship (new slice)
-								reviewCycles = 0;
-							}
-						}
-						currentSlice = findActiveSlice(database);
-					}
-					if (iterations >= MAX_AUTO_ITERATIONS) {
-						if (ctx.hasUI) ctx.ui.notify("Auto mode: max iterations reached.", "warning");
-					}
-
-					if (!pipelinePaused) {
-						const finalSlice = findActiveSlice(database) ?? currentSlice;
-						if (finalSlice) {
-							const finalMilestone = getMilestone(database, finalSlice.milestoneId);
-							if (finalMilestone) {
-								const finalSLabel = sliceLabel(finalMilestone.number, finalSlice.number);
-								pi.events.emit("tff:pipeline", {
-									...makeBaseEvent(finalSlice.id, finalSLabel, finalMilestone.number),
-									type: "pipeline_complete",
-									totalDurationMs: Date.now() - pipelineStartTime,
-								});
-							}
-						}
-					}
+					pi.sendUserMessage(
+						"Auto mode has been removed. Each phase now runs interactively in the main session.\n\n" +
+							"Use `/tff next` to advance to the next phase, or run a specific phase:\n" +
+							"- `/tff discuss [slice]`\n" +
+							"- `/tff research [slice]`\n" +
+							"- `/tff plan [slice]`\n" +
+							"- `/tff execute [slice]`\n" +
+							"- `/tff verify [slice]`\n" +
+							"- `/tff ship [slice]`",
+					);
 					break;
 				}
 
@@ -715,41 +515,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						...(ctx.hasUI
-							? {
-									onSubAgentActivity: (activity: SubAgentActivity) => {
-										const lines: string[] = [];
-										if (activity.currentTool) {
-											const args = activity.currentToolArgs
-												? Object.entries(activity.currentToolArgs)
-														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-														.join(", ")
-												: "";
-											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
-										}
-										if (activity.completedTools.length > 0) {
-											lines.push(`✓ ${activity.completedTools.join(", ")}`);
-										}
-										const sec = Math.round(activity.elapsedMs / 1000);
-										lines.push(`${activity.turns} turns · ${sec}s`);
-										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
-									},
-								}
-							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					const result = await mod.run(phaseCtx);
-					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
-					if (result.success) {
-						if (ctx.hasUI) ctx.ui.notify("Execute phase complete.", "info");
-					} else {
-						if (ctx.hasUI)
-							ctx.ui.notify(`Execute phase failed: ${result.error ?? "unknown error"}`, "error");
-					}
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -782,41 +554,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						...(ctx.hasUI
-							? {
-									onSubAgentActivity: (activity: SubAgentActivity) => {
-										const lines: string[] = [];
-										if (activity.currentTool) {
-											const args = activity.currentToolArgs
-												? Object.entries(activity.currentToolArgs)
-														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-														.join(", ")
-												: "";
-											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
-										}
-										if (activity.completedTools.length > 0) {
-											lines.push(`✓ ${activity.completedTools.join(", ")}`);
-										}
-										const sec = Math.round(activity.elapsedMs / 1000);
-										lines.push(`${activity.turns} turns · ${sec}s`);
-										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
-									},
-								}
-							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					const result = await mod.run(phaseCtx);
-					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
-					if (result.success) {
-						if (ctx.hasUI) ctx.ui.notify("Verify phase complete.", "info");
-					} else {
-						if (ctx.hasUI)
-							ctx.ui.notify(`Verify phase failed: ${result.error ?? "unknown error"}`, "error");
-					}
+					await mod.run(phaseCtx);
 					break;
 				}
 
@@ -849,27 +593,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						...(ctx.hasUI
-							? {
-									onSubAgentActivity: (activity: SubAgentActivity) => {
-										const lines: string[] = [];
-										if (activity.currentTool) {
-											const args = activity.currentToolArgs
-												? Object.entries(activity.currentToolArgs)
-														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-														.join(", ")
-												: "";
-											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
-										}
-										if (activity.completedTools.length > 0) {
-											lines.push(`✓ ${activity.completedTools.join(", ")}`);
-										}
-										const sec = Math.round(activity.elapsedMs / 1000);
-										lines.push(`${activity.turns} turns · ${sec}s`);
-										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
-									},
-								}
-							: {}),
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -877,7 +600,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"info",
 						);
 					const result = await mod.run(phaseCtx);
-					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
 					} else {
@@ -1027,12 +749,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_classify",
 			label: "TFF Classify Slice",
 			description:
-				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex. Called during the discuss phase — do NOT call directly, use /tff discuss instead.",
+				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex. During interactive discuss, requires tier confirmation gate via tff_confirm_gate.",
 			promptSnippet:
-				"Do NOT call tff_classify directly. The /tff discuss phase handles tier classification via a sub-agent.",
+				"Call tff_confirm_gate('tier_confirmed') before calling tff_classify. The system enforces this.",
 			promptGuidelines: [
-				"This tool is for sub-agents during phase execution, not for direct use",
-				"To classify a slice, tell the user to run /tff discuss <slice>",
+				"Requires tier_confirmed gate — call tff_confirm_gate('tier_confirmed') first",
+				"Propose a tier to the user, get confirmation, then call tff_confirm_gate, then tff_classify",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1053,7 +775,78 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleClassify(database, slice.id, params.tier as (typeof TIERS)[number]);
+					const tier = TIERS.find((t) => t === params.tier);
+					if (!tier) {
+						return {
+							content: [{ type: "text", text: `Invalid tier: ${params.tier}` }],
+							details: { tier: params.tier },
+							isError: true,
+						};
+					}
+					return handleClassify(database, slice.id, tier);
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_confirm_gate
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_confirm_gate",
+			label: "TFF Confirm Gate",
+			description:
+				"Confirm a discuss-phase gate after user approval. Gates: 'depth_verified' (unlocks tff_write_spec) and 'tier_confirmed' (unlocks tff_classify). Only call after the user has explicitly confirmed.",
+			promptGuidelines: [
+				"Call with gate='depth_verified' after user confirms they're ready to write the spec",
+				"Call with gate='tier_confirmed' after user confirms the proposed tier classification",
+				"Do NOT call without explicit user confirmation",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				gate: StringEnum(["depth_verified", "tier_confirmed"], {
+					description: "The gate to unlock: 'depth_verified' or 'tier_confirmed'",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const gate = DISCUSS_GATES.find((g) => g === params.gate);
+					if (!gate) {
+						return {
+							content: [{ type: "text", text: `Invalid gate: ${params.gate}` }],
+							details: { gate: params.gate },
+							isError: true,
+						};
+					}
+					unlockGate(slice.id, gate);
+					const gateLabel =
+						params.gate === "depth_verified"
+							? "Depth verified — tff_write_spec is now unlocked."
+							: "Tier confirmed — tff_classify is now unlocked.";
+					return {
+						content: [{ type: "text", text: gateLabel }],
+						details: { sliceId: slice.id, gate: params.gate },
+					};
 				} catch (err) {
 					return {
 						content: [
@@ -1160,12 +953,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_spec",
 			label: "TFF Write Spec",
 			description:
-				"Write the SPEC.md artifact for a slice. Called by the brainstormer agent during the discuss phase. Do NOT call directly — use /tff discuss instead.",
+				"Write the SPEC.md artifact for a slice. During interactive discuss, requires depth verification gate to be unlocked first via tff_confirm_gate.",
 			promptSnippet:
-				"Do NOT call tff_write_spec directly. Use /tff discuss <slice> to run the discuss phase which writes the spec via a sub-agent.",
+				"Call tff_confirm_gate('depth_verified') before calling tff_write_spec. The system enforces this.",
 			promptGuidelines: [
-				"This tool is for sub-agents during phase execution, not for direct use",
-				"To write a spec, tell the user to run /tff discuss <slice>",
+				"Requires depth_verified gate — call tff_confirm_gate('depth_verified') first",
+				"Used during the discuss phase to write the spec after user confirms readiness",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1194,7 +987,69 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteSpec(database, root, slice.id, params.content);
+					const writeResult = handleWriteSpec(database, root, slice.id, params.content);
+					if (!writeResult.isError) {
+						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+					}
+					return writeResult;
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_requirements
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_requirements",
+			label: "TFF Write Requirements",
+			description:
+				"Write the REQUIREMENTS.md artifact for a slice. Used during the discuss phase alongside SPEC.md.",
+			promptGuidelines: [
+				"Write REQUIREMENTS.md with R-IDs, classes, acceptance conditions, and verification instructions",
+				"Used during the discuss phase after writing SPEC.md",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "The markdown content of the requirements",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const writeResult = handleWriteRequirements(database, root, slice.id, params.content);
+					if (!writeResult.isError) {
+						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+					}
+					return writeResult;
 				} catch (err) {
 					return {
 						content: [
@@ -1272,13 +1127,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Called by the planner agent during the plan phase. Do NOT call directly — use /tff plan instead.",
-			promptSnippet:
-				"Do NOT call tff_write_plan directly. Use /tff plan <slice> to run the plan phase which writes the plan via a sub-agent with review gates.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Triggers plannotator review after writing.",
 			promptGuidelines: [
-				"This tool is for sub-agents during phase execution, not for direct use",
-				"To write a plan, tell the user to run /tff plan <slice>",
-				"The plan phase includes a plannotator review gate that direct tool calls bypass",
+				"Write PLAN.md with tasks, dependencies, and implementation details",
+				"Plannotator review opens automatically after writing",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1325,13 +1177,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWritePlan(
+					const writeResult = handleWritePlan(
 						database,
 						root,
 						slice.id,
 						params.content,
-						params.tasks as TaskInput[],
+						params.tasks,
 					);
+					if (!writeResult.isError) {
+						requestReview(pi, String(writeResult.details.path), params.content, "plan");
+					}
+					return writeResult;
 				} catch (err) {
 					return {
 						content: [

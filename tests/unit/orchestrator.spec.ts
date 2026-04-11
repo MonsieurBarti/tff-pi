@@ -284,7 +284,7 @@ describe("verifyPhaseArtifacts", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("reports missing SPEC.md and tier for discuss phase", () => {
+	it("reports missing SPEC.md, REQUIREMENTS.md, and tier for discuss phase", () => {
 		const slice = {
 			id: sliceId,
 			milestoneId: "m1",
@@ -298,11 +298,13 @@ describe("verifyPhaseArtifacts", () => {
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "discuss");
 		expect(result.ok).toBe(false);
 		expect(result.missing).toContain("SPEC.md");
+		expect(result.missing).toContain("REQUIREMENTS.md");
 		expect(result.missing).toContain("tier classification");
 	});
 
-	it("passes discuss phase when SPEC.md and tier exist", () => {
+	it("passes discuss phase when SPEC.md, REQUIREMENTS.md, and tier exist", () => {
 		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
+		writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# Requirements");
 		updateSliceTier(db, sliceId, "SS");
 		const slice = {
 			id: sliceId,

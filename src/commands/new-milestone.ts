@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { initMilestoneDir, writeArtifact } from "../common/artifacts.js";
 import { getNextMilestoneNumber, insertMilestone } from "../common/db.js";
+import { branchExists, createBranch, getCurrentBranch } from "../common/git.js";
 import { milestoneLabel } from "../common/types.js";
 
 export interface MilestoneResult {
@@ -20,6 +21,12 @@ export function createMilestone(
 	const branch = `milestone/${label}`;
 	const milestoneId = insertMilestone(db, { projectId, number, name, branch });
 	initMilestoneDir(root, number);
+
+	// Create the milestone branch — git repo must exist at this point
+	if (!branchExists(branch, root)) {
+		const current = getCurrentBranch(root) ?? "HEAD";
+		createBranch(branch, current, root);
+	}
 	writeArtifact(
 		root,
 		`milestones/${label}/REQUIREMENTS.md`,

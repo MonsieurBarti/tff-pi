@@ -19,6 +19,7 @@ import {
 	insertSlice,
 	openDatabase,
 } from "../../../src/common/db.js";
+import { unlockGate } from "../../../src/common/discuss-gates.js";
 import { handleWriteSpec } from "../../../src/tools/write-spec.js";
 import { must } from "../../helpers.js";
 
@@ -55,7 +56,8 @@ describe("handleWriteSpec", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("writes SPEC.md for a valid slice", () => {
+	it("writes SPEC.md for a valid slice when gate is unlocked", () => {
+		unlockGate(sliceId, "depth_verified");
 		const content = "# Auth Spec\n\nDetails here.\n";
 		const result = handleWriteSpec(db, root, sliceId, content);
 
@@ -68,9 +70,16 @@ describe("handleWriteSpec", () => {
 	});
 
 	it("returns error for unknown slice", () => {
+		unlockGate("nonexistent", "depth_verified");
 		const result = handleWriteSpec(db, root, "nonexistent", "content");
 
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");
+	});
+
+	it("rejects write when gate is locked", () => {
+		const result = handleWriteSpec(db, root, sliceId, "# Spec");
+		expect(result.isError).toBe(true);
+		expect(must(result.content[0]).text).toContain("Depth verification required");
 	});
 });
