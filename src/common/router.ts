@@ -9,7 +9,6 @@ export const VALID_SUBCOMMANDS = [
 	"ship",
 	"complete-milestone",
 	"next",
-	"auto",
 	"status",
 	"progress",
 	"settings",

@@ -102,6 +102,8 @@ export function applyMigrations(db: Database.Database): void {
 			PRIMARY KEY (from_task_id, to_task_id)
 		);
 	`);
+	// Legacy migration: pr_url column added before schema versioning.
+	// Kept as try/catch for backward compatibility with existing databases.
 	try {
 		db.exec("ALTER TABLE slice ADD COLUMN pr_url TEXT");
 	} catch {
@@ -140,6 +142,12 @@ export function applyMigrations(db: Database.Database): void {
 	if (currentVersion < 2) {
 		// M04 monitoring tables (already exist via CREATE IF NOT EXISTS)
 		db.prepare("INSERT INTO schema_version (version) VALUES (2)").run();
+	}
+
+	if (currentVersion < 3) {
+		// M07: paused status removed — migrate any orphaned paused slices
+		db.prepare("UPDATE slice SET status = 'created' WHERE status = 'paused'").run();
+		db.prepare("INSERT INTO schema_version (version) VALUES (3)").run();
 	}
 }
 

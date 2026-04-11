@@ -100,11 +100,17 @@ const DEFAULT_GITIGNORE_ENTRIES = [
 export function createGitignore(cwd: string): void {
 	const filePath = join(cwd, ".gitignore");
 	const existing = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
-	const existingLines = new Set(existing.split("\n").map((l) => l.trim()));
+	const existingLines = new Set(
+		existing
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean),
+	);
 	const missing = DEFAULT_GITIGNORE_ENTRIES.filter((entry) => !existingLines.has(entry));
 	if (missing.length === 0) return;
 	const suffix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-	writeFileSync(filePath, `${existing}${suffix}${missing.join("\n")}\n`);
+	const header = existing.length > 0 ? "\n# TFF defaults\n" : "";
+	writeFileSync(filePath, `${existing}${suffix}${header}${missing.join("\n")}\n`);
 }
 
 export function hasRemote(cwd?: string): boolean {

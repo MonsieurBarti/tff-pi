@@ -311,7 +311,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				case "settings": {
 					const current = settings ?? DEFAULT_SETTINGS;
 					pi.sendUserMessage(
-						`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
+						`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n- ship.auto_merge: ${current.ship.auto_merge}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
 					);
 					break;
 				}
@@ -483,20 +483,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					break;
 				}
 
-				case "auto": {
-					pi.sendUserMessage(
-						"Auto mode has been removed. Each phase now runs interactively in the main session.\n\n" +
-							"Use `/tff next` to advance to the next phase, or run a specific phase:\n" +
-							"- `/tff discuss [slice]`\n" +
-							"- `/tff research [slice]`\n" +
-							"- `/tff plan [slice]`\n" +
-							"- `/tff execute [slice]`\n" +
-							"- `/tff verify [slice]`\n" +
-							"- `/tff ship [slice]`",
-					);
-					break;
-				}
-
 				case "execute": {
 					const database = getDb();
 					const root = projectRoot;
@@ -613,6 +599,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
+					} else if (result.retry && result.feedback) {
+						// PR has review comments — re-enter execute with feedback
+						if (ctx.hasUI)
+							ctx.ui.notify("PR has review comments. Re-entering execute phase for fixes.", "info");
+						const executeMod = phaseModules.execute;
+						const freshSlice = getSlice(database, slice.id);
+						if (freshSlice) {
+							const execCtx: PhaseContext = {
+								pi,
+								db: database,
+								root,
+								slice: freshSlice,
+								milestoneNumber: milestone.number,
+								settings: currentSettings,
+								feedback: result.feedback,
+							};
+							await executeMod.run(execCtx);
+						}
 					} else {
 						if (ctx.hasUI)
 							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
@@ -939,12 +943,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					if (!/^https?:\/\//.test(params.url) && !/^git@/.test(params.url)) {
+					const validHostPatterns = [
+						/^https?:\/\/(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org)\//,
+						/^git@(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org):/,
+					];
+					if (!validHostPatterns.some((p) => p.test(params.url))) {
 						return {
 							content: [
 								{
 									type: "text",
-									text: "Error: URL must start with https:// or git@",
+									text: "Error: URL must be from a known git host (github.com, gitlab.com, bitbucket.org, codeberg.org). If you need a different host, add the remote manually with `git remote add origin <url>`.",
 								},
 							],
 							details: { url: params.url },

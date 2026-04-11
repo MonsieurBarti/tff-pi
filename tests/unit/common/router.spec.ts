@@ -21,7 +21,6 @@ describe("router", () => {
 				"ship",
 				"complete-milestone",
 				"next",
-				"auto",
 				"status",
 				"progress",
 				"settings",

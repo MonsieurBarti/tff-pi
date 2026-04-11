@@ -417,7 +417,69 @@ describe("E2E critical path", () => {
 	});
 
 	// -----------------------------------------------------------------------
-	// 4. Pre-flight rejects missing verification
+	// 4. Ship re-entry with PR comments
+	// -----------------------------------------------------------------------
+	describe("ship re-entry with PR comments", () => {
+		it("transitions back to executing with feedback", async () => {
+			initTffDirectory(root);
+			insertProject(db, { name: "TFF", vision: "Vision" });
+			const projectId = must(getProject(db)).id;
+			insertMilestone(db, {
+				projectId,
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const milestoneId = must(getMilestones(db, projectId)[0]).id;
+			insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+			const sliceId = must(getSlices(db, milestoneId)[0]).id;
+
+			const mLabel = milestoneLabel(1);
+			const sLabel = sliceLabel(1, 1);
+			const base = `milestones/${mLabel}/slices/${sLabel}`;
+
+			writeArtifact(root, `${base}/SPEC.md`, "# Spec");
+			writeArtifact(root, `${base}/REQUIREMENTS.md`, "# Req");
+			writeArtifact(root, `${base}/PLAN.md`, "# Plan");
+			writeArtifact(root, `${base}/VERIFICATION.md`, "# V\n- [x] pass");
+			writeArtifact(root, `${base}/REVIEW.md`, "# Review");
+			updateSliceStatus(db, sliceId, "shipping");
+			updateSliceTier(db, sliceId, "SS");
+			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
+
+			// Mock gh pr view to return OPEN with comments
+			mockExec.mockImplementation((...args: unknown[]) => {
+				const cmd = args[0] as string;
+				const cmdArgs = args[1] as string[];
+				if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "view") {
+					return JSON.stringify({
+						state: "OPEN",
+						comments: [{ body: "Fix the error handling", author: { login: "reviewer" } }],
+					});
+				}
+				return "";
+			});
+
+			const pi = makePi();
+			const slice = must(getSlice(db, sliceId));
+			const result = await shipPhase.run({
+				pi,
+				db,
+				root,
+				slice,
+				milestoneNumber: 1,
+				settings: DEFAULT_SETTINGS,
+			});
+			expect(result.success).toBe(false);
+			expect(result.retry).toBe(true);
+			expect(result.feedback).toContain("Fix the error handling");
+			const updated = must(getSlice(db, sliceId));
+			expect(updated.status).toBe("executing");
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// 5. Pre-flight rejects missing verification
 	// -----------------------------------------------------------------------
 	describe("preflight rejects missing verification", () => {
 		it("returns errors when VERIFICATION.md is absent", () => {
