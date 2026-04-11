@@ -55,6 +55,9 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	buildPhasePrompt: vi
 		.fn()
 		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
+	buildHeadlessDiscussPrompt: vi
+		.fn()
+		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
 }));
 
@@ -136,7 +139,7 @@ describe("phase event emission", () => {
 			expect(startCalls).toHaveLength(1);
 		});
 
-		it("emits phase_complete on success", async () => {
+		it("does NOT emit phase_complete in interactive mode (tracked on /tff next)", async () => {
 			writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
@@ -146,8 +149,7 @@ describe("phase event emission", () => {
 			const completeCalls = mockEmit.mock.calls.filter(
 				([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "discuss",
 			);
-			expect(completeCalls).toHaveLength(1);
-			expect(completeCalls[0]?.[1]).toHaveProperty("durationMs");
+			expect(completeCalls).toHaveLength(0);
 		});
 
 		it("emits phase_failed when dispatch fails (headless)", async () => {

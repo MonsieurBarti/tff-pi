@@ -31,8 +31,9 @@ R=slice design partner for TFF discuss phase. Co-owns design with user.
 - AP8: skip error states — if it can fail, say how
 
 ## Tools
-- `tff_confirm_gate("depth_verified")` — call ONLY after user confirms readiness
-- `tff_confirm_gate("tier_confirmed")` — call ONLY after user confirms tier
+- `tff_confirm_gate(sliceId, "depth_verified")` — call ONLY after user confirms readiness
+- `tff_confirm_gate(sliceId, "tier_confirmed")` — call ONLY after user confirms tier
 - `tff_classify` — call ONLY after tier_confirmed gate is set
 - `tff_write_spec` — call ONLY after depth_verified gate is set; writes SPEC.md
+- `tff_write_requirements` — write REQUIREMENTS.md with R-IDs and verification instructions
 - `tff_query_state` — query project/milestone/slice state

@@ -57,7 +57,7 @@ describe("handleWriteSpec", () => {
 
 	it("writes SPEC.md for a valid slice", () => {
 		const content = "# Auth Spec\n\nDetails here.\n";
-		const result = handleWriteSpec(db, root, sliceId, content);
+		const result = handleWriteSpec(db, root, sliceId, content, { headless: true });
 
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("SPEC.md written for M01-S01");
@@ -68,7 +68,7 @@ describe("handleWriteSpec", () => {
 	});
 
 	it("returns error for unknown slice", () => {
-		const result = handleWriteSpec(db, root, "nonexistent", "content");
+		const result = handleWriteSpec(db, root, "nonexistent", "content", { headless: true });
 
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");

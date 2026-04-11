@@ -35,34 +35,34 @@ describe("handleClassify", () => {
 	});
 
 	it("returns error for non-existent slice", () => {
-		const result = handleClassify(db, "nonexistent", "S");
+		const result = handleClassify(db, "nonexistent", "S", { headless: true });
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");
 	});
 
 	it("classifies a slice as S tier", () => {
-		const result = handleClassify(db, sliceId, "S");
+		const result = handleClassify(db, sliceId, "S", { headless: true });
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("Tier S");
 		expect(must(getSlice(db, sliceId)).tier).toBe("S");
 	});
 
 	it("classifies a slice as SS tier", () => {
-		const result = handleClassify(db, sliceId, "SS");
+		const result = handleClassify(db, sliceId, "SS", { headless: true });
 		expect(result.isError).toBeUndefined();
 		expect(must(getSlice(db, sliceId)).tier).toBe("SS");
 	});
 
 	it("classifies a slice as SSS tier", () => {
-		const result = handleClassify(db, sliceId, "SSS");
+		const result = handleClassify(db, sliceId, "SSS", { headless: true });
 		expect(result.isError).toBeUndefined();
 		expect(must(getSlice(db, sliceId)).tier).toBe("SSS");
 	});
 
 	it("reclassifies an already-classified slice", () => {
-		handleClassify(db, sliceId, "S");
+		handleClassify(db, sliceId, "S", { headless: true });
 		expect(must(getSlice(db, sliceId)).tier).toBe("S");
-		handleClassify(db, sliceId, "SSS");
+		handleClassify(db, sliceId, "SSS", { headless: true });
 		expect(must(getSlice(db, sliceId)).tier).toBe("SSS");
 	});
 });

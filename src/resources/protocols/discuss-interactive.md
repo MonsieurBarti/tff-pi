@@ -41,7 +41,7 @@ Lead with recommendation (C6). Explain trade-offs for each.
 ## 5. DEPTH VERIFICATION
 Present structured summary using user's exact terminology.
 Ask: "Ready to write the spec?"
-After user confirms → call `tff_confirm_gate("depth_verified")`.
+After user confirms → call `tff_confirm_gate(sliceId, "depth_verified")`.
 
 ## 6. TIER CLASSIFICATION
 Propose tier with justification:
@@ -50,7 +50,7 @@ Propose tier with justification:
 - SSS: complex, multi-system, significant unknowns
 
 Ask user to confirm or override.
-After confirmation → call `tff_confirm_gate("tier_confirmed")`.
+After confirmation → call `tff_confirm_gate(sliceId, "tier_confirmed")`.
 Then call `tff_classify(sliceId, tier)`.
 
 ## 7. SPEC WRITING
@@ -66,7 +66,7 @@ Call `tff_write_spec` with SPEC.md content:
 - Non-Goals, Error States, Risk Assessment
 - Forward Intelligence, Tier, Notes
 
-Write REQUIREMENTS.md via second `tff_write_spec` call:
+Write REQUIREMENTS.md via `tff_write_requirements` call:
 - R-IDs, classes (functional/non-functional/constraint)
 - Concrete acceptance conditions with examples
 - Verification instructions

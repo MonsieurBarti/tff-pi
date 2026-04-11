@@ -87,15 +87,14 @@ describe("discuss phase rewrite", () => {
 			expect(isGateUnlocked("s1", "tier_confirmed")).toBe(false);
 		});
 
-		it("emits phase_start and phase_complete events", async () => {
+		it("emits phase_start but NOT phase_complete (completion tracked on /tff next)", async () => {
 			const ctx = makeCtx({ headless: false });
 			await discussPhase.run(ctx);
 
 			const emitCalls = (ctx.pi.events.emit as ReturnType<typeof vi.fn>).mock.calls;
 			const phaseEvents = emitCalls.filter((call: unknown[]) => call[0] === "tff:phase");
-			expect(phaseEvents.length).toBeGreaterThanOrEqual(2);
+			expect(phaseEvents).toHaveLength(1);
 			expect(phaseEvents[0]?.[1]).toMatchObject({ type: "phase_start", phase: "discuss" });
-			expect(phaseEvents[1]?.[1]).toMatchObject({ type: "phase_complete", phase: "discuss" });
 		});
 
 		it("does NOT dispatch a sub-agent", async () => {

@@ -29,7 +29,7 @@ describe("preparation", () => {
 	});
 
 	it("returns a PreparationBrief with all fields", async () => {
-		const brief = await buildPreparationBrief(
+		const brief = buildPreparationBrief(
 			root,
 			db,
 			{
@@ -59,7 +59,7 @@ describe("preparation", () => {
 		mkdirSync(tffDir, { recursive: true });
 		writeFileSync(join(tffDir, "PROJECT.md"), "# My Project\nVision here.");
 
-		const brief = await buildPreparationBrief(
+		const brief = buildPreparationBrief(
 			root,
 			db,
 			{
@@ -83,7 +83,7 @@ describe("preparation", () => {
 		mkdirSync(mDir, { recursive: true });
 		writeFileSync(join(mDir, "REQUIREMENTS.md"), "# Requirements\n- R01: Auth");
 
-		const brief = await buildPreparationBrief(
+		const brief = buildPreparationBrief(
 			root,
 			db,
 			{
@@ -108,7 +108,7 @@ describe("preparation", () => {
 			JSON.stringify({ name: "test", dependencies: { express: "^4.0.0", prisma: "^5.0.0" } }),
 		);
 
-		const brief = await buildPreparationBrief(
+		const brief = buildPreparationBrief(
 			root,
 			db,
 			{
@@ -138,7 +138,7 @@ describe("preparation", () => {
 		mkdirSync(specDir, { recursive: true });
 		writeFileSync(join(specDir, "SPEC.md"), "# Prior Slice Spec\nDesign decisions here.");
 
-		const brief = await buildPreparationBrief(
+		const brief = buildPreparationBrief(
 			root,
 			db,
 			{

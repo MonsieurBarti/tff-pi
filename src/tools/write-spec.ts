@@ -29,16 +29,12 @@ export function handleWriteSpec(
 			isError: true,
 		};
 	}
-	if (
-		options !== undefined &&
-		options.headless !== true &&
-		!isGateUnlocked(sliceId, "depth_verified")
-	) {
+	if (options?.headless !== true && !isGateUnlocked(sliceId, "depth_verified")) {
 		return {
 			content: [
 				{
 					type: "text",
-					text: "Depth verification required before writing SPEC.md. Complete the discuss phase first.",
+					text: "Depth verification required. Ask the user to confirm they're ready for spec writing, then call tff_confirm_gate(sliceId, 'depth_verified').",
 				},
 			],
 			details: { sliceId },

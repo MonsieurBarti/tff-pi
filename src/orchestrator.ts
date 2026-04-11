@@ -60,7 +60,13 @@ const PHASE_AGENT: Record<Phase, string> = {
 };
 
 const PHASE_TOOLS: Record<Phase, string[]> = {
-	discuss: ["tff_classify", "tff_write_spec", "tff_query_state", "tff_confirm_gate"],
+	discuss: [
+		"tff_classify",
+		"tff_write_spec",
+		"tff_write_requirements",
+		"tff_query_state",
+		"tff_confirm_gate",
+	],
 	research: [
 		"tff_write_research",
 		"tff_query_state",
@@ -160,6 +166,51 @@ export function buildPhasePrompt(
 		userPrompt,
 		tools: PHASE_TOOLS[phase],
 		label: `${phase}:${sLabel}`,
+	};
+}
+
+export function buildHeadlessDiscussPrompt(
+	slice: Slice,
+	milestoneNumber: number,
+	context: Record<string, string>,
+	compressed: boolean,
+): SubAgentPrompt {
+	const agentMd = loadResource(join(RESOURCES_DIR, "agents", "brainstormer-headless.md"));
+	const protocolMd = loadResource(join(RESOURCES_DIR, "protocols", "discuss-headless.md"));
+
+	const sLabel = sliceLabel(milestoneNumber, slice.number);
+
+	let systemPrompt = agentMd;
+	if (protocolMd) {
+		systemPrompt += `\n\n${protocolMd}`;
+	}
+
+	const contextBlock = Object.entries(context)
+		.map(([name, content]) => `### ${name}\n\n${content}`)
+		.join("\n\n");
+
+	const parts = [
+		`## Slice: ${sLabel} — "${slice.title}"`,
+		`Slice ID: ${slice.id}`,
+		`Tier: ${slice.tier ?? "unclassified"}`,
+		"",
+		"## Context",
+		"",
+		contextBlock,
+	];
+
+	if (compressed) {
+		parts.push(
+			"",
+			"**IMPORTANT:** Write all artifact content in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes.",
+		);
+	}
+
+	return {
+		systemPrompt,
+		userPrompt: parts.join("\n"),
+		tools: PHASE_TOOLS.discuss,
+		label: `discuss:${sLabel}`,
 	};
 }
 

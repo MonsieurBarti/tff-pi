@@ -51,8 +51,9 @@ describe("classify gate", () => {
 		expect(must(result.content[0]).text).toContain("classified as Tier SS");
 	});
 
-	it("bypasses gate when options not provided (backward compat)", () => {
+	it("enforces gate when options not provided", () => {
 		const result = handleClassify(db, sliceId, "SS");
-		expect(result.isError).toBeUndefined();
+		expect(result.isError).toBe(true);
+		expect(must(result.content[0]).text).toContain("Tier must be confirmed");
 	});
 });

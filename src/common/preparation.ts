@@ -20,12 +20,12 @@ export interface PreparationBrief {
 const MAX_CODEBASE_BRIEF = 3000;
 const MAX_PRIOR_CONTEXT = 4000;
 
-export async function buildPreparationBrief(
+export function buildPreparationBrief(
 	root: string,
 	db: Database.Database,
 	slice: Slice,
 	milestoneNumber: number,
-): Promise<PreparationBrief> {
+): PreparationBrief {
 	const codebaseBrief = analyzeCodebase(root);
 	const mLabel = milestoneLabel(milestoneNumber);
 

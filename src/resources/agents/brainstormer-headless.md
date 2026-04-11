@@ -27,4 +27,5 @@ Same as interactive brainstormer: terse, opinionated, precise.
 ## Tools
 - `tff_classify` — classify tier (no gate in headless)
 - `tff_write_spec` — write SPEC.md (no gate in headless)
+- `tff_write_requirements` — write REQUIREMENTS.md
 - `tff_query_state` — query state

@@ -49,7 +49,7 @@ import { queryState } from "./tools/query-state.js";
 import { handleTransition } from "./tools/transition.js";
 import { type TaskInput, handleWritePlan } from "./tools/write-plan.js";
 import { handleWriteResearch } from "./tools/write-research.js";
-import { handleWriteSpec } from "./tools/write-spec.js";
+import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
 
 // ---------------------------------------------------------------------------
 // Module-level state
@@ -1086,6 +1086,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				"Do NOT call without explicit user confirmation",
 			],
 			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
 				gate: StringEnum(["depth_verified", "tier_confirmed"], {
 					description: "The gate to unlock: 'depth_verified' or 'tier_confirmed'",
 				}),
@@ -1093,11 +1096,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
 					const database = getDb();
-					const slice = findActiveSlice(database);
+					const slice = resolveSlice(database, params.sliceId);
 					if (!slice) {
 						return {
-							content: [{ type: "text", text: "No active slice found." }],
-							details: {},
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
 							isError: true,
 						};
 					}
@@ -1115,7 +1118,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						content: [
 							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
 						],
-						details: {},
+						details: { sliceId: params.sliceId },
 						isError: true,
 					};
 				}
@@ -1251,6 +1254,60 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						};
 					}
 					return handleWriteSpec(database, root, slice.id, params.content, { headless: false });
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_requirements
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_requirements",
+			label: "TFF Write Requirements",
+			description:
+				"Write the REQUIREMENTS.md artifact for a slice. Used during the discuss phase alongside SPEC.md.",
+			promptGuidelines: [
+				"Write REQUIREMENTS.md with R-IDs, classes, acceptance conditions, and verification instructions",
+				"Used during the discuss phase after writing SPEC.md",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "The markdown content of the requirements",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleWriteRequirements(database, root, slice.id, params.content);
 				} catch (err) {
 					return {
 						content: [

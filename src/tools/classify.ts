@@ -28,12 +28,12 @@ export function handleClassify(
 		};
 	}
 
-	if (options && options.headless === false && !isGateUnlocked(sliceId, "tier_confirmed")) {
+	if (options?.headless !== true && !isGateUnlocked(sliceId, "tier_confirmed")) {
 		return {
 			content: [
 				{
 					type: "text",
-					text: "Tier must be confirmed by the user. Propose a tier with justification and ask the user to confirm, then call tff_confirm_gate with gate='tier_confirmed'.",
+					text: "Tier must be confirmed by the user. Propose a tier with justification and ask the user to confirm, then call tff_confirm_gate(sliceId, 'tier_confirmed').",
 				},
 			],
 			details: { sliceId },

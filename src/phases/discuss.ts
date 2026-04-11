@@ -9,7 +9,7 @@ import { type PreparationBrief, buildPreparationBrief } from "../common/preparat
 import { nextSliceStatus } from "../common/state-machine.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import {
-	buildPhasePrompt,
+	buildHeadlessDiscussPrompt,
 	collectPhaseContext,
 	loadPhaseResources,
 	verifyPhaseArtifacts,
@@ -35,7 +35,7 @@ export const discussPhase: PhaseModule = {
 		});
 
 		// Build preparation brief (shared by both paths)
-		const brief = await buildPreparationBrief(ctx.root, db, slice, milestoneNumber);
+		const brief = buildPreparationBrief(ctx.root, db, slice, milestoneNumber);
 
 		if (!headless) {
 			return runInteractive(ctx, brief, startTime);
@@ -47,7 +47,7 @@ export const discussPhase: PhaseModule = {
 async function runInteractive(
 	ctx: PhaseContext,
 	brief: PreparationBrief,
-	startTime: number,
+	_startTime: number,
 ): Promise<PhaseResult> {
 	const { pi, slice, milestoneNumber } = ctx;
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
@@ -78,17 +78,10 @@ async function runInteractive(
 		sliceContext,
 	].join("\n");
 
-	// Send to main session — PI becomes the brainstormer
+	// Send to main session — PI becomes the brainstormer.
+	// Interactive mode does NOT emit phase_complete — completion is
+	// tracked when `/tff next` verifies artifacts.
 	pi.sendUserMessage(message);
-
-	// Interactive mode: phase completes immediately.
-	// Artifacts are verified on next /tff next call.
-	pi.events.emit("tff:phase", {
-		...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-		type: "phase_complete",
-		phase: "discuss",
-		durationMs: Date.now() - startTime,
-	});
 
 	return { success: true, retry: false };
 }
@@ -106,10 +99,9 @@ async function runHeadless(
 	const context = collectPhaseContext(root, slice, milestoneNumber, "discuss");
 	context.PREPARATION_BRIEF = formatBrief(brief);
 
-	const prompt = buildPhasePrompt(
+	const prompt = buildHeadlessDiscussPrompt(
 		slice,
 		milestoneNumber,
-		"discuss",
 		context,
 		settings.compress.user_artifacts,
 	);
@@ -188,10 +180,9 @@ async function runHeadless(
 			retryContext.PRIOR_SPEC = content;
 			retryContext.GATE_FEEDBACK = gateResult.feedback ?? "Spec was denied by reviewer.";
 
-			const retryPrompt = buildPhasePrompt(
+			const retryPrompt = buildHeadlessDiscussPrompt(
 				slice,
 				milestoneNumber,
-				"discuss",
 				retryContext,
 				settings.compress.user_artifacts,
 			);

@@ -64,8 +64,9 @@ describe("write-spec gate", () => {
 		expect(must(result.content[0]).text).toContain("SPEC.md written");
 	});
 
-	it("bypasses gate when options not provided (backward compat)", () => {
+	it("enforces gate when options not provided", () => {
 		const result = handleWriteSpec(db, root, sliceId, "# Spec");
-		expect(result.isError).toBeUndefined();
+		expect(result.isError).toBe(true);
+		expect(must(result.content[0]).text).toContain("Depth verification required");
 	});
 });
