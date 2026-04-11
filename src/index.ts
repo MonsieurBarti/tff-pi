@@ -45,12 +45,19 @@ import {
 	initRepo,
 	initialCommitAndPush,
 } from "./common/git.js";
-import type { PhaseContext } from "./common/phase.js";
+import { type PhaseContext, type PhaseModule, runPhaseWithFreshContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
-import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
+import {
+	type Phase,
+	SLICE_STATUSES,
+	type Slice,
+	TIERS,
+	milestoneLabel,
+	sliceLabel,
+} from "./common/types.js";
 import { findActiveSlice } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
 import { handleClassify } from "./tools/classify.js";
@@ -141,6 +148,22 @@ function resolveMilestone(
 	ref: string,
 ): ReturnType<typeof getMilestones>[number] | null {
 	return findMilestoneByLabel(db, ref) ?? getMilestone(db, ref);
+}
+
+async function runHeavyPhase(
+	phase: Phase,
+	mod: PhaseModule,
+	phaseCtx: PhaseContext,
+): Promise<void> {
+	const result = await runPhaseWithFreshContext({
+		phaseModule: mod,
+		phaseCtx,
+		cmdCtx,
+		phase,
+	});
+	if (!result.success && result.error) {
+		phaseCtx.pi.sendUserMessage(`Phase ${phase} failed: ${result.error}`);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -420,7 +443,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("discuss", mod, phaseCtx);
 					break;
 				}
 
@@ -459,7 +482,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("research", mod, phaseCtx);
 					break;
 				}
 
@@ -498,7 +521,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("plan", mod, phaseCtx);
 					break;
 				}
 
@@ -528,7 +551,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					await mod.run(phaseCtx);
+					await runHeavyPhase(phase, mod, phaseCtx);
 					break;
 				}
 
@@ -567,7 +590,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("execute", mod, phaseCtx);
 					break;
 				}
 
@@ -606,7 +629,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("verify", mod, phaseCtx);
 					break;
 				}
 
@@ -645,7 +668,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					const result = await mod.run(phaseCtx);
+					const result = await runPhaseWithFreshContext({
+						phaseModule: mod,
+						phaseCtx,
+						cmdCtx,
+						phase: "ship",
+					});
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
 					} else if (result.retry && result.feedback) {
@@ -664,7 +692,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								settings: currentSettings,
 								feedback: result.feedback,
 							};
-							await executeMod.run(execCtx);
+							await runHeavyPhase("execute", executeMod, execCtx);
 						}
 					} else {
 						if (ctx.hasUI)
