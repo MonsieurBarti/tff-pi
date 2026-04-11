@@ -113,6 +113,17 @@ function findMilestoneByLabel(
 	return milestones.find((m) => m.number === mNum) ?? null;
 }
 
+function resolveSlice(db: Database.Database, ref: string): ReturnType<typeof getSlice> {
+	return findSliceByLabel(db, ref) ?? getSlice(db, ref);
+}
+
+function resolveMilestone(
+	db: Database.Database,
+	ref: string,
+): ReturnType<typeof getMilestones>[number] | null {
+	return findMilestoneByLabel(db, ref) ?? getMilestone(db, ref);
+}
+
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -750,7 +761,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}),
 				id: Type.Optional(
 					Type.String({
-						description: "Milestone or slice ID (required for scope=milestone and scope=slice)",
+						description:
+							"Milestone ID (UUID) or label (e.g., M01) for scope=milestone; slice ID (UUID) or label (e.g., M01-S01) for scope=slice",
 					}),
 				),
 			}),
@@ -761,9 +773,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (params.scope === "overview") {
 						result = queryState(database, "overview");
 					} else if (params.scope === "milestone") {
-						result = queryState(database, "milestone", params.id ?? "");
+						const milestone = params.id ? resolveMilestone(database, params.id) : null;
+						result = queryState(database, "milestone", milestone?.id ?? params.id ?? "");
 					} else {
-						result = queryState(database, "slice", params.id ?? "");
+						const slice = params.id ? resolveSlice(database, params.id) : null;
+						result = queryState(database, "slice", slice?.id ?? params.id ?? "");
 					}
 					return {
 						content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -790,10 +804,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_transition",
 			label: "TFF Transition Slice",
 			description:
-				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status.",
+				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status. IMPORTANT: Only call this tool when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+			promptSnippet:
+				"IMPORTANT: Only call tff_transition when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+			promptGuidelines: [
+				"Do NOT call tff_transition automatically after writing specs or plans",
+				"Always ask the user before transitioning to the next phase",
+				"The /tff auto command handles transitions automatically — individual phases should not",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to transition",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				targetStatus: Type.Optional(
 					StringEnum([...SLICE_STATUSES], {
@@ -805,7 +826,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
 					const database = getDb();
-					return handleTransition(database, params.sliceId, params.targetStatus);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleTransition(database, slice.id, params.targetStatus);
 				} catch (err) {
 					return {
 						content: [
@@ -830,7 +859,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex.",
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to classify",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				tier: StringEnum([...TIERS], {
 					description: "Tier: S (simple), SS (standard), SSS (complex)",
@@ -839,7 +868,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
 					const database = getDb();
-					return handleClassify(database, params.sliceId, params.tier as (typeof TIERS)[number]);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleClassify(database, slice.id, params.tier as (typeof TIERS)[number]);
 				} catch (err) {
 					return {
 						content: [
@@ -949,7 +986,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				"Write the SPEC.md artifact for a slice. Called by the brainstormer agent during the discuss phase.",
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to write the spec for",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				content: Type.String({
 					description: "The markdown content of the spec",
@@ -966,7 +1003,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteSpec(database, root, params.sliceId, params.content);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleWriteSpec(database, root, slice.id, params.content);
 				} catch (err) {
 					return {
 						content: [
@@ -991,7 +1036,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				"Write the RESEARCH.md artifact for a slice. Called by the researcher agent during the research phase.",
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to write the research for",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				content: Type.String({
 					description: "The markdown content of the research document",
@@ -1008,7 +1053,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteResearch(database, root, params.sliceId, params.content);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleWriteResearch(database, root, slice.id, params.content);
 				} catch (err) {
 					return {
 						content: [
@@ -1033,7 +1086,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Called by the planner agent during the plan phase.",
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to write the plan for",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				content: Type.String({
 					description: "The markdown content of the plan",
@@ -1068,10 +1121,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
 					return handleWritePlan(
 						database,
 						root,
-						params.sliceId,
+						slice.id,
 						params.content,
 						params.tasks as TaskInput[],
 					);
