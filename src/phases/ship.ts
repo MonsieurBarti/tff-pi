@@ -1,18 +1,10 @@
 import { execFileSync } from "node:child_process";
 import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
-import {
-	getMilestone,
-	getSlices,
-	resetTasksToOpen,
-	updateMilestoneStatus,
-	updateSlicePrUrl,
-	updateSliceStatus,
-} from "../common/db.js";
+import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import { getDefaultBranch, gitEnv } from "../common/git.js";
+import { gitEnv } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
-import type { Settings } from "../common/settings.js";
 import type { Slice } from "../common/types.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath, removeWorktree } from "../common/worktree.js";
@@ -341,53 +333,3 @@ export const shipPhase: PhaseModule = {
 		}
 	},
 };
-
-/**
- * @deprecated Moves to a separate `/tff complete-milestone` command in Task 10.
- * Kept temporarily so milestone-completion.spec.ts continues to pass.
- */
-export function checkMilestoneCompletion(
-	db: Database.Database,
-	root: string,
-	milestoneId: string,
-	settings: Settings,
-): void {
-	const slices = getSlices(db, milestoneId);
-	const allClosed = slices.length > 0 && slices.every((s) => s.status === "closed");
-	if (!allClosed) return;
-
-	const milestone = getMilestone(db, milestoneId);
-	if (!milestone || milestone.status === "completing" || milestone.status === "closed") return;
-
-	updateMilestoneStatus(db, milestoneId, "completing");
-
-	const targetBranch = settings.milestone_target_branch ?? getDefaultBranch(root) ?? "main";
-	const prBody = slices
-		.map(
-			(s) =>
-				`- ${sliceLabel(milestone.number, s.number)}: ${s.title}${s.prUrl ? ` (${s.prUrl})` : ""}`,
-		)
-		.join("\n");
-
-	const env = gitEnv();
-	try {
-		execFileSync(
-			"gh",
-			[
-				"pr",
-				"create",
-				"--base",
-				targetBranch,
-				"--head",
-				milestone.branch,
-				"--title",
-				`milestone(${milestoneLabel(milestone.number)}): ${milestone.name}`,
-				"--body",
-				`## Milestone: ${milestone.name}\n\n### Slices\n${prBody}`,
-			],
-			{ cwd: root, encoding: "utf-8", env },
-		);
-	} catch {
-		// gh may fail if PR already exists
-	}
-}
