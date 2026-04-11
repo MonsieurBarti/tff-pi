@@ -31,7 +31,7 @@ export const researchPhase: PhaseModule = {
 			pi,
 			"researcher",
 			prompt,
-			undefined,
+			root,
 			ctx.onSubAgentActivity,
 		);
 		if (!agentResult.success) {
@@ -47,7 +47,7 @@ export const researchPhase: PhaseModule = {
 
 		const verification = verifyPhaseArtifacts(db, root, slice, milestoneNumber, "research");
 		if (!verification.ok) {
-			const error = `Phase artifacts missing: ${verification.missing.join(", ")}`;
+			const error = `Phase artifacts missing: ${verification.missing.join(", ")}. Sub-agent output: ${agentResult.output.substring(0, 500)}`;
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 				type: "phase_failed",

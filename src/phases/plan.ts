@@ -32,13 +32,7 @@ export const planPhase: PhaseModule = {
 			context,
 			settings.compress.user_artifacts,
 		);
-		const agentResult = await dispatchSubAgent(
-			pi,
-			"planner",
-			prompt,
-			undefined,
-			ctx.onSubAgentActivity,
-		);
+		const agentResult = await dispatchSubAgent(pi, "planner", prompt, root, ctx.onSubAgentActivity);
 		if (!agentResult.success) {
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
@@ -52,7 +46,7 @@ export const planPhase: PhaseModule = {
 
 		const verification = verifyPhaseArtifacts(db, root, slice, milestoneNumber, "plan");
 		if (!verification.ok) {
-			const error = `Phase artifacts missing: ${verification.missing.join(", ")}`;
+			const error = `Phase artifacts missing: ${verification.missing.join(", ")}. Sub-agent output: ${agentResult.output.substring(0, 500)}`;
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 				type: "phase_failed",
@@ -98,7 +92,7 @@ export const planPhase: PhaseModule = {
 					pi,
 					"planner",
 					prompt,
-					undefined,
+					root,
 					ctx.onSubAgentActivity,
 				);
 				if (!retryResult.success) break;

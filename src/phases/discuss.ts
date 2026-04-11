@@ -36,7 +36,7 @@ export const discussPhase: PhaseModule = {
 			pi,
 			"brainstormer",
 			prompt,
-			undefined,
+			root,
 			ctx.onSubAgentActivity,
 		);
 		if (!agentResult.success) {
@@ -52,7 +52,7 @@ export const discussPhase: PhaseModule = {
 
 		const verification = verifyPhaseArtifacts(db, root, slice, milestoneNumber, "discuss");
 		if (!verification.ok) {
-			const error = `Phase artifacts missing: ${verification.missing.join(", ")}`;
+			const error = `Phase artifacts missing: ${verification.missing.join(", ")}. Sub-agent output: ${agentResult.output.substring(0, 500)}`;
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 				type: "phase_failed",
@@ -100,7 +100,7 @@ export const discussPhase: PhaseModule = {
 					pi,
 					"brainstormer",
 					prompt,
-					undefined,
+					root,
 					ctx.onSubAgentActivity,
 				);
 				if (!retryResult.success) break;
