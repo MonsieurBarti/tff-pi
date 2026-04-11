@@ -8,6 +8,7 @@ import { validateAuto } from "./commands/auto.js";
 import { validateDiscuss } from "./commands/discuss.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
+import { handleLogs } from "./commands/logs.js";
 import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
 import { handlePause } from "./commands/pause.js";
@@ -21,8 +22,10 @@ import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestone,
+	getMilestones,
 	getProject,
 	getSlice,
+	getSlices,
 	openDatabase,
 	updateSliceStatus,
 } from "./common/db.js";
@@ -30,7 +33,7 @@ import { getGitRoot } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
 import { isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
-import { SLICE_STATUSES, TIERS, milestoneLabel } from "./common/types.js";
+import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel } from "./common/types.js";
 import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
 import { handleClassify } from "./tools/classify.js";
@@ -74,6 +77,20 @@ function loadSettings(root: string): void {
 	settings = yaml
 		? parseSettings(yaml)
 		: { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
+}
+
+function findSliceByLabel(db: Database.Database, label: string): Slice | null {
+	const match = label.match(/^M(\d+)-S(\d+)$/i);
+	if (!match || !match[1] || !match[2]) return null;
+	const mNum = Number.parseInt(match[1], 10);
+	const sNum = Number.parseInt(match[2], 10);
+	const project = getProject(db);
+	if (!project) return null;
+	const milestones = getMilestones(db, project.id);
+	const milestone = milestones.find((m) => m.number === mNum);
+	if (!milestone) return null;
+	const slices = getSlices(db, milestone.id);
+	return slices.find((s) => s.number === sNum) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +184,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"**Monitoring:**\n" +
 							"- `/tff status` — Show current project status\n" +
 							"- `/tff progress` — Show detailed progress table\n" +
+							"- `/tff logs [M01-S01] [--json]` — Show event timeline for a slice\n" +
 							"- `/tff health` — Quick database health check\n" +
 							"- `/tff settings` — Show current settings\n" +
 							"- `/tff help` — Show this help\n\n" +
@@ -187,6 +205,23 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 				case "progress": {
 					const result = handleProgress(getDb());
+					pi.sendUserMessage(result);
+					break;
+				}
+
+				case "logs": {
+					const db = getDb();
+					const rawArgs = rest.join(" ").trim();
+					const jsonFlag = rawArgs.includes("--json");
+					const label = rawArgs.replace("--json", "").trim();
+					const slice = label ? findSliceByLabel(db, label) : null;
+					const activeSlice = findActiveSlice(db);
+					const targetSlice = slice ?? activeSlice;
+					if (!targetSlice) {
+						pi.sendUserMessage("No slice found. Usage: `/tff logs [M01-S01] [--json]`");
+						break;
+					}
+					const result = handleLogs(db, targetSlice.id, { json: jsonFlag });
 					pi.sendUserMessage(result);
 					break;
 				}
