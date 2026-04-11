@@ -91,6 +91,35 @@ export function applyMigrations(db: Database.Database): void {
 	} catch {
 		// Column already exists
 	}
+
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS phase_run (
+			id          TEXT PRIMARY KEY,
+			slice_id    TEXT NOT NULL REFERENCES slice(id),
+			phase       TEXT NOT NULL,
+			status      TEXT NOT NULL,
+			started_at  TEXT NOT NULL,
+			finished_at TEXT,
+			duration_ms INTEGER,
+			error       TEXT,
+			feedback    TEXT,
+			metadata    TEXT,
+			created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_phase_run_slice ON phase_run(slice_id);
+		CREATE INDEX IF NOT EXISTS idx_phase_run_phase ON phase_run(phase);
+
+		CREATE TABLE IF NOT EXISTS event_log (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			channel    TEXT NOT NULL,
+			type       TEXT NOT NULL,
+			slice_id   TEXT NOT NULL,
+			payload    TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_event_log_slice ON event_log(slice_id);
+		CREATE INDEX IF NOT EXISTS idx_event_log_channel ON event_log(channel);
+	`);
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +461,180 @@ export function getDependencies(db: Database.Database, sliceId: string): Depende
 		)
 		.all(sliceId) as DependencyRow[];
 	return rows.map(rowToDependency);
+}
+
+// ---------------------------------------------------------------------------
+// PhaseRun
+// ---------------------------------------------------------------------------
+
+interface PhaseRunRow {
+	id: string;
+	slice_id: string;
+	phase: string;
+	status: string;
+	started_at: string;
+	finished_at: string | null;
+	duration_ms: number | null;
+	error: string | null;
+	feedback: string | null;
+	metadata: string | null;
+	created_at: string;
+}
+
+export interface PhaseRun {
+	id: string;
+	sliceId: string;
+	phase: string;
+	status: string;
+	startedAt: string;
+	finishedAt: string | null;
+	durationMs: number | null;
+	error: string | null;
+	feedback: string | null;
+	metadata: string | null;
+	createdAt: string;
+}
+
+function rowToPhaseRun(row: PhaseRunRow): PhaseRun {
+	return {
+		id: row.id,
+		sliceId: row.slice_id,
+		phase: row.phase,
+		status: row.status,
+		startedAt: row.started_at,
+		finishedAt: row.finished_at ?? null,
+		durationMs: row.duration_ms ?? null,
+		error: row.error ?? null,
+		feedback: row.feedback ?? null,
+		metadata: row.metadata ?? null,
+		createdAt: row.created_at,
+	};
+}
+
+export function insertPhaseRun(
+	db: Database.Database,
+	params: { sliceId: string; phase: string; status: string; startedAt: string },
+): string {
+	const id = randomUUID();
+	db.prepare(
+		"INSERT INTO phase_run (id, slice_id, phase, status, started_at) VALUES (?, ?, ?, ?, ?)",
+	).run(id, params.sliceId, params.phase, params.status, params.startedAt);
+	return id;
+}
+
+export function updatePhaseRun(
+	db: Database.Database,
+	id: string,
+	params: {
+		status: string;
+		finishedAt?: string;
+		durationMs?: number;
+		error?: string;
+		feedback?: string;
+		metadata?: string;
+	},
+): void {
+	db.prepare(
+		`UPDATE phase_run
+		SET status = ?, finished_at = ?, duration_ms = ?, error = ?, feedback = ?, metadata = ?
+		WHERE id = ?`,
+	).run(
+		params.status,
+		params.finishedAt ?? null,
+		params.durationMs ?? null,
+		params.error ?? null,
+		params.feedback ?? null,
+		params.metadata ?? null,
+		id,
+	);
+}
+
+export function getPhaseRuns(db: Database.Database, sliceId: string): PhaseRun[] {
+	const rows = db
+		.prepare("SELECT * FROM phase_run WHERE slice_id = ? ORDER BY created_at")
+		.all(sliceId) as PhaseRunRow[];
+	return rows.map(rowToPhaseRun);
+}
+
+export function getLatestPhaseRun(
+	db: Database.Database,
+	sliceId: string,
+	phase?: string,
+): PhaseRun | null {
+	if (phase !== undefined) {
+		const row = db
+			.prepare(
+				"SELECT * FROM phase_run WHERE slice_id = ? AND phase = ? ORDER BY rowid DESC LIMIT 1",
+			)
+			.get(sliceId, phase) as PhaseRunRow | undefined;
+		return row ? rowToPhaseRun(row) : null;
+	}
+	const row = db
+		.prepare("SELECT * FROM phase_run WHERE slice_id = ? ORDER BY rowid DESC LIMIT 1")
+		.get(sliceId) as PhaseRunRow | undefined;
+	return row ? rowToPhaseRun(row) : null;
+}
+
+// ---------------------------------------------------------------------------
+// EventLog
+// ---------------------------------------------------------------------------
+
+interface EventLogRow {
+	id: number;
+	channel: string;
+	type: string;
+	slice_id: string;
+	payload: string;
+	created_at: string;
+}
+
+export interface EventLogEntry {
+	id: number;
+	channel: string;
+	type: string;
+	sliceId: string;
+	payload: string;
+	createdAt: string;
+}
+
+function rowToEventLog(row: EventLogRow): EventLogEntry {
+	return {
+		id: row.id,
+		channel: row.channel,
+		type: row.type,
+		sliceId: row.slice_id,
+		payload: row.payload,
+		createdAt: row.created_at,
+	};
+}
+
+export function insertEventLog(
+	db: Database.Database,
+	params: { channel: string; type: string; sliceId: string; payload: string },
+): void {
+	db.prepare("INSERT INTO event_log (channel, type, slice_id, payload) VALUES (?, ?, ?, ?)").run(
+		params.channel,
+		params.type,
+		params.sliceId,
+		params.payload,
+	);
+}
+
+export function getEventLog(
+	db: Database.Database,
+	sliceId: string,
+	channel?: string,
+): EventLogEntry[] {
+	if (channel !== undefined) {
+		const rows = db
+			.prepare("SELECT * FROM event_log WHERE slice_id = ? AND channel = ? ORDER BY id")
+			.all(sliceId, channel) as EventLogRow[];
+		return rows.map(rowToEventLog);
+	}
+	const rows = db
+		.prepare("SELECT * FROM event_log WHERE slice_id = ? ORDER BY id")
+		.all(sliceId) as EventLogRow[];
+	return rows.map(rowToEventLog);
 }
 
 // ---------------------------------------------------------------------------
