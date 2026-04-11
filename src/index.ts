@@ -29,6 +29,7 @@ import {
 	openDatabase,
 	updateSliceStatus,
 } from "./common/db.js";
+import { type DiscussGate, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
 import { makeBaseEvent } from "./common/events.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
@@ -626,6 +627,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							slice: currentSlice,
 							milestoneNumber: milestone.number,
 							settings: currentSettings,
+							headless: true,
 							...(lastFeedback !== undefined ? { feedback: lastFeedback } : {}),
 						};
 						const result = await mod.run(phaseCtx);
@@ -1027,12 +1029,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_classify",
 			label: "TFF Classify Slice",
 			description:
-				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex. Called during the discuss phase — do NOT call directly, use /tff discuss instead.",
+				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex. During interactive discuss, requires tier confirmation gate via tff_confirm_gate.",
 			promptSnippet:
-				"Do NOT call tff_classify directly. The /tff discuss phase handles tier classification via a sub-agent.",
+				"Call tff_confirm_gate('tier_confirmed') before calling tff_classify. The system enforces this.",
 			promptGuidelines: [
-				"This tool is for sub-agents during phase execution, not for direct use",
-				"To classify a slice, tell the user to run /tff discuss <slice>",
+				"Requires tier_confirmed gate — call tff_confirm_gate('tier_confirmed') first",
+				"Propose a tier to the user, get confirmation, then call tff_confirm_gate, then tff_classify",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1053,13 +1055,67 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleClassify(database, slice.id, params.tier as (typeof TIERS)[number]);
+					return handleClassify(database, slice.id, params.tier as (typeof TIERS)[number], {
+						headless: false,
+					});
 				} catch (err) {
 					return {
 						content: [
 							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
 						],
 						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_confirm_gate
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_confirm_gate",
+			label: "TFF Confirm Gate",
+			description:
+				"Confirm a discuss-phase gate after user approval. Gates: 'depth_verified' (unlocks tff_write_spec) and 'tier_confirmed' (unlocks tff_classify). Only call after the user has explicitly confirmed.",
+			promptGuidelines: [
+				"Call with gate='depth_verified' after user confirms they're ready to write the spec",
+				"Call with gate='tier_confirmed' after user confirms the proposed tier classification",
+				"Do NOT call without explicit user confirmation",
+			],
+			parameters: Type.Object({
+				gate: StringEnum(["depth_verified", "tier_confirmed"], {
+					description: "The gate to unlock: 'depth_verified' or 'tier_confirmed'",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const slice = findActiveSlice(database);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: "No active slice found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					unlockGate(slice.id, params.gate as DiscussGate);
+					const gateLabel =
+						params.gate === "depth_verified"
+							? "Depth verified — tff_write_spec is now unlocked."
+							: "Tier confirmed — tff_classify is now unlocked.";
+					return {
+						content: [{ type: "text", text: gateLabel }],
+						details: { sliceId: slice.id, gate: params.gate },
+					};
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: {},
 						isError: true,
 					};
 				}
@@ -1160,12 +1216,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_spec",
 			label: "TFF Write Spec",
 			description:
-				"Write the SPEC.md artifact for a slice. Called by the brainstormer agent during the discuss phase. Do NOT call directly — use /tff discuss instead.",
+				"Write the SPEC.md artifact for a slice. During interactive discuss, requires depth verification gate to be unlocked first via tff_confirm_gate.",
 			promptSnippet:
-				"Do NOT call tff_write_spec directly. Use /tff discuss <slice> to run the discuss phase which writes the spec via a sub-agent.",
+				"Call tff_confirm_gate('depth_verified') before calling tff_write_spec. The system enforces this.",
 			promptGuidelines: [
-				"This tool is for sub-agents during phase execution, not for direct use",
-				"To write a spec, tell the user to run /tff discuss <slice>",
+				"Requires depth_verified gate — call tff_confirm_gate('depth_verified') first",
+				"Used during the discuss phase to write the spec after user confirms readiness",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1194,7 +1250,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteSpec(database, root, slice.id, params.content);
+					return handleWriteSpec(database, root, slice.id, params.content, { headless: false });
 				} catch (err) {
 					return {
 						content: [

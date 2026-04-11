@@ -7,6 +7,14 @@ import { isGateUnlocked, resetGates, unlockGate } from "../../../src/common/disc
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { discussPhase } from "../../../src/phases/discuss.js";
 
+vi.mock("../../../src/common/dispatch.js", () => ({
+	dispatchSubAgent: vi.fn(async () => ({ success: true, output: "mocked" })),
+}));
+
+vi.mock("../../../src/common/plannotator-review.js", () => ({
+	requestReview: vi.fn(async () => ({ approved: true, feedback: null })),
+}));
+
 function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
 	const root = mkdtempSync(join(tmpdir(), "tff-discuss-"));
 	mkdirSync(join(root, ".tff"), { recursive: true });
