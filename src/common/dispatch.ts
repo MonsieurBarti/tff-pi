@@ -16,19 +16,8 @@ export interface SubAgentResult {
 	output: string;
 }
 
-/** Real-time activity from the child pi process. */
-export interface SubAgentActivity {
-	/** Current tool being executed (null when between tools). */
-	currentTool: string | null;
-	/** Args of the current tool call. */
-	currentToolArgs: Record<string, unknown> | null;
-	/** Completed tool calls so far. */
-	completedTools: string[];
-	/** Number of LLM turns completed. */
-	turns: number;
-	/** Elapsed time in ms since spawn. */
-	elapsedMs: number;
-}
+import type { SubAgentActivity } from "./types.js";
+export type { SubAgentActivity } from "./types.js";
 
 export function buildSubagentTask(prompt: SubAgentPrompt): string {
 	const toolsSection =
@@ -143,18 +132,18 @@ export async function dispatchSubAgent(
 	function processEvent(event: {
 		type?: string;
 		message?: NdjsonMessage;
-		name?: string;
+		toolName?: string;
 		args?: Record<string, unknown>;
 	}): void {
 		switch (event.type) {
 			case "tool_execution_start":
-				currentTool = event.name ?? "unknown";
+				currentTool = event.toolName ?? "unknown";
 				currentToolArgs = event.args ?? null;
 				emitActivity();
 				break;
 
 			case "tool_execution_end":
-				if (currentTool) completedTools.push(currentTool);
+				completedTools.push(currentTool ?? event.toolName ?? "unknown");
 				currentTool = null;
 				currentToolArgs = null;
 				emitActivity();

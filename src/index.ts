@@ -29,7 +29,6 @@ import {
 	openDatabase,
 	updateSliceStatus,
 } from "./common/db.js";
-import type { SubAgentActivity } from "./common/dispatch.js";
 import { EventLogger } from "./common/event-logger.js";
 import { makeBaseEvent } from "./common/events.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
@@ -38,6 +37,7 @@ import type { PhaseContext } from "./common/phase.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
+import type { SubAgentActivity } from "./common/types.js";
 import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
 import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
@@ -632,15 +632,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (!result.success) {
 							if (result.retry) {
 								lastFeedback = result.feedback;
-								// Only count review denials toward the budget, not verify failures
-								if (phase === "review") {
+								if (phase === "review" || phase === "verify") {
 									reviewCycles++;
 								}
 								if (reviewCycles >= MAX_REVIEW_CYCLES) {
 									updateSliceStatus(database, currentSlice.id, "paused");
 									if (ctx.hasUI)
 										ctx.ui.notify(
-											`Slice paused after ${MAX_REVIEW_CYCLES} review cycles.`,
+											`Slice paused after ${MAX_REVIEW_CYCLES} retry cycles.`,
 											"warning",
 										);
 									const pausedMilestone = getMilestone(database, currentSlice.milestoneId);

@@ -216,9 +216,11 @@ function rowToMilestone(row: MilestoneRow): Milestone {
 }
 
 function rowToSlice(row: SliceRow): Slice {
-	if (!(SLICE_STATUSES as readonly string[]).includes(row.status)) {
-		throw new Error(`Invalid slice status in database: ${row.status}`);
-	}
+	// Coerce unknown statuses to 'created' rather than crashing.
+	// Sub-agents can sometimes write invalid statuses via direct DB access.
+	const status = (SLICE_STATUSES as readonly string[]).includes(row.status)
+		? (row.status as SliceStatus)
+		: ("created" as SliceStatus);
 	if (row.tier !== null && !(TIERS as readonly string[]).includes(row.tier)) {
 		throw new Error(`Invalid tier in database: ${row.tier}`);
 	}
@@ -227,7 +229,7 @@ function rowToSlice(row: SliceRow): Slice {
 		milestoneId: row.milestone_id,
 		number: row.number,
 		title: row.title,
-		status: row.status as SliceStatus,
+		status,
 		tier: (row.tier ?? null) as Tier | null,
 		prUrl: row.pr_url ?? null,
 		createdAt: row.created_at,
