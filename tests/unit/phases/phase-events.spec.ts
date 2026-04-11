@@ -71,7 +71,10 @@ function makeCtx(
 ): PhaseContext {
 	const slice = must(getSlice(db, sliceId));
 	return {
-		pi: { events: { emit: mockEmit, on: vi.fn() } } as unknown as PhaseContext["pi"],
+		pi: {
+			sendUserMessage: vi.fn(),
+			events: { emit: mockEmit, on: vi.fn() },
+		} as unknown as PhaseContext["pi"],
 		db,
 		root,
 		slice,
@@ -147,10 +150,10 @@ describe("phase event emission", () => {
 			expect(completeCalls[0]?.[1]).toHaveProperty("durationMs");
 		});
 
-		it("emits phase_failed when dispatch fails", async () => {
+		it("emits phase_failed when dispatch fails (headless)", async () => {
 			mockDispatch.mockResolvedValueOnce({ success: false, output: "agent error" });
 			const mockEmit = vi.fn();
-			const ctx = makeCtx(db, root, sliceId, mockEmit);
+			const ctx = { ...makeCtx(db, root, sliceId, mockEmit), headless: true };
 			const result = await discussPhase.run(ctx);
 
 			expect(result.success).toBe(false);
@@ -162,10 +165,11 @@ describe("phase event emission", () => {
 			expect(failedCalls[0]?.[1]).toHaveProperty("durationMs");
 		});
 
-		it("phase_complete includes tier when slice has tier", async () => {
+		it("phase_complete includes tier when slice has tier (headless)", async () => {
 			writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
+			writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# Req");
 			const mockEmit = vi.fn();
-			const ctx = makeCtx(db, root, sliceId, mockEmit);
+			const ctx = { ...makeCtx(db, root, sliceId, mockEmit), headless: true };
 			await discussPhase.run(ctx);
 
 			const completeCalls = mockEmit.mock.calls.filter(
@@ -175,23 +179,24 @@ describe("phase event emission", () => {
 			expect(completeCalls[0]?.[1]).toHaveProperty("tier", "SS");
 		});
 
-		it("emits phase_retried when gate is denied mid-loop", async () => {
+		it("emits phase_retried when gate is denied mid-loop (headless)", async () => {
 			writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
+			writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# Req");
 			const mockRequestReview = vi.mocked(requestReview);
 			// First attempt denied, second approved
 			mockRequestReview
-				.mockResolvedValueOnce({ approved: false })
+				.mockResolvedValueOnce({ approved: false, feedback: "Gate denied" })
 				.mockResolvedValueOnce({ approved: true });
 
 			const mockEmit = vi.fn();
-			const ctx = makeCtx(db, root, sliceId, mockEmit);
+			const ctx = { ...makeCtx(db, root, sliceId, mockEmit), headless: true };
 			await discussPhase.run(ctx);
 
 			const retriedCalls = mockEmit.mock.calls.filter(
 				([ch, e]) => ch === "tff:phase" && e.type === "phase_retried" && e.phase === "discuss",
 			);
 			expect(retriedCalls).toHaveLength(1);
-			expect(retriedCalls[0]?.[1]).toHaveProperty("feedback", "Gate denied, retrying");
+			expect(retriedCalls[0]?.[1]).toHaveProperty("feedback", "Gate denied");
 			expect(retriedCalls[0]?.[1]).toHaveProperty("durationMs");
 		});
 	});
