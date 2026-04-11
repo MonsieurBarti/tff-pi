@@ -13,8 +13,51 @@ import { makeBaseEvent } from "../common/events.js";
 import { getDefaultBranch, gitEnv } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import type { Settings } from "../common/settings.js";
-import { milestoneLabel, sliceLabel } from "../common/types.js";
+import { type Slice, milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath, removeWorktree } from "../common/worktree.js";
+
+export interface PreflightResult {
+	ok: boolean;
+	errors: string[];
+}
+
+export function preflightCheck(
+	root: string,
+	slice: Slice,
+	milestoneNumber: number,
+): PreflightResult {
+	const errors: string[] = [];
+	const mLabel = milestoneLabel(milestoneNumber);
+	const sLabel = sliceLabel(milestoneNumber, slice.number);
+	const base = `milestones/${mLabel}/slices/${sLabel}`;
+
+	// Check required artifacts exist and are non-empty
+	const requiredArtifacts = [
+		"SPEC.md",
+		"PLAN.md",
+		"REQUIREMENTS.md",
+		"VERIFICATION.md",
+		"REVIEW.md",
+	];
+	for (const artifact of requiredArtifacts) {
+		const content = readArtifact(root, `${base}/${artifact}`);
+		if (!content || content.trim().length === 0) {
+			errors.push(`${artifact} missing`);
+		}
+	}
+
+	// Check verification cleanliness
+	const verification = readArtifact(root, `${base}/VERIFICATION.md`) ?? "";
+	const uncheckedItems = verification.match(/^- \[ \]/gm);
+	if (uncheckedItems && uncheckedItems.length > 0) {
+		errors.push(`VERIFICATION.md has ${uncheckedItems.length} unchecked item(s)`);
+	}
+	if (/\bFAIL\b/i.test(verification) || /\bBLOCKED\b/i.test(verification)) {
+		errors.push("VERIFICATION.md contains failure marker (FAIL or BLOCKED)");
+	}
+
+	return { ok: errors.length === 0, errors };
+}
 
 export const shipPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
