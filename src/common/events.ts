@@ -19,7 +19,7 @@ export interface TffEvent {
 }
 
 export interface PhaseEvent extends TffEvent {
-	type: "phase_start" | "phase_complete" | "phase_failed" | "phase_retry";
+	type: "phase_start" | "phase_complete" | "phase_failed" | "phase_retried";
 	phase: Phase;
 	durationMs?: number;
 	error?: string;

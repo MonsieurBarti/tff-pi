@@ -17,7 +17,7 @@ describe("events", () => {
 		expect(base.sliceId).toBe("slice-1");
 		expect(base.sliceLabel).toBe("M01-S01");
 		expect(base.milestoneNumber).toBe(1);
-		expect(() => new Date(base.timestamp).toISOString()).not.toThrow();
+		expect(new Date(base.timestamp).getTime()).toBeGreaterThan(Date.now() - 1000);
 	});
 
 	it("PhaseEvent type is assignable with all fields", () => {
