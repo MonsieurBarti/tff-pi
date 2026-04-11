@@ -14,6 +14,7 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
+	recoverOrphanedPhaseRuns,
 	updatePhaseRun,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
@@ -43,6 +44,28 @@ describe("applyMigrations — monitoring tables", () => {
 		const names = tables.map((t) => t.name);
 		expect(names).toContain("phase_run");
 		expect(names).toContain("event_log");
+	});
+
+	it("creates schema_version table and records versions", () => {
+		const db = openDatabase(":memory:");
+		applyMigrations(db);
+		const rows = db.prepare("SELECT version FROM schema_version ORDER BY version").all() as {
+			version: number;
+		}[];
+		const versions = rows.map((r) => r.version);
+		expect(versions).toContain(1);
+		expect(versions).toContain(2);
+	});
+
+	it("is idempotent — running twice does not duplicate schema_version rows", () => {
+		const db = openDatabase(":memory:");
+		applyMigrations(db);
+		applyMigrations(db);
+		const rows = db.prepare("SELECT version FROM schema_version ORDER BY version").all() as {
+			version: number;
+		}[];
+		expect(rows.filter((r) => r.version === 1)).toHaveLength(1);
+		expect(rows.filter((r) => r.version === 2)).toHaveLength(1);
 	});
 });
 
@@ -171,6 +194,71 @@ describe("phase_run", () => {
 		expect(latest.phase).toBe("research");
 	});
 
+	it("partial updatePhaseRun preserves existing fields", () => {
+		const id = insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: "2024-01-01T00:00:00Z",
+		});
+
+		// First update: set feedback and metadata
+		updatePhaseRun(db, id, {
+			status: "running",
+			feedback: "initial feedback",
+			metadata: JSON.stringify({ step: 1 }),
+		});
+
+		// Second update: change status only — feedback and metadata must survive
+		updatePhaseRun(db, id, { status: "done" });
+
+		const run = must(getLatestPhaseRun(db, sliceId));
+		expect(run.status).toBe("done");
+		expect(run.feedback).toBe("initial feedback");
+		expect(run.metadata).toBe(JSON.stringify({ step: 1 }));
+	});
+
+	it("recoverOrphanedPhaseRuns marks started runs as abandoned", () => {
+		const id1 = insertPhaseRun(db, {
+			sliceId,
+			phase: "research",
+			status: "started",
+			startedAt: "2024-01-01T00:00:00Z",
+		});
+		const id2 = insertPhaseRun(db, {
+			sliceId,
+			phase: "plan",
+			status: "started",
+			startedAt: "2024-01-01T00:01:00Z",
+		});
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "done",
+			startedAt: "2024-01-01T00:02:00Z",
+		});
+
+		const recovered = recoverOrphanedPhaseRuns(db);
+		expect(recovered).toBe(2);
+
+		const runs = getPhaseRuns(db, sliceId);
+		const run1 = must(runs.find((r) => r.id === id1));
+		const run2 = must(runs.find((r) => r.id === id2));
+		expect(run1.status).toBe("abandoned");
+		expect(run1.finishedAt).not.toBeNull();
+		expect(run2.status).toBe("abandoned");
+	});
+
+	it("recoverOrphanedPhaseRuns returns 0 when no orphans", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "research",
+			status: "done",
+			startedAt: "2024-01-01T00:00:00Z",
+		});
+		expect(recoverOrphanedPhaseRuns(db)).toBe(0);
+	});
+
 	it("getPhaseRuns returns runs ordered by created_at", () => {
 		const id1 = insertPhaseRun(db, {
 			sliceId,
@@ -260,6 +348,29 @@ describe("event_log", () => {
 
 	it("returns empty array when no entries exist", () => {
 		expect(getEventLog(db, sliceId)).toHaveLength(0);
+	});
+
+	it("limits event_log results with limit parameter", () => {
+		for (let i = 0; i < 5; i++) {
+			insertEventLog(db, { channel: "phase", type: `phase.event.${i}`, sliceId, payload: "{}" });
+		}
+
+		const limited = getEventLog(db, sliceId, undefined, 3);
+		expect(limited).toHaveLength(3);
+		// Entries should still be in insertion order
+		expect(limited[0]?.id).toBeLessThan(must(limited[1]).id);
+		expect(limited[1]?.id).toBeLessThan(must(limited[2]).id);
+	});
+
+	it("limit applies alongside channel filter", () => {
+		insertEventLog(db, { channel: "phase", type: "phase.a", sliceId, payload: "{}" });
+		insertEventLog(db, { channel: "phase", type: "phase.b", sliceId, payload: "{}" });
+		insertEventLog(db, { channel: "agent", type: "agent.x", sliceId, payload: "{}" });
+		insertEventLog(db, { channel: "phase", type: "phase.c", sliceId, payload: "{}" });
+
+		const result = getEventLog(db, sliceId, "phase", 2);
+		expect(result).toHaveLength(2);
+		expect(result.every((e) => e.channel === "phase")).toBe(true);
 	});
 
 	it("returns entries ordered by id (insertion order)", () => {

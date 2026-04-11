@@ -1,12 +1,13 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
-import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
+import { getTasks, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
 import { makeBaseEvent } from "../common/events.js";
+import { discoverFffService } from "../common/fff-integration.js";
 import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { enrichContextWithFff, loadPhaseResources } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -72,6 +73,16 @@ export const verifyPhase: PhaseModule = {
 			tools: [],
 			label: `verifier:${sLabel}`,
 		};
+
+		const fffBridge = discoverFffService(pi);
+		if (fffBridge) {
+			const tasks = getTasks(db, slice.id);
+			const extraCtx: Record<string, string> = {};
+			await enrichContextWithFff(extraCtx, tasks, fffBridge);
+			if (extraCtx.RELATED_FILES) {
+				prompt.userPrompt += `\n\n## Related Files\n${extraCtx.RELATED_FILES}`;
+			}
+		}
 
 		const result = await dispatchSubAgent(pi, "verifier", prompt, wtPath);
 

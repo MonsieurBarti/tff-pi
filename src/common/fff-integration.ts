@@ -30,7 +30,8 @@ export class FffBridge {
 		}
 	}
 
-	async grep(patterns: string[], maxResults = 10): Promise<FffGrepResult[]> {
+	async grep(patterns: string[], opts?: { maxResults?: number }): Promise<FffGrepResult[]> {
+		const maxResults = opts?.maxResults ?? 10;
 		try {
 			const result = await this.pi.exec("pi", [
 				"tff-fff_grep",

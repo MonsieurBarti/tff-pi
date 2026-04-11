@@ -1,14 +1,12 @@
 import type { Phase } from "../orchestrator.js";
+import type { EventBus } from "./events.js";
 import { TFF_CHANNELS } from "./events.js";
 import type { PhaseEvent, PipelineEvent, ReviewEvent, TaskEvent, WaveEvent } from "./events.js";
+import { formatDuration } from "./format.js";
 
 // ---------------------------------------------------------------------------
 // Interfaces (no PI imports)
 // ---------------------------------------------------------------------------
-
-interface EventBus {
-	on(channel: string, handler: (data: unknown) => void): () => void;
-}
 
 interface UIContext {
 	setStatus(key: string, text: string): void;
@@ -32,11 +30,6 @@ function phaseIcon(
 	if (completed.has(phase)) return "✓";
 	if (phase === current) return "◉";
 	return "·";
-}
-
-function formatDuration(ms: number): string {
-	if (ms < 1000) return "0s";
-	return `${Math.round(ms / 1000)}s`;
 }
 
 function elapsedMs(start: Date): number {
@@ -195,15 +188,25 @@ export class PipelineState {
 
 export class TUIMonitor {
 	private state = new PipelineState();
+	private unsubscribers: Array<() => void> = [];
 
 	constructor(private ui: UIContext) {}
 
 	subscribe(events: EventBus): void {
-		events.on(TFF_CHANNELS[0], (data) => this.onPhase(data as PhaseEvent));
-		events.on(TFF_CHANNELS[1], (data) => this.onTask(data as TaskEvent));
-		events.on(TFF_CHANNELS[2], (data) => this.onWave(data as WaveEvent));
-		events.on(TFF_CHANNELS[3], (data) => this.onReview(data as ReviewEvent));
-		events.on(TFF_CHANNELS[4], (data) => this.onPipeline(data as PipelineEvent));
+		this.unsubscribers.push(events.on(TFF_CHANNELS[0], (data) => this.onPhase(data as PhaseEvent)));
+		this.unsubscribers.push(events.on(TFF_CHANNELS[1], (data) => this.onTask(data as TaskEvent)));
+		this.unsubscribers.push(events.on(TFF_CHANNELS[2], (data) => this.onWave(data as WaveEvent)));
+		this.unsubscribers.push(
+			events.on(TFF_CHANNELS[3], (data) => this.onReview(data as ReviewEvent)),
+		);
+		this.unsubscribers.push(
+			events.on(TFF_CHANNELS[4], (data) => this.onPipeline(data as PipelineEvent)),
+		);
+	}
+
+	dispose(): void {
+		for (const unsub of this.unsubscribers) unsub();
+		this.unsubscribers = [];
 	}
 
 	private onPhase(event: PhaseEvent): void {

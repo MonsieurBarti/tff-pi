@@ -69,6 +69,11 @@ export type TffEventMap = {
 	"tff:pipeline": PipelineEvent;
 };
 
+export interface EventBus {
+	on(channel: string, handler: (data: unknown) => void): () => void;
+	emit(channel: string, data: unknown): void;
+}
+
 export function makeBaseEvent(
 	sliceId: string,
 	sliceLabel: string,

@@ -81,6 +81,13 @@ export const planPhase: PhaseModule = {
 				return { success: true, retry: false };
 			}
 			if (attempt < MAX_RETRIES) {
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_retried",
+					phase: "plan",
+					durationMs: Date.now() - startTime,
+					feedback: "Gate denied, retrying",
+				});
 				const retryResult = await dispatchSubAgent(pi, "planner", prompt);
 				if (!retryResult.success) break;
 			}

@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getMilestones, getPhaseRuns, getProject, getSlices } from "../common/db.js";
+import { formatDuration } from "../common/format.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 const NO_PROJECT_MSG = "No project found. Run `/tff new` to create one.";
@@ -67,12 +68,4 @@ export function handleStatus(db: Database.Database): string {
 	}
 
 	return lines.join("\n").trimEnd();
-}
-
-function formatDuration(ms: number): string {
-	const sec = Math.round(ms / 1000);
-	if (sec < 60) return `${sec}s`;
-	const min = Math.floor(sec / 60);
-	const rem = sec % 60;
-	return `${min}m${rem > 0 ? `${rem}s` : ""}`;
 }

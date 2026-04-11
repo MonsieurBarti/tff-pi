@@ -52,6 +52,12 @@ vi.mock("../../../src/orchestrator.js", () => ({
 		.fn()
 		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
+	enrichContextWithFff: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../../src/common/fff-integration.js", () => ({
+	discoverFffService: vi.fn().mockReturnValue(null),
+	FffBridge: vi.fn(),
 }));
 
 import { verifyPhase } from "../../../src/phases/verify.js";

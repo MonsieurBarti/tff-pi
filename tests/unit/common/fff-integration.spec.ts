@@ -101,5 +101,31 @@ describe("FffBridge", () => {
 			const results = await bridge.grep(["pattern"]);
 			expect(results).toEqual([]);
 		});
+
+		it("accepts opts object with maxResults", async () => {
+			const items = [{ path: "src/bar.ts" }];
+			const pi = makePi(["tff-fff_grep"], {
+				code: 0,
+				stdout: JSON.stringify({ items }),
+				stderr: "",
+			});
+			const bridge = new FffBridge(pi as never);
+			const results = await bridge.grep(["pattern"], { maxResults: 5 });
+			expect(results).toEqual(items);
+			const [, args] = pi.exec.mock.calls[0] as [string, string[]];
+			expect(args).toContain("5");
+		});
+
+		it("defaults maxResults to 10 when opts is omitted", async () => {
+			const pi = makePi(["tff-fff_grep"], {
+				code: 0,
+				stdout: JSON.stringify({ items: [] }),
+				stderr: "",
+			});
+			const bridge = new FffBridge(pi as never);
+			await bridge.grep(["pattern"]);
+			const [, args] = pi.exec.mock.calls[0] as [string, string[]];
+			expect(args).toContain("10");
+		});
 	});
 });

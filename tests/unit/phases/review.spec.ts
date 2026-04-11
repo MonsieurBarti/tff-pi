@@ -41,6 +41,15 @@ vi.mock("../../../src/common/git.js", () => ({
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
+vi.mock("../../../src/orchestrator.js", () => ({
+	enrichContextWithFff: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../../src/common/fff-integration.js", () => ({
+	discoverFffService: vi.fn().mockReturnValue(null),
+	FffBridge: vi.fn(),
+}));
+
 import { reviewPhase } from "../../../src/phases/review.js";
 
 describe("reviewPhase", () => {

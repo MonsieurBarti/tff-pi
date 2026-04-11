@@ -33,6 +33,22 @@ export function openDatabase(path: string): Database.Database {
 
 export function applyMigrations(db: Database.Database): void {
 	db.exec(`
+		CREATE TABLE IF NOT EXISTS schema_version (
+			version    INTEGER NOT NULL,
+			applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+	`);
+
+	const currentVersion =
+		(db.prepare("SELECT MAX(version) as v FROM schema_version").get() as { v: number | null })?.v ??
+		0;
+
+	if (currentVersion < 1) {
+		// Original schema (already exists via CREATE IF NOT EXISTS)
+		db.prepare("INSERT INTO schema_version (version) VALUES (1)").run();
+	}
+
+	db.exec(`
 		CREATE TABLE IF NOT EXISTS project (
 			id         TEXT PRIMARY KEY,
 			name       TEXT NOT NULL,
@@ -120,6 +136,11 @@ export function applyMigrations(db: Database.Database): void {
 		CREATE INDEX IF NOT EXISTS idx_event_log_slice ON event_log(slice_id);
 		CREATE INDEX IF NOT EXISTS idx_event_log_channel ON event_log(channel);
 	`);
+
+	if (currentVersion < 2) {
+		// M04 monitoring tables (already exist via CREATE IF NOT EXISTS)
+		db.prepare("INSERT INTO schema_version (version) VALUES (2)").run();
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -535,8 +556,13 @@ export function updatePhaseRun(
 	},
 ): void {
 	db.prepare(
-		`UPDATE phase_run
-		SET status = ?, finished_at = ?, duration_ms = ?, error = ?, feedback = ?, metadata = ?
+		`UPDATE phase_run SET
+			status = ?,
+			finished_at = COALESCE(?, finished_at),
+			duration_ms = COALESCE(?, duration_ms),
+			error = COALESCE(?, error),
+			feedback = COALESCE(?, feedback),
+			metadata = COALESCE(?, metadata)
 		WHERE id = ?`,
 	).run(
 		params.status,
@@ -573,6 +599,15 @@ export function getLatestPhaseRun(
 		.prepare("SELECT * FROM phase_run WHERE slice_id = ? ORDER BY rowid DESC LIMIT 1")
 		.get(sliceId) as PhaseRunRow | undefined;
 	return row ? rowToPhaseRun(row) : null;
+}
+
+export function recoverOrphanedPhaseRuns(db: Database.Database): number {
+	const result = db
+		.prepare(
+			"UPDATE phase_run SET status = 'abandoned', finished_at = datetime('now') WHERE status = 'started'",
+		)
+		.run();
+	return result.changes;
 }
 
 // ---------------------------------------------------------------------------
@@ -624,16 +659,20 @@ export function getEventLog(
 	db: Database.Database,
 	sliceId: string,
 	channel?: string,
+	limit?: number,
 ): EventLogEntry[] {
-	if (channel !== undefined) {
-		const rows = db
-			.prepare("SELECT * FROM event_log WHERE slice_id = ? AND channel = ? ORDER BY id")
-			.all(sliceId, channel) as EventLogRow[];
-		return rows.map(rowToEventLog);
+	let sql = "SELECT * FROM event_log WHERE slice_id = ?";
+	const args: (string | number)[] = [sliceId];
+	if (channel) {
+		sql += " AND channel = ?";
+		args.push(channel);
 	}
-	const rows = db
-		.prepare("SELECT * FROM event_log WHERE slice_id = ? ORDER BY id")
-		.all(sliceId) as EventLogRow[];
+	sql += " ORDER BY id";
+	if (limit) {
+		sql += " LIMIT ?";
+		args.push(limit);
+	}
+	const rows = db.prepare(sql).all(...args) as EventLogRow[];
 	return rows.map(rowToEventLog);
 }
 

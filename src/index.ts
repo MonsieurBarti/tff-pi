@@ -30,13 +30,14 @@ import {
 	updateSliceStatus,
 } from "./common/db.js";
 import { EventLogger } from "./common/event-logger.js";
+import { makeBaseEvent } from "./common/events.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
 import { isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
-import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel } from "./common/types.js";
+import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
 import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
 import { handleClassify } from "./tools/classify.js";
@@ -428,6 +429,22 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					let iterations = 0;
 					let reviewCycles = 0;
 					let lastFeedback: string | undefined;
+					let pipelinePaused = false;
+					const pipelineStartTime = Date.now();
+
+					if (currentSlice) {
+						const initMilestone = getMilestone(database, currentSlice.milestoneId);
+						if (initMilestone) {
+							const initSLabel = sliceLabel(initMilestone.number, currentSlice.number);
+							const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
+							pi.events.emit("tff:pipeline", {
+								...makeBaseEvent(currentSlice.id, initSLabel, initMilestone.number),
+								type: "pipeline_start",
+								fromPhase: phase ?? undefined,
+							});
+						}
+					}
+
 					while (currentSlice && iterations < MAX_AUTO_ITERATIONS) {
 						iterations++;
 						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
@@ -459,6 +476,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 											`Slice paused after ${MAX_REVIEW_CYCLES} review cycles.`,
 											"warning",
 										);
+									const pausedMilestone = getMilestone(database, currentSlice.milestoneId);
+									if (pausedMilestone) {
+										const pausedSLabel = sliceLabel(pausedMilestone.number, currentSlice.number);
+										pi.events.emit("tff:pipeline", {
+											...makeBaseEvent(currentSlice.id, pausedSLabel, pausedMilestone.number),
+											type: "pipeline_paused",
+										});
+									}
+									pipelinePaused = true;
 									break;
 								}
 							} else {
@@ -475,6 +501,21 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					}
 					if (iterations >= MAX_AUTO_ITERATIONS) {
 						if (ctx.hasUI) ctx.ui.notify("Auto mode: max iterations reached.", "warning");
+					}
+
+					if (!pipelinePaused) {
+						const finalSlice = findActiveSlice(database) ?? currentSlice;
+						if (finalSlice) {
+							const finalMilestone = getMilestone(database, finalSlice.milestoneId);
+							if (finalMilestone) {
+								const finalSLabel = sliceLabel(finalMilestone.number, finalSlice.number);
+								pi.events.emit("tff:pipeline", {
+									...makeBaseEvent(finalSlice.id, finalSLabel, finalMilestone.number),
+									type: "pipeline_complete",
+									totalDurationMs: Date.now() - pipelineStartTime,
+								});
+							}
+						}
 					}
 					break;
 				}

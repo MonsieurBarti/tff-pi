@@ -12,13 +12,15 @@ function loadResource(path: string): string {
 		return "";
 	}
 }
-import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
+import { getTasks, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
 import { makeBaseEvent } from "../common/events.js";
+import { discoverFffService } from "../common/fff-integration.js";
 import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
+import { enrichContextWithFff } from "../orchestrator.js";
 
 interface ReviewVerdict {
 	verdict: "approved" | "denied";
@@ -69,7 +71,7 @@ export const reviewPhase: PhaseModule = {
 		const milestoneBranch = `milestone/${mLabel}`;
 		const diff = getDiff(milestoneBranch, wtPath) ?? "";
 
-		const sharedContext = [
+		let sharedContext = [
 			`## Slice: ${sLabel}`,
 			"",
 			"## SPEC.md",
@@ -86,6 +88,16 @@ export const reviewPhase: PhaseModule = {
 			diff,
 			"```",
 		].join("\n");
+
+		const fffBridge = discoverFffService(pi);
+		if (fffBridge) {
+			const tasks = getTasks(db, slice.id);
+			const extraCtx: Record<string, string> = {};
+			await enrichContextWithFff(extraCtx, tasks, fffBridge);
+			if (extraCtx.RELATED_FILES) {
+				sharedContext += `\n\n## Related Files\n${extraCtx.RELATED_FILES}`;
+			}
+		}
 
 		const codeReviewPrompt = {
 			systemPrompt: [codeReviewerAgent, reviewProtocol, compressHint].filter(Boolean).join("\n\n"),

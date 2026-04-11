@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getEventLog } from "../common/db.js";
+import { formatDuration } from "../common/format.js";
 
 export function handleLogs(
 	db: Database.Database,
@@ -31,12 +32,4 @@ export function handleLogs(
 		lines.push(`${time}  ${entry.type.padEnd(18)}${extra.join("  ")}`);
 	}
 	return lines.join("\n");
-}
-
-function formatDuration(ms: number): string {
-	const sec = Math.round(ms / 1000);
-	if (sec < 60) return `${sec}s`;
-	const min = Math.floor(sec / 60);
-	const rem = sec % 60;
-	return `${min}m${rem > 0 ? `${rem}s` : ""}`;
 }

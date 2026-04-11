@@ -58,6 +58,7 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
 }));
 
+import { requestReview } from "../../../src/common/plannotator-review.js";
 import { discussPhase } from "../../../src/phases/discuss.js";
 import { planPhase } from "../../../src/phases/plan.js";
 import { researchPhase } from "../../../src/phases/research.js";
@@ -173,6 +174,26 @@ describe("phase event emission", () => {
 			expect(completeCalls).toHaveLength(1);
 			expect(completeCalls[0]?.[1]).toHaveProperty("tier", "SS");
 		});
+
+		it("emits phase_retried when gate is denied mid-loop", async () => {
+			writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
+			const mockRequestReview = vi.mocked(requestReview);
+			// First attempt denied, second approved
+			mockRequestReview
+				.mockResolvedValueOnce({ approved: false })
+				.mockResolvedValueOnce({ approved: true });
+
+			const mockEmit = vi.fn();
+			const ctx = makeCtx(db, root, sliceId, mockEmit);
+			await discussPhase.run(ctx);
+
+			const retriedCalls = mockEmit.mock.calls.filter(
+				([ch, e]) => ch === "tff:phase" && e.type === "phase_retried" && e.phase === "discuss",
+			);
+			expect(retriedCalls).toHaveLength(1);
+			expect(retriedCalls[0]?.[1]).toHaveProperty("feedback", "Gate denied, retrying");
+			expect(retriedCalls[0]?.[1]).toHaveProperty("durationMs");
+		});
 	});
 
 	describe("researchPhase", () => {
@@ -267,6 +288,26 @@ describe("phase event emission", () => {
 			);
 			expect(failedCalls).toHaveLength(1);
 			expect(failedCalls[0]?.[1]).toHaveProperty("error", "planner error");
+		});
+
+		it("emits phase_retried when gate is denied mid-loop", async () => {
+			writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan");
+			const mockRequestReview = vi.mocked(requestReview);
+			// First attempt denied, second approved
+			mockRequestReview
+				.mockResolvedValueOnce({ approved: false })
+				.mockResolvedValueOnce({ approved: true });
+
+			const mockEmit = vi.fn();
+			const ctx = makeCtx(db, root, sliceId, mockEmit);
+			await planPhase.run(ctx);
+
+			const retriedCalls = mockEmit.mock.calls.filter(
+				([ch, e]) => ch === "tff:phase" && e.type === "phase_retried" && e.phase === "plan",
+			);
+			expect(retriedCalls).toHaveLength(1);
+			expect(retriedCalls[0]?.[1]).toHaveProperty("feedback", "Gate denied, retrying");
+			expect(retriedCalls[0]?.[1]).toHaveProperty("durationMs");
 		});
 	});
 

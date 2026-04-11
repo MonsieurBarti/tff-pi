@@ -83,6 +83,13 @@ export const discussPhase: PhaseModule = {
 				return { success: true, retry: false };
 			}
 			if (attempt < MAX_RETRIES) {
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_retried",
+					phase: "discuss",
+					durationMs: Date.now() - startTime,
+					feedback: "Gate denied, retrying",
+				});
 				const retryResult = await dispatchSubAgent(pi, "brainstormer", prompt);
 				if (!retryResult.success) break;
 			}
