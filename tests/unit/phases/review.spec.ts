@@ -39,6 +39,7 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()
 		.mockReturnValue({ agentPrompt: "# Reviewer", protocol: "# Protocol" }),
+	loadAgentResource: vi.fn().mockReturnValue("# Security Review\nOWASP checks"),
 }));
 
 import { reviewPhase } from "../../../src/phases/review.js";
@@ -109,6 +110,26 @@ describe("reviewPhase", () => {
 		expect(msg).toContain("PLAN.md");
 		expect(msg).toContain("VERIFICATION.md");
 		expect(msg).toContain("diff content");
+	});
+
+	it("message includes security reviewer content", async () => {
+		const sendUserMessage = vi.fn();
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await reviewPhase.run(ctx);
+		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		expect(msg).toContain("Security Review");
+		expect(msg).toContain("OWASP checks");
 	});
 
 	it("emits phase_start event", async () => {

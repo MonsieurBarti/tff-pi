@@ -88,6 +88,10 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 	ship: ["tff_query_state"],
 };
 
+export function loadAgentResource(agentName: string): string {
+	return loadResource(join(RESOURCES_DIR, "agents", `${agentName}.md`));
+}
+
 export function loadPhaseResources(phase: Phase): { agentPrompt: string; protocol: string } {
 	const agentName = PHASE_AGENT[phase];
 	const agentPrompt = loadResource(join(RESOURCES_DIR, "agents", `${agentName}.md`));

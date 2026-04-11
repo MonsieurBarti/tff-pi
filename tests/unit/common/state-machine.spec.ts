@@ -20,7 +20,6 @@ describe("state-machine", () => {
 			expect(SLICE_TRANSITIONS).toHaveProperty("reviewing");
 			expect(SLICE_TRANSITIONS).toHaveProperty("shipping");
 			expect(SLICE_TRANSITIONS).toHaveProperty("closed");
-			expect(SLICE_TRANSITIONS).toHaveProperty("paused");
 		});
 	});
 
@@ -67,26 +66,6 @@ describe("state-machine", () => {
 
 		it("allows valid forward path: shipping → closed", () => {
 			expect(canTransitionSlice("shipping", "closed")).toBe(true);
-		});
-
-		it("allows pause from any active phase: discussing → paused", () => {
-			expect(canTransitionSlice("discussing", "paused")).toBe(true);
-		});
-
-		it("allows pause from any active phase: executing → paused", () => {
-			expect(canTransitionSlice("executing", "paused")).toBe(true);
-		});
-
-		it("allows pause from any active phase: shipping → paused", () => {
-			expect(canTransitionSlice("shipping", "paused")).toBe(true);
-		});
-
-		it("allows resume from paused: paused → discussing", () => {
-			expect(canTransitionSlice("paused", "discussing")).toBe(true);
-		});
-
-		it("allows resume from paused: paused → executing", () => {
-			expect(canTransitionSlice("paused", "executing")).toBe(true);
 		});
 
 		it("rejects invalid transition: created → planning", () => {
@@ -153,10 +132,6 @@ describe("state-machine", () => {
 
 		it("returns null for closed", () => {
 			expect(nextSliceStatus("closed")).toBeNull();
-		});
-
-		it("returns null for paused", () => {
-			expect(nextSliceStatus("paused")).toBeNull();
 		});
 	});
 

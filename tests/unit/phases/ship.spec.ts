@@ -18,7 +18,7 @@ import {
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
-import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
+import { DEFAULT_SETTINGS, type Settings } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
 
 const mockExec = vi.fn().mockReturnValue("");
@@ -51,8 +51,10 @@ describe("shipPhase", () => {
 	let db: Database.Database;
 	let root: string;
 	let sliceId: string;
+	let milestoneId: string;
 
 	beforeEach(() => {
+		mockExec.mockReset();
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
 			const cmdArgs = args[1] as string[];
@@ -72,18 +74,41 @@ describe("shipPhase", () => {
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, sliceId, "reviewing");
 		updateSliceTier(db, sliceId, "SS");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec\nAC-1: auth works");
+		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan\nStep 1: implement");
+		writeArtifact(
+			root,
+			"milestones/M01/slices/M01-S01/REQUIREMENTS.md",
+			"# Requirements\nR1: auth",
+		);
 		writeArtifact(root, "milestones/M01/slices/M01-S01/VERIFICATION.md", "# All pass");
+		writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW.md", "# Review\nAll good");
 	});
 
 	afterEach(() => {
 		rmSync(root, { recursive: true, force: true });
 	});
+
+	function makeSettings(overrides: Partial<Settings> = {}): Settings {
+		return {
+			...DEFAULT_SETTINGS,
+			compress: { ...DEFAULT_SETTINGS.compress },
+			ship: { ...DEFAULT_SETTINGS.ship },
+			...overrides,
+		};
+	}
+
+	function makePi() {
+		return {
+			events: { emit: vi.fn(), on: vi.fn() },
+			sendUserMessage: vi.fn(),
+		} as unknown as PhaseContext["pi"];
+	}
 
 	it("conforms to PhaseModule interface", () => {
 		expect(typeof shipPhase.run).toBe("function");
@@ -92,12 +117,12 @@ describe("shipPhase", () => {
 	it("stores pr_url on slice after PR creation", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: makePi(),
 			db,
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
+			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
 		const result = await shipPhase.run(ctx);
 		expect(result.success).toBe(true);
@@ -108,12 +133,12 @@ describe("shipPhase", () => {
 	it("writes PR.md artifact", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: makePi(),
 			db,
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
+			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
 		await shipPhase.run(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
@@ -124,15 +149,44 @@ describe("shipPhase", () => {
 	it("marks slice as closed after successful merge", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
+			pi: makePi(),
 			db,
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
+			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
 		await shipPhase.run(ctx);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.status).toBe("closed");
+	});
+
+	it("with auto_merge disabled, does not squash merge", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const pi = makePi();
+		const ctx: PhaseContext = {
+			pi,
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: false } }),
+		};
+		const result = await shipPhase.run(ctx);
+		expect(result.success).toBe(true);
+
+		// gh pr merge should NOT have been called
+		const mergeCalls = mockExec.mock.calls.filter(
+			(call: unknown[]) =>
+				call[0] === "gh" &&
+				(call[1] as string[])?.[0] === "pr" &&
+				(call[1] as string[])?.[1] === "merge",
+		);
+		expect(mergeCalls).toHaveLength(0);
+
+		// sendUserMessage should mention "ready for review"
+		expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+		const msg = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+		expect(msg).toContain("ready for review");
 	});
 });

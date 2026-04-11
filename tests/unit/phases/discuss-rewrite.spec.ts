@@ -39,7 +39,11 @@ function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
 			createdAt: "",
 		},
 		milestoneNumber: 1,
-		settings: { model_profile: "balanced" as const, compress: { user_artifacts: false } },
+		settings: {
+			model_profile: "balanced" as const,
+			compress: { user_artifacts: false },
+			ship: { auto_merge: false },
+		},
 		...overrides,
 	};
 }

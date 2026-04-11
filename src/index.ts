@@ -4,13 +4,13 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
+import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
 import { handleLogs } from "./commands/logs.js";
 import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
-import { handlePause } from "./commands/pause.js";
 import { validatePlan } from "./commands/plan.js";
 import { handleProgress } from "./commands/progress.js";
 import { validateResearch } from "./commands/research.js";
@@ -20,6 +20,7 @@ import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import {
 	applyMigrations,
+	getActiveMilestone,
 	getMilestone,
 	getMilestones,
 	getProject,
@@ -30,7 +31,14 @@ import {
 import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
-import { getGitRoot, initRepo } from "./common/git.js";
+import {
+	addRemote,
+	createGitignore,
+	getGitRoot,
+	hasRemote,
+	initRepo,
+	initialCommitAndPush,
+} from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
@@ -221,13 +229,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						initRepo(process.cwd());
 						root = getGitRoot() ?? process.cwd();
 					}
+					createGitignore(root);
 					projectRoot = root;
 					initDb(root);
 					loadSettings(root);
 
 					const projectName = rest[0] ?? "New Project";
+					const remoteInstruction = hasRemote(root)
+						? ""
+						: "\n\nIMPORTANT: No git remote is configured. Ask the user for their GitHub repository URL and call the tff_add_remote tool with it. This is required for the ship phase to create PRs.";
 					pi.sendUserMessage(
-						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n\nOnce agreed, call the tff_create_project tool with the project name and vision. After creating the project, suggest the user run /tff new-milestone.`,
+						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n\nOnce agreed, call the tff_create_project tool with the project name and vision. After creating the project, suggest the user run /tff new-milestone.${remoteInstruction}`,
 					);
 					break;
 				}
@@ -243,7 +255,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"- `/tff research [sliceId]` — Run the research phase on a slice\n" +
 							"- `/tff plan [sliceId]` — Run the plan phase on a slice\n" +
 							"- `/tff next` — Advance the active slice to its next phase\n" +
-							"- `/tff pause [sliceId]` — Pause the active slice\n\n" +
 							"**Monitoring:**\n" +
 							"- `/tff status` — Show current project status\n" +
 							"- `/tff progress` — Show detailed progress table\n" +
@@ -255,7 +266,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
 							"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
 							"- `/tff ship [sliceId]` — Ship the slice (PR + merge)\n\n" +
-							"Not yet implemented: complete-milestone, rollback",
+							"- `/tff complete-milestone [M01]` — Create milestone PR after all slices ship",
 					);
 					break;
 				}
@@ -310,7 +321,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				case "settings": {
 					const current = settings ?? DEFAULT_SETTINGS;
 					pi.sendUserMessage(
-						`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
+						`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n- ship.auto_merge: ${current.ship.auto_merge}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
 					);
 					break;
 				}
@@ -482,20 +493,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					break;
 				}
 
-				case "auto": {
-					pi.sendUserMessage(
-						"Auto mode has been removed. Each phase now runs interactively in the main session.\n\n" +
-							"Use `/tff next` to advance to the next phase, or run a specific phase:\n" +
-							"- `/tff discuss [slice]`\n" +
-							"- `/tff research [slice]`\n" +
-							"- `/tff plan [slice]`\n" +
-							"- `/tff execute [slice]`\n" +
-							"- `/tff verify [slice]`\n" +
-							"- `/tff ship [slice]`",
-					);
-					break;
-				}
-
 				case "execute": {
 					const database = getDb();
 					const root = projectRoot;
@@ -612,6 +609,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
+					} else if (result.retry && result.feedback) {
+						// PR has review comments — re-enter execute with feedback
+						if (ctx.hasUI)
+							ctx.ui.notify("PR has review comments. Re-entering execute phase for fixes.", "info");
+						const executeMod = phaseModules.execute;
+						const freshSlice = getSlice(database, slice.id);
+						if (freshSlice) {
+							const execCtx: PhaseContext = {
+								pi,
+								db: database,
+								root,
+								slice: freshSlice,
+								milestoneNumber: milestone.number,
+								settings: currentSettings,
+								feedback: result.feedback,
+							};
+							await executeMod.run(execCtx);
+						}
 					} else {
 						if (ctx.hasUI)
 							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
@@ -619,22 +634,35 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					break;
 				}
 
-				case "pause": {
+				case "complete-milestone": {
 					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						if (ctx.hasUI) ctx.ui.notify("Not inside a git repository.", "error");
+						return;
+					}
 					const label = rest[0] ?? "";
-					const slice = label
-						? (findSliceByLabel(database, label) ?? getSlice(database, label))
-						: findActiveSlice(database);
-					if (!slice) {
-						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+					const project = getProject(database);
+					if (!project) {
+						if (ctx.hasUI) ctx.ui.notify("No project found. Run /tff new first.", "error");
+						return;
+					}
+					const milestone = label
+						? resolveMilestone(database, label)
+						: getActiveMilestone(database, project.id);
+					if (!milestone) {
+						const msg = label ? `Milestone not found: ${label}` : "No active milestone found.";
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const pauseResult = handlePause(database, slice.id);
-					if (!pauseResult.success) {
-						if (ctx.hasUI) ctx.ui.notify(pauseResult.error ?? "Unknown error", "error");
+					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const result = handleCompleteMilestone(database, root, milestone.id, currentSettings);
+					if (result.success) {
+						pi.sendUserMessage(
+							`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
+						);
 					} else {
-						if (ctx.hasUI) ctx.ui.notify(`Slice ${slice.id} paused.`, "info");
+						pi.sendUserMessage(`Cannot complete milestone: ${result.error}`);
 					}
 					break;
 				}
@@ -897,6 +925,73 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					projectName: params.projectName,
 					vision: params.vision,
 				});
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_add_remote
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_add_remote",
+			label: "TFF Add Remote",
+			description:
+				"Add a git remote origin and push the initial commit. Call this during /tff new when no remote is configured.",
+			parameters: Type.Object({
+				url: Type.String({
+					description: "GitHub repository URL (e.g. https://github.com/user/repo.git)",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const validHostPatterns = [
+						/^https?:\/\/(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org)\//,
+						/^git@(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org):/,
+					];
+					if (!validHostPatterns.some((p) => p.test(params.url))) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "Error: URL must be from a known git host (github.com, gitlab.com, bitbucket.org, codeberg.org). If you need a different host, add the remote manually with `git remote add origin <url>`.",
+								},
+							],
+							details: { url: params.url },
+							isError: true,
+						};
+					}
+					addRemote(params.url, root);
+					initialCommitAndPush(root);
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Remote origin added (${params.url}) and initial commit pushed.`,
+							},
+						],
+						details: { url: params.url },
+					};
+				} catch (err) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+							},
+						],
+						details: { url: params.url },
+						isError: true,
+					};
+				}
 			},
 		}),
 	);

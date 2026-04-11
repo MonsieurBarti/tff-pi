@@ -81,6 +81,21 @@ describe("settings", () => {
 		});
 	});
 
+	describe("ship.auto_merge setting", () => {
+		it("parses ship.auto_merge as boolean (default false)", () => {
+			const s = parseSettings("ship:\n  auto_merge: true");
+			expect(s.ship.auto_merge).toBe(true);
+		});
+		it("defaults ship.auto_merge to false", () => {
+			const s = parseSettings("");
+			expect(s.ship.auto_merge).toBe(false);
+		});
+		it("defaults ship.auto_merge to false when ship section missing", () => {
+			const s = parseSettings("model_profile: quality");
+			expect(s.ship.auto_merge).toBe(false);
+		});
+	});
+
 	describe("serializeSettings", () => {
 		it("serializes settings to YAML string", () => {
 			const yaml = serializeSettings(DEFAULT_SETTINGS);
@@ -93,6 +108,7 @@ describe("settings", () => {
 			const original: Settings = {
 				model_profile: "quality",
 				compress: { user_artifacts: true },
+				ship: { auto_merge: false },
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);

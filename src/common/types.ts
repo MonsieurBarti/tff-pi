@@ -8,7 +8,6 @@ export const SLICE_STATUSES = [
 	"reviewing",
 	"shipping",
 	"closed",
-	"paused",
 ] as const;
 export type SliceStatus = (typeof SLICE_STATUSES)[number];
 
@@ -86,20 +85,6 @@ export function sliceLabel(milestoneNumber: number, sliceNumber: number): string
 
 export function taskLabel(taskNumber: number): string {
 	return `T${String(taskNumber).padStart(2, "0")}`;
-}
-
-/** Real-time activity from the child pi process. */
-export interface SubAgentActivity {
-	/** Current tool being executed (null when between tools). */
-	currentTool: string | null;
-	/** Args of the current tool call. */
-	currentToolArgs: Record<string, unknown> | null;
-	/** Completed tool calls so far. */
-	completedTools: string[];
-	/** Number of LLM turns completed. */
-	turns: number;
-	/** Elapsed time in ms since spawn. */
-	elapsedMs: number;
 }
 
 export interface ValidateResult {

@@ -16,7 +16,6 @@ const NEXT_ACTION_COMMAND: Partial<Record<SliceStatus, string>> = {
 	verifying: "verify",
 	reviewing: "review",
 	shipping: "ship",
-	paused: "discuss",
 };
 
 export function handleStatus(db: Database.Database): string {

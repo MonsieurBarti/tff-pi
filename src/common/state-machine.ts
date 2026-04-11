@@ -2,23 +2,14 @@ import type { MilestoneStatus, SliceStatus, Tier } from "./types.js";
 
 export const SLICE_TRANSITIONS: Record<SliceStatus, SliceStatus[]> = {
 	created: ["discussing"],
-	discussing: ["researching", "planning", "paused"],
-	researching: ["planning", "paused"],
-	planning: ["executing", "paused"],
-	executing: ["verifying", "paused"],
-	verifying: ["reviewing", "executing", "paused"],
-	reviewing: ["shipping", "executing", "paused"],
-	shipping: ["closed", "executing", "paused"],
+	discussing: ["researching", "planning"],
+	researching: ["planning"],
+	planning: ["executing"],
+	executing: ["verifying"],
+	verifying: ["reviewing", "executing"],
+	reviewing: ["shipping", "executing"],
+	shipping: ["closed", "executing"],
 	closed: [],
-	paused: [
-		"discussing",
-		"researching",
-		"planning",
-		"executing",
-		"verifying",
-		"reviewing",
-		"shipping",
-	],
 };
 
 export const MILESTONE_TRANSITIONS: Record<MilestoneStatus, MilestoneStatus[]> = {
@@ -35,7 +26,7 @@ export function canTransitionSlice(from: SliceStatus, to: SliceStatus): boolean 
 }
 
 export function nextSliceStatus(current: SliceStatus, tier?: Tier): SliceStatus | null {
-	if (current === "closed" || current === "paused") return null;
+	if (current === "closed") return null;
 	if (current === "discussing" && tier === "S") return "planning";
 
 	const forwardPath: SliceStatus[] = [

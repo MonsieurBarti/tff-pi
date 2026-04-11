@@ -39,6 +39,7 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()
 		.mockReturnValue({ agentPrompt: "# Reviewer", protocol: "# Protocol" }),
+	loadAgentResource: vi.fn().mockReturnValue("# Security Review\nOWASP checks"),
 }));
 
 import { reviewPhase } from "../../../src/phases/review.js";

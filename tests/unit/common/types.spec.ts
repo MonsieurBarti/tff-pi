@@ -28,7 +28,6 @@ describe("types", () => {
 				"reviewing",
 				"shipping",
 				"closed",
-				"paused",
 			]);
 		});
 	});
