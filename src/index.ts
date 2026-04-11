@@ -4,6 +4,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
+import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
@@ -19,6 +20,7 @@ import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import {
 	applyMigrations,
+	getActiveMilestone,
 	getMilestone,
 	getMilestones,
 	getProject,
@@ -254,7 +256,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
 							"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
 							"- `/tff ship [sliceId]` — Ship the slice (PR + merge)\n\n" +
-							"Not yet implemented: complete-milestone",
+							"- `/tff complete-milestone [M01]` — Create milestone PR after all slices ship",
 					);
 					break;
 				}
@@ -614,6 +616,39 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					} else {
 						if (ctx.hasUI)
 							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
+					}
+					break;
+				}
+
+				case "complete-milestone": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						if (ctx.hasUI) ctx.ui.notify("Not inside a git repository.", "error");
+						return;
+					}
+					const label = rest[0] ?? "";
+					const project = getProject(database);
+					if (!project) {
+						if (ctx.hasUI) ctx.ui.notify("No project found. Run /tff new first.", "error");
+						return;
+					}
+					const milestone = label
+						? resolveMilestone(database, label)
+						: getActiveMilestone(database, project.id);
+					if (!milestone) {
+						const msg = label ? `Milestone not found: ${label}` : "No active milestone found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						return;
+					}
+					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const result = handleCompleteMilestone(database, root, milestone.id, currentSettings);
+					if (result.success) {
+						pi.sendUserMessage(
+							`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
+						);
+					} else {
+						pi.sendUserMessage(`Cannot complete milestone: ${result.error}`);
 					}
 					break;
 				}
