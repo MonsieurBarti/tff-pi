@@ -7,10 +7,10 @@ export function validateExecute(db: Database.Database, sliceId: string): Validat
 	if (!slice) {
 		return { valid: false, error: `Slice not found: ${sliceId}` };
 	}
-	if (slice.status !== "planning") {
+	if (slice.status !== "planning" && slice.status !== "executing") {
 		return {
 			valid: false,
-			error: `Cannot execute: slice is in '${slice.status}' status (expected 'planning')`,
+			error: `Cannot execute: slice is in '${slice.status}' status (expected 'planning' or 'executing')`,
 		};
 	}
 	return { valid: true };

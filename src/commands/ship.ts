@@ -7,10 +7,10 @@ export function validateShip(db: Database.Database, sliceId: string): ValidateRe
 	if (!slice) {
 		return { valid: false, error: `Slice not found: ${sliceId}` };
 	}
-	if (slice.status !== "reviewing") {
+	if (slice.status !== "reviewing" && slice.status !== "shipping") {
 		return {
 			valid: false,
-			error: `Cannot ship: slice is in '${slice.status}' status (expected 'reviewing')`,
+			error: `Cannot ship: slice is in '${slice.status}' status (expected 'reviewing' or 'shipping')`,
 		};
 	}
 	return { valid: true };

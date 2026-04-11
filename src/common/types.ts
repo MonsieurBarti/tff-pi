@@ -21,6 +21,17 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TIERS = ["S", "SS", "SSS"] as const;
 export type Tier = (typeof TIERS)[number];
 
+export type Phase = "discuss" | "research" | "plan" | "execute" | "verify" | "review" | "ship";
+export const ALL_PHASES: Phase[] = [
+	"discuss",
+	"research",
+	"plan",
+	"execute",
+	"verify",
+	"review",
+	"ship",
+];
+
 export interface Project {
 	id: string;
 	name: string;
@@ -75,6 +86,20 @@ export function sliceLabel(milestoneNumber: number, sliceNumber: number): string
 
 export function taskLabel(taskNumber: number): string {
 	return `T${String(taskNumber).padStart(2, "0")}`;
+}
+
+/** Real-time activity from the child pi process. */
+export interface SubAgentActivity {
+	/** Current tool being executed (null when between tools). */
+	currentTool: string | null;
+	/** Args of the current tool call. */
+	currentToolArgs: Record<string, unknown> | null;
+	/** Completed tool calls so far. */
+	completedTools: string[];
+	/** Number of LLM turns completed. */
+	turns: number;
+	/** Elapsed time in ms since spawn. */
+	elapsedMs: number;
 }
 
 export interface ValidateResult {

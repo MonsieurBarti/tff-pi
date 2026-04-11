@@ -52,6 +52,12 @@ vi.mock("../../../src/orchestrator.js", () => ({
 		.fn()
 		.mockReturnValue({ systemPrompt: "", userPrompt: "", tools: [], label: "" }),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: true, missing: [] }),
+	enrichContextWithFff: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../../src/common/fff-integration.js", () => ({
+	discoverFffService: vi.fn().mockReturnValue(null),
+	FffBridge: vi.fn(),
 }));
 
 import { verifyPhase } from "../../../src/phases/verify.js";
@@ -96,7 +102,7 @@ describe("verifyPhase", () => {
 	it("succeeds when AC verification and tests pass", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -110,7 +116,7 @@ describe("verifyPhase", () => {
 	it("writes VERIFICATION.md artifact", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -127,7 +133,7 @@ describe("verifyPhase", () => {
 		mockDispatch.mockResolvedValue({ success: false, output: "AC-2 failed" });
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,

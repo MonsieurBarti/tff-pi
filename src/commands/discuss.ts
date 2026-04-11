@@ -7,10 +7,10 @@ export function validateDiscuss(db: Database.Database, sliceId: string): Validat
 	if (!slice) {
 		return { valid: false, error: `Slice not found: ${sliceId}` };
 	}
-	if (slice.status !== "created") {
+	if (slice.status !== "created" && slice.status !== "discussing") {
 		return {
 			valid: false,
-			error: `Cannot start discuss: slice is in '${slice.status}' status (expected 'created')`,
+			error: `Cannot start discuss: slice is in '${slice.status}' status (expected 'created' or 'discussing')`,
 		};
 	}
 	return { valid: true };

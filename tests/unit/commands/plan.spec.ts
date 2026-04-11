@@ -69,11 +69,10 @@ describe("validatePlan", () => {
 		expect(result.error).toContain("created");
 	});
 
-	it("fails for planning status", () => {
+	it("succeeds for planning status (re-run stuck phase)", () => {
 		updateSliceStatus(db, sliceId, "planning");
 		const result = validatePlan(db, sliceId);
-		expect(result.valid).toBe(false);
-		expect(result.error).toContain("planning");
+		expect(result.valid).toBe(true);
 	});
 
 	it("fails for executing status", () => {

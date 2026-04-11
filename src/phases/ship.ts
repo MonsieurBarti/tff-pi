@@ -9,6 +9,7 @@ import {
 	updateSlicePrUrl,
 	updateSliceStatus,
 } from "../common/db.js";
+import { makeBaseEvent } from "../common/events.js";
 import { getDefaultBranch, gitEnv } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import type { Settings } from "../common/settings.js";
@@ -17,7 +18,7 @@ import { getWorktreePath, removeWorktree } from "../common/worktree.js";
 
 export const shipPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
-		const { db, root, slice, milestoneNumber, settings } = ctx;
+		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
 		updateSliceStatus(db, slice.id, "shipping");
 
 		const mLabel = milestoneLabel(milestoneNumber);
@@ -26,6 +27,13 @@ export const shipPhase: PhaseModule = {
 		const milestoneBranch = `milestone/${mLabel}`;
 		const sliceBranch = `slice/${sLabel}`;
 		const env = gitEnv();
+
+		const startTime = Date.now();
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "phase_start",
+			phase: "ship",
+		});
 
 		try {
 			// Push slice branch
@@ -103,6 +111,13 @@ export const shipPhase: PhaseModule = {
 				// CI failed — loop back to executing for fixes
 				updateSliceStatus(db, slice.id, "executing");
 				resetTasksToOpen(db, slice.id);
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "ship",
+					durationMs: Date.now() - startTime,
+					error: "CI checks failed",
+				});
 				return { success: false, retry: true, error: "CI checks failed" };
 			}
 
@@ -150,8 +165,21 @@ export const shipPhase: PhaseModule = {
 			// Check if all slices in milestone are done
 			checkMilestoneCompletion(db, root, slice.milestoneId, settings);
 
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_complete",
+				phase: "ship",
+				durationMs: Date.now() - startTime,
+			});
 			return { success: true, retry: false };
 		} catch (err) {
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "ship",
+				durationMs: Date.now() - startTime,
+				error: err instanceof Error ? err.message : String(err),
+			});
 			return {
 				success: false,
 				retry: false,

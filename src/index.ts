@@ -8,6 +8,7 @@ import { validateAuto } from "./commands/auto.js";
 import { validateDiscuss } from "./commands/discuss.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
+import { handleLogs } from "./commands/logs.js";
 import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
 import { handlePause } from "./commands/pause.js";
@@ -21,16 +22,23 @@ import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestone,
+	getMilestones,
 	getProject,
 	getSlice,
+	getSlices,
 	openDatabase,
 	updateSliceStatus,
 } from "./common/db.js";
+import { EventLogger } from "./common/event-logger.js";
+import { makeBaseEvent } from "./common/events.js";
+import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
-import { isValidSubcommand, parseSubcommand } from "./common/router.js";
+import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
-import { SLICE_STATUSES, TIERS, milestoneLabel } from "./common/types.js";
+import { TUIMonitor } from "./common/tui-monitor.js";
+import type { SubAgentActivity } from "./common/types.js";
+import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
 import { determineNextPhase, findActiveSlice } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
 import { handleClassify } from "./tools/classify.js";
@@ -50,6 +58,9 @@ let db: Database.Database | null = null;
 let projectRoot: string | null = null;
 let settings: Settings | null = null;
 let initError: string | null = null;
+let eventLogger: EventLogger | null = null;
+let tuiMonitor: TUIMonitor | null = null;
+let _fffBridge: FffBridge | null = null;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -76,6 +87,44 @@ function loadSettings(root: string): void {
 		: { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
 }
 
+function findSliceByLabel(db: Database.Database, label: string): Slice | null {
+	const match = label.match(/^M(\d+)-S(\d+)$/i);
+	if (!match || !match[1] || !match[2]) return null;
+	const mNum = Number.parseInt(match[1], 10);
+	const sNum = Number.parseInt(match[2], 10);
+	const project = getProject(db);
+	if (!project) return null;
+	const milestones = getMilestones(db, project.id);
+	const milestone = milestones.find((m) => m.number === mNum);
+	if (!milestone) return null;
+	const slices = getSlices(db, milestone.id);
+	return slices.find((s) => s.number === sNum) ?? null;
+}
+
+function findMilestoneByLabel(
+	db: Database.Database,
+	label: string,
+): ReturnType<typeof getMilestones>[number] | null {
+	const match = label.match(/^M(\d+)$/i);
+	if (!match || !match[1]) return null;
+	const mNum = Number.parseInt(match[1], 10);
+	const project = getProject(db);
+	if (!project) return null;
+	const milestones = getMilestones(db, project.id);
+	return milestones.find((m) => m.number === mNum) ?? null;
+}
+
+function resolveSlice(db: Database.Database, ref: string): ReturnType<typeof getSlice> {
+	return findSliceByLabel(db, ref) ?? getSlice(db, ref);
+}
+
+function resolveMilestone(
+	db: Database.Database,
+	ref: string,
+): ReturnType<typeof getMilestones>[number] | null {
+	return findMilestoneByLabel(db, ref) ?? getMilestone(db, ref);
+}
+
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -98,9 +147,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				applyMigrations(db);
 				loadSettings(root);
 				initError = null;
+
+				// Initialize monitoring
+				const logsDir = tffPath(root, "logs");
+				eventLogger = new EventLogger(db, logsDir);
+				eventLogger.subscribe(pi.events);
+
 				if (ctx.hasUI) {
+					tuiMonitor = new TUIMonitor(ctx.ui);
+					tuiMonitor.subscribe(pi.events);
 					ctx.ui.notify("TFF ready", "info");
 				}
+
+				// Discover fff-pi
+				_fffBridge = discoverFffService(pi);
 			} catch (err) {
 				initError = err instanceof Error ? err.message : String(err);
 			}
@@ -111,6 +171,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	// Lifecycle: session_shutdown
 	// -------------------------------------------------------------------------
 	pi.on("session_shutdown", async () => {
+		eventLogger = null;
+		tuiMonitor = null;
+		_fffBridge = null;
 		if (db) {
 			db.close();
 			db = null;
@@ -123,6 +186,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("tff", {
 		description:
 			"The Forge Flow — project workflow manager. Subcommands: new, status, progress, health, settings, help (and more)",
+		getArgumentCompletions: (prefix: string) => {
+			const { subcommand, args } = parseSubcommand(prefix);
+			// Only suggest subcommands when the user hasn't completed the first word yet
+			if (args.length > 0) return null;
+			const items = VALID_SUBCOMMANDS.filter((cmd) => cmd.startsWith(subcommand)).map((cmd) => ({
+				value: cmd,
+				label: cmd,
+			}));
+			return items.length > 0 ? items : null;
+		},
 		handler: async (args, ctx) => {
 			const { subcommand, args: rest } = parseSubcommand(args);
 
@@ -167,6 +240,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"**Monitoring:**\n" +
 							"- `/tff status` — Show current project status\n" +
 							"- `/tff progress` — Show detailed progress table\n" +
+							"- `/tff logs [M01-S01] [--json]` — Show event timeline for a slice\n" +
 							"- `/tff health` — Quick database health check\n" +
 							"- `/tff settings` — Show current settings\n" +
 							"- `/tff help` — Show this help\n\n" +
@@ -187,6 +261,23 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 				case "progress": {
 					const result = handleProgress(getDb());
+					pi.sendUserMessage(result);
+					break;
+				}
+
+				case "logs": {
+					const db = getDb();
+					const rawArgs = rest.join(" ").trim();
+					const jsonFlag = rawArgs.includes("--json");
+					const label = rawArgs.replace("--json", "").trim();
+					const slice = label ? findSliceByLabel(db, label) : null;
+					const activeSlice = findActiveSlice(db);
+					const targetSlice = slice ?? activeSlice;
+					if (!targetSlice) {
+						pi.sendUserMessage("No slice found. Usage: `/tff logs [M01-S01] [--json]`");
+						break;
+					}
+					const result = handleLogs(db, targetSlice.id, { json: jsonFlag });
 					pi.sendUserMessage(result);
 					break;
 				}
@@ -241,9 +332,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateDiscuss(database, slice.id);
@@ -262,8 +357,41 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
-					await mod.run(phaseCtx);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
+					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
+					if (result.success) {
+						if (ctx.hasUI) ctx.ui.notify("Discuss phase complete.", "info");
+					} else {
+						if (ctx.hasUI)
+							ctx.ui.notify(`Discuss phase failed: ${result.error ?? "unknown error"}`, "error");
+					}
 					break;
 				}
 
@@ -271,9 +399,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateResearch(database, slice.id);
@@ -292,8 +424,41 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
-					await mod.run(phaseCtx);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
+					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
+					if (result.success) {
+						if (ctx.hasUI) ctx.ui.notify("Research phase complete.", "info");
+					} else {
+						if (ctx.hasUI)
+							ctx.ui.notify(`Research phase failed: ${result.error ?? "unknown error"}`, "error");
+					}
 					break;
 				}
 
@@ -301,9 +466,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validatePlan(database, slice.id);
@@ -322,8 +491,41 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
-					await mod.run(phaseCtx);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
+					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
+					if (result.success) {
+						if (ctx.hasUI) ctx.ui.notify("Plan phase complete.", "info");
+					} else {
+						if (ctx.hasUI)
+							ctx.ui.notify(`Plan phase failed: ${result.error ?? "unknown error"}`, "error");
+					}
 					break;
 				}
 
@@ -352,6 +554,27 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
 					await mod.run(phaseCtx);
 					break;
@@ -373,6 +596,22 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					let iterations = 0;
 					let reviewCycles = 0;
 					let lastFeedback: string | undefined;
+					let pipelinePaused = false;
+					const pipelineStartTime = Date.now();
+
+					if (currentSlice) {
+						const initMilestone = getMilestone(database, currentSlice.milestoneId);
+						if (initMilestone) {
+							const initSLabel = sliceLabel(initMilestone.number, currentSlice.number);
+							const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
+							pi.events.emit("tff:pipeline", {
+								...makeBaseEvent(currentSlice.id, initSLabel, initMilestone.number),
+								type: "pipeline_start",
+								fromPhase: phase ?? undefined,
+							});
+						}
+					}
+
 					while (currentSlice && iterations < MAX_AUTO_ITERATIONS) {
 						iterations++;
 						const phase = determineNextPhase(currentSlice.status, currentSlice.tier);
@@ -393,17 +632,25 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (!result.success) {
 							if (result.retry) {
 								lastFeedback = result.feedback;
-								// Only count review denials toward the budget, not verify failures
-								if (phase === "review") {
+								if (phase === "review" || phase === "verify") {
 									reviewCycles++;
 								}
 								if (reviewCycles >= MAX_REVIEW_CYCLES) {
 									updateSliceStatus(database, currentSlice.id, "paused");
 									if (ctx.hasUI)
 										ctx.ui.notify(
-											`Slice paused after ${MAX_REVIEW_CYCLES} review cycles.`,
+											`Slice paused after ${MAX_REVIEW_CYCLES} retry cycles.`,
 											"warning",
 										);
+									const pausedMilestone = getMilestone(database, currentSlice.milestoneId);
+									if (pausedMilestone) {
+										const pausedSLabel = sliceLabel(pausedMilestone.number, currentSlice.number);
+										pi.events.emit("tff:pipeline", {
+											...makeBaseEvent(currentSlice.id, pausedSLabel, pausedMilestone.number),
+											type: "pipeline_paused",
+										});
+									}
+									pipelinePaused = true;
 									break;
 								}
 							} else {
@@ -421,6 +668,21 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (iterations >= MAX_AUTO_ITERATIONS) {
 						if (ctx.hasUI) ctx.ui.notify("Auto mode: max iterations reached.", "warning");
 					}
+
+					if (!pipelinePaused) {
+						const finalSlice = findActiveSlice(database) ?? currentSlice;
+						if (finalSlice) {
+							const finalMilestone = getMilestone(database, finalSlice.milestoneId);
+							if (finalMilestone) {
+								const finalSLabel = sliceLabel(finalMilestone.number, finalSlice.number);
+								pi.events.emit("tff:pipeline", {
+									...makeBaseEvent(finalSlice.id, finalSLabel, finalMilestone.number),
+									type: "pipeline_complete",
+									totalDurationMs: Date.now() - pipelineStartTime,
+								});
+							}
+						}
+					}
 					break;
 				}
 
@@ -428,9 +690,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateExecute(database, slice.id);
@@ -449,8 +715,41 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
-					await mod.run(phaseCtx);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
+					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
+					if (result.success) {
+						if (ctx.hasUI) ctx.ui.notify("Execute phase complete.", "info");
+					} else {
+						if (ctx.hasUI)
+							ctx.ui.notify(`Execute phase failed: ${result.error ?? "unknown error"}`, "error");
+					}
 					break;
 				}
 
@@ -458,9 +757,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateVerify(database, slice.id);
@@ -479,8 +782,41 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
-					await mod.run(phaseCtx);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
+					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
+					if (result.success) {
+						if (ctx.hasUI) ctx.ui.notify("Verify phase complete.", "info");
+					} else {
+						if (ctx.hasUI)
+							ctx.ui.notify(`Verify phase failed: ${result.error ?? "unknown error"}`, "error");
+					}
 					break;
 				}
 
@@ -488,9 +824,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const validation = validateShip(database, slice.id);
@@ -509,16 +849,53 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						...(ctx.hasUI
+							? {
+									onSubAgentActivity: (activity: SubAgentActivity) => {
+										const lines: string[] = [];
+										if (activity.currentTool) {
+											const args = activity.currentToolArgs
+												? Object.entries(activity.currentToolArgs)
+														.map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+														.join(", ")
+												: "";
+											lines.push(`▸ ${activity.currentTool}${args ? ` (${args})` : ""}`);
+										}
+										if (activity.completedTools.length > 0) {
+											lines.push(`✓ ${activity.completedTools.join(", ")}`);
+										}
+										const sec = Math.round(activity.elapsedMs / 1000);
+										lines.push(`${activity.turns} turns · ${sec}s`);
+										ctx.ui.setWidget("tff-subagent", lines, { placement: "belowEditor" });
+									},
+								}
+							: {}),
 					};
-					await mod.run(phaseCtx);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
+					const result = await mod.run(phaseCtx);
+					if (ctx.hasUI) ctx.ui.setWidget("tff-subagent", []);
+					if (result.success) {
+						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
+					} else {
+						if (ctx.hasUI)
+							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
+					}
 					break;
 				}
 
 				case "pause": {
 					const database = getDb();
-					const slice = rest[0] ? getSlice(database, rest[0]) : findActiveSlice(database);
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
 					if (!slice) {
-						if (ctx.hasUI) ctx.ui.notify("No active slice found.", "error");
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
 					const pauseResult = handlePause(database, slice.id);
@@ -555,7 +932,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}),
 				id: Type.Optional(
 					Type.String({
-						description: "Milestone or slice ID (required for scope=milestone and scope=slice)",
+						description:
+							"Milestone ID (UUID) or label (e.g., M01) for scope=milestone; slice ID (UUID) or label (e.g., M01-S01) for scope=slice",
 					}),
 				),
 			}),
@@ -566,9 +944,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (params.scope === "overview") {
 						result = queryState(database, "overview");
 					} else if (params.scope === "milestone") {
-						result = queryState(database, "milestone", params.id ?? "");
+						const milestone = params.id ? resolveMilestone(database, params.id) : null;
+						result = queryState(database, "milestone", milestone?.id ?? params.id ?? "");
 					} else {
-						result = queryState(database, "slice", params.id ?? "");
+						const slice = params.id ? resolveSlice(database, params.id) : null;
+						result = queryState(database, "slice", slice?.id ?? params.id ?? "");
 					}
 					return {
 						content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -595,10 +975,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_transition",
 			label: "TFF Transition Slice",
 			description:
-				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status.",
+				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status. IMPORTANT: Only call this tool when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+			promptSnippet:
+				"IMPORTANT: Only call tff_transition when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+			promptGuidelines: [
+				"Do NOT call tff_transition automatically after writing specs or plans",
+				"Always ask the user before transitioning to the next phase",
+				"The /tff auto command handles transitions automatically — individual phases should not",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to transition",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				targetStatus: Type.Optional(
 					StringEnum([...SLICE_STATUSES], {
@@ -610,7 +997,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
 					const database = getDb();
-					return handleTransition(database, params.sliceId, params.targetStatus);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleTransition(database, slice.id, params.targetStatus);
 				} catch (err) {
 					return {
 						content: [
@@ -632,10 +1027,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_classify",
 			label: "TFF Classify Slice",
 			description:
-				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex.",
+				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex. Called during the discuss phase — do NOT call directly, use /tff discuss instead.",
+			promptSnippet:
+				"Do NOT call tff_classify directly. The /tff discuss phase handles tier classification via a sub-agent.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To classify a slice, tell the user to run /tff discuss <slice>",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to classify",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				tier: StringEnum([...TIERS], {
 					description: "Tier: S (simple), SS (standard), SSS (complex)",
@@ -644,7 +1045,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
 					const database = getDb();
-					return handleClassify(database, params.sliceId, params.tier as (typeof TIERS)[number]);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleClassify(database, slice.id, params.tier as (typeof TIERS)[number]);
 				} catch (err) {
 					return {
 						content: [
@@ -700,7 +1109,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				"Create a new slice within a milestone. A slice is a unit of work that goes through the discuss → research → plan → execute → verify → ship lifecycle.",
 			parameters: Type.Object({
 				milestoneId: Type.String({
-					description: "The ID of the milestone to add this slice to",
+					description: "The ID or label (e.g. 'M01') of the milestone to add this slice to",
 				}),
 				title: Type.String({
 					description: "Short descriptive title for the slice",
@@ -717,7 +1126,19 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleCreateSlice(database, root, params.milestoneId, params.title);
+					const milestone =
+						findMilestoneByLabel(database, params.milestoneId) ??
+						getMilestone(database, params.milestoneId);
+					if (!milestone) {
+						return {
+							content: [
+								{ type: "text", text: `Error: Milestone not found: ${params.milestoneId}` },
+							],
+							details: { milestoneId: params.milestoneId },
+							isError: true,
+						};
+					}
+					return handleCreateSlice(database, root, milestone.id, params.title);
 				} catch (err) {
 					return {
 						content: [
@@ -739,10 +1160,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_spec",
 			label: "TFF Write Spec",
 			description:
-				"Write the SPEC.md artifact for a slice. Called by the brainstormer agent during the discuss phase.",
+				"Write the SPEC.md artifact for a slice. Called by the brainstormer agent during the discuss phase. Do NOT call directly — use /tff discuss instead.",
+			promptSnippet:
+				"Do NOT call tff_write_spec directly. Use /tff discuss <slice> to run the discuss phase which writes the spec via a sub-agent.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To write a spec, tell the user to run /tff discuss <slice>",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to write the spec for",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				content: Type.String({
 					description: "The markdown content of the spec",
@@ -759,7 +1186,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteSpec(database, root, params.sliceId, params.content);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleWriteSpec(database, root, slice.id, params.content);
 				} catch (err) {
 					return {
 						content: [
@@ -781,10 +1216,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_research",
 			label: "TFF Write Research",
 			description:
-				"Write the RESEARCH.md artifact for a slice. Called by the researcher agent during the research phase.",
+				"Write the RESEARCH.md artifact for a slice. Called by the researcher agent during the research phase. Do NOT call directly — use /tff research instead.",
+			promptSnippet:
+				"Do NOT call tff_write_research directly. Use /tff research <slice> to run the research phase.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To write research, tell the user to run /tff research <slice>",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to write the research for",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				content: Type.String({
 					description: "The markdown content of the research document",
@@ -801,7 +1242,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteResearch(database, root, params.sliceId, params.content);
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleWriteResearch(database, root, slice.id, params.content);
 				} catch (err) {
 					return {
 						content: [
@@ -823,10 +1272,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Called by the planner agent during the plan phase.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Called by the planner agent during the plan phase. Do NOT call directly — use /tff plan instead.",
+			promptSnippet:
+				"Do NOT call tff_write_plan directly. Use /tff plan <slice> to run the plan phase which writes the plan via a sub-agent with review gates.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To write a plan, tell the user to run /tff plan <slice>",
+				"The plan phase includes a plannotator review gate that direct tool calls bypass",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
-					description: "The ID of the slice to write the plan for",
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
 				}),
 				content: Type.String({
 					description: "The markdown content of the plan",
@@ -861,10 +1317,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
 					return handleWritePlan(
 						database,
 						root,
-						params.sliceId,
+						slice.id,
 						params.content,
 						params.tasks as TaskInput[],
 					);

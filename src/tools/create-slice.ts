@@ -28,7 +28,12 @@ export function handleCreateSlice(
 	initSliceDir(root, milestone.number, number);
 	const label = sliceLabel(milestone.number, number);
 	return {
-		content: [{ type: "text", text: `Slice ${label} "${title}" created.` }],
+		content: [
+			{
+				type: "text",
+				text: `Slice ${label} "${title}" created (id: ${sliceId}). Use this ID or '${label}' in subsequent tool calls.`,
+			},
+		],
 		details: { sliceId, label, milestoneId, number },
 	};
 }

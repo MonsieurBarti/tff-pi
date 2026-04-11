@@ -1,5 +1,5 @@
 import type { PhaseModule } from "../common/phase.js";
-import type { Phase } from "../orchestrator.js";
+import type { Phase } from "../common/types.js";
 import { discussPhase } from "./discuss.js";
 import { executePhase } from "./execute.js";
 import { planPhase } from "./plan.js";

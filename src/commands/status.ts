@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import { getMilestones, getProject, getSlices } from "../common/db.js";
+import { getMilestones, getPhaseRuns, getProject, getSlices } from "../common/db.js";
+import { formatDuration } from "../common/format.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 const NO_PROJECT_MSG = "No project found. Run `/tff new` to create one.";
@@ -38,6 +39,15 @@ export function handleStatus(db: Database.Database): string {
 			const sLabel = sliceLabel(milestone.number, slice.number);
 			const tier = slice.tier ? ` | Tier: ${slice.tier}` : "";
 			lines.push(`- **${sLabel}** ${slice.title} \`[${slice.status}]\`${tier}`);
+
+			const runs = getPhaseRuns(db, slice.id);
+			if (runs.length > 0) {
+				const completedCount = runs.filter((r) => r.status === "completed").length;
+				const totalPhases = runs.length;
+				const totalMs = runs.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
+				const durStr = totalMs > 0 ? `, ${formatDuration(totalMs)} total` : "";
+				lines.push(`  ${completedCount}/${totalPhases} phases${durStr}`);
+			}
 
 			if (!firstNonClosed && slice.status !== "closed") {
 				firstNonClosed = {

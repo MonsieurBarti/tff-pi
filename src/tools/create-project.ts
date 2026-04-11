@@ -18,7 +18,7 @@ export function handleCreateProject(
 			content: [
 				{
 					type: "text",
-					text: `Project "${input.projectName}" created. Use /tff new-milestone to add a milestone.`,
+					text: `Project "${input.projectName}" created (id: ${projectId}). Use /tff new-milestone to add a milestone.`,
 				},
 			],
 			details: { projectId },

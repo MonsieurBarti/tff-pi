@@ -1,11 +1,13 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
-import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
+import { getTasks, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { dispatchSubAgent } from "../common/dispatch.js";
+import { makeBaseEvent } from "../common/events.js";
+import { discoverFffService } from "../common/fff-integration.js";
 import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { enrichContextWithFff, loadPhaseResources } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -14,6 +16,12 @@ export const verifyPhase: PhaseModule = {
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+		const startTime = Date.now();
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "phase_start",
+			phase: "verify",
+		});
 		const wtPath = getWorktreePath(root, sLabel);
 
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
@@ -66,11 +74,28 @@ export const verifyPhase: PhaseModule = {
 			label: `verifier:${sLabel}`,
 		};
 
-		const result = await dispatchSubAgent(pi, "verifier", prompt, wtPath);
+		const fffBridge = discoverFffService(pi);
+		if (fffBridge) {
+			const tasks = getTasks(db, slice.id);
+			const extraCtx: Record<string, string> = {};
+			await enrichContextWithFff(extraCtx, tasks, fffBridge);
+			if (extraCtx.RELATED_FILES) {
+				prompt.userPrompt += `\n\n## Related Files\n${extraCtx.RELATED_FILES}`;
+			}
+		}
+
+		const result = await dispatchSubAgent(pi, "verifier", prompt, wtPath, ctx.onSubAgentActivity);
 
 		if (!result.success) {
 			updateSliceStatus(db, slice.id, "executing");
 			resetTasksToOpen(db, slice.id);
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "verify",
+				durationMs: Date.now() - startTime,
+				error: "Verification failed",
+			});
 			return {
 				success: false,
 				retry: true,
@@ -120,6 +145,13 @@ export const verifyPhase: PhaseModule = {
 				);
 				updateSliceStatus(db, slice.id, "executing");
 				resetTasksToOpen(db, slice.id);
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "verify",
+					durationMs: Date.now() - startTime,
+					error: "Verification found failures",
+				});
 				return {
 					success: false,
 					retry: true,
@@ -136,6 +168,12 @@ export const verifyPhase: PhaseModule = {
 			`milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`,
 			verificationContent,
 		);
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+			type: "phase_complete",
+			phase: "verify",
+			durationMs: Date.now() - startTime,
+		});
 		return { success: true, retry: false };
 	},
 };

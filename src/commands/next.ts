@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import { type Phase, determineNextPhase, findActiveSlice } from "../orchestrator.js";
+import type { Phase } from "../common/types.js";
+import { determineNextPhase, findActiveSlice } from "../orchestrator.js";
 
 export interface NextValidation {
 	valid: boolean;

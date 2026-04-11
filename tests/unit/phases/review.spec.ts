@@ -41,6 +41,15 @@ vi.mock("../../../src/common/git.js", () => ({
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
+vi.mock("../../../src/orchestrator.js", () => ({
+	enrichContextWithFff: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../../src/common/fff-integration.js", () => ({
+	discoverFffService: vi.fn().mockReturnValue(null),
+	FffBridge: vi.fn(),
+}));
+
 import { reviewPhase } from "../../../src/phases/review.js";
 
 describe("reviewPhase", () => {
@@ -78,7 +87,7 @@ describe("reviewPhase", () => {
 		});
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -106,7 +115,7 @@ describe("reviewPhase", () => {
 			});
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,
@@ -126,7 +135,7 @@ describe("reviewPhase", () => {
 		});
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,

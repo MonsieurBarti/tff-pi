@@ -29,6 +29,7 @@ describe("router", () => {
 				"rollback",
 				"health",
 				"help",
+				"logs",
 			]);
 		});
 	});

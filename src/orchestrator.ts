@@ -5,10 +5,10 @@ import type Database from "better-sqlite3";
 import { readArtifact } from "./common/artifacts.js";
 import { getActiveMilestone, getActiveSlice, getProject, getSlice } from "./common/db.js";
 import type { SubAgentPrompt } from "./common/dispatch.js";
-import type { Slice, SliceStatus, Tier } from "./common/types.js";
+import type { Phase, Slice, SliceStatus, Task, Tier } from "./common/types.js";
 import { milestoneLabel, sliceLabel } from "./common/types.js";
 
-export type Phase = "discuss" | "research" | "plan" | "execute" | "verify" | "review" | "ship";
+export type { Phase };
 
 const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
 
@@ -61,11 +61,17 @@ const PHASE_AGENT: Record<Phase, string> = {
 
 const PHASE_TOOLS: Record<Phase, string[]> = {
 	discuss: ["tff_classify", "tff_write_spec", "tff_query_state"],
-	research: ["tff_write_research", "tff_query_state"],
-	plan: ["tff_write_plan", "tff_query_state"],
-	execute: ["tff_query_state"],
-	verify: ["tff_query_state"],
-	review: ["tff_query_state"],
+	research: [
+		"tff_write_research",
+		"tff_query_state",
+		"tff-fff_find",
+		"tff-fff_grep",
+		"tff-fff_search",
+	],
+	plan: ["tff_write_plan", "tff_query_state", "tff-fff_find", "tff-fff_grep"],
+	execute: ["tff_query_state", "tff-fff_find", "tff-fff_grep", "tff-fff_search"],
+	verify: ["tff_query_state", "tff-fff_find", "tff-fff_grep"],
+	review: ["tff_query_state", "tff-fff_find", "tff-fff_grep"],
 	ship: ["tff_query_state"],
 };
 
@@ -154,6 +160,29 @@ export function buildPhasePrompt(
 		tools: PHASE_TOOLS[phase],
 		label: `${phase}:${sLabel}`,
 	};
+}
+
+export async function enrichContextWithFff(
+	ctx: Record<string, string>,
+	tasks: Task[],
+	fffBridge: {
+		grep: (patterns: string[], opts?: { maxResults?: number }) => Promise<Array<{ path: string }>>;
+	},
+): Promise<void> {
+	const filePatterns = tasks
+		.flatMap((t) => t.title.split(/\s+/))
+		.filter((w) => w.length > 3)
+		.slice(0, 5);
+	if (filePatterns.length === 0) return;
+
+	try {
+		const results = await fffBridge.grep(filePatterns, { maxResults: 10 });
+		if (results.length > 0) {
+			ctx.RELATED_FILES = results.map((r) => r.path).join("\n");
+		}
+	} catch {
+		// Best-effort — don't fail the phase
+	}
 }
 
 export function verifyPhaseArtifacts(

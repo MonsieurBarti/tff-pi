@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import { getMilestones, getProject, getSlices, getTasks } from "../common/db.js";
+import { getMilestones, getPhaseRuns, getProject, getSlices, getTasks } from "../common/db.js";
+import { formatDuration } from "../common/format.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 const NO_PROJECT_MSG = "No project found. Run `/tff new` to create one.";
@@ -22,8 +23,8 @@ export function handleProgress(db: Database.Database): string {
 		lines.push("");
 
 		if (slices.length > 0) {
-			lines.push("| Slice | Title | Status | Tier | Tasks |");
-			lines.push("| --- | --- | --- | --- | --- |");
+			lines.push("| Slice | Title | Status | Tier | Tasks | Phases | Time |");
+			lines.push("| --- | --- | --- | --- | --- | --- | --- |");
 
 			for (const slice of slices) {
 				const sLabel = sliceLabel(milestone.number, slice.number);
@@ -33,12 +34,29 @@ export function handleProgress(db: Database.Database): string {
 					tasks.length === 0
 						? "—"
 						: `${tasks.filter((t) => t.status === "closed").length}/${tasks.length}`;
-				lines.push(`| ${sLabel} | ${slice.title} | ${slice.status} | ${tier} | ${taskCount} |`);
+				const runs = getPhaseRuns(db, slice.id);
+				const completedPhases = runs.filter((r) => r.status === "completed").length;
+				const phaseStr = runs.length > 0 ? `${completedPhases}/${runs.length}` : "—";
+				const totalMs = runs.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
+				const timeStr = totalMs > 0 ? formatDuration(totalMs) : "—";
+				lines.push(
+					`| ${sLabel} | ${slice.title} | ${slice.status} | ${tier} | ${taskCount} | ${phaseStr} | ${timeStr} |`,
+				);
 			}
 		}
 
 		lines.push("");
 	}
+
+	const allSlices = milestones.flatMap((m) => getSlices(db, m.id));
+	const closedTotal = allSlices.filter((s) => s.status === "closed").length;
+	const allTasks = allSlices.flatMap((s) => getTasks(db, s.id));
+	const closedTasks = allTasks.filter((t) => t.status === "closed").length;
+	const allRuns = allSlices.flatMap((s) => getPhaseRuns(db, s.id));
+	const totalTime = allRuns.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
+	lines.push(
+		`Pipeline: ${closedTotal}/${allSlices.length} slices | ${closedTasks}/${allTasks.length} tasks | ${totalTime > 0 ? formatDuration(totalTime) : "0s"} elapsed`,
+	);
 
 	return lines.join("\n").trimEnd();
 }

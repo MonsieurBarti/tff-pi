@@ -64,7 +64,7 @@ describe("discussPhase", () => {
 		updateSliceTier(db, sliceId, "SS");
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
-			pi: {} as PhaseContext["pi"],
+			pi: { events: { emit: vi.fn(), on: vi.fn() } } as unknown as PhaseContext["pi"],
 			db,
 			root,
 			slice,

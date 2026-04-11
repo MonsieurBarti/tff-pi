@@ -57,6 +57,12 @@ describe("validateResearch", () => {
 		expect(result.error).toContain("S-tier");
 	});
 
+	it("succeeds for researching status (re-run stuck phase)", () => {
+		updateSliceStatus(db, sliceId, "researching");
+		const result = validateResearch(db, sliceId);
+		expect(result.valid).toBe(true);
+	});
+
 	it("fails for created status", () => {
 		const result = validateResearch(db, sliceId);
 		expect(result.valid).toBe(false);

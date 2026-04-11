@@ -8,9 +8,11 @@ import {
 	getSlices,
 	getTasks,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	insertTask,
+	updatePhaseRun,
 	updateTaskStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
@@ -104,5 +106,40 @@ describe("handleProgress", () => {
 
 		const result = handleProgress(db);
 		expect(result).toContain("1/2");
+	});
+
+	it("shows Phases and Time columns in table", () => {
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const project = must(getProject(db));
+		insertMilestone(db, {
+			projectId: project.id,
+			number: 1,
+			name: "Foundation",
+			branch: "milestone/M01",
+		});
+		const milestones = getMilestones(db, project.id);
+		insertSlice(db, { milestoneId: must(milestones[0]).id, number: 1, title: "Auth" });
+		const slices = getSlices(db, must(milestones[0]).id);
+		const sliceId = must(slices[0]).id;
+
+		const runId = insertPhaseRun(db, {
+			sliceId,
+			phase: "research",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId, {
+			status: "completed",
+			finishedAt: new Date().toISOString(),
+			durationMs: 90000,
+		});
+
+		const result = handleProgress(db);
+		expect(result).toContain("Phases");
+		expect(result).toContain("Time");
+		expect(result).toContain("1/1");
+		expect(result).toContain("1m30s");
+		expect(result).toContain("Pipeline:");
+		expect(result).toContain("elapsed");
 	});
 });

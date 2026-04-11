@@ -40,11 +40,10 @@ describe("validateDiscuss", () => {
 		expect(result.error).toBeUndefined();
 	});
 
-	it("fails for discussing status", () => {
+	it("succeeds for discussing status (re-run stuck phase)", () => {
 		updateSliceStatus(db, sliceId, "discussing");
 		const result = validateDiscuss(db, sliceId);
-		expect(result.valid).toBe(false);
-		expect(result.error).toContain("discussing");
+		expect(result.valid).toBe(true);
 	});
 
 	it("fails for executing status", () => {
