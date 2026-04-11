@@ -1,4 +1,5 @@
 import { readArtifact } from "../common/artifacts.js";
+import { createCheckpoint } from "../common/checkpoint.js";
 import { getTasksByWave, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
@@ -21,6 +22,7 @@ export const executePhase: PhaseModule = {
 
 		const milestoneBranch = `milestone/${mLabel}`;
 		const wtPath = createWorktree(root, sLabel, milestoneBranch);
+		createCheckpoint(wtPath, sLabel, "pre-execute");
 
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
 		const planMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PLAN.md`) ?? "";

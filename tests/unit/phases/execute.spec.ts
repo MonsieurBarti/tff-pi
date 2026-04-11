@@ -28,6 +28,13 @@ vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
 
+vi.mock("../../../src/common/checkpoint.js", () => ({
+	createCheckpoint: vi.fn(),
+	listCheckpoints: vi.fn().mockReturnValue([]),
+	getLastCheckpoint: vi.fn().mockReturnValue(null),
+	cleanupCheckpoints: vi.fn(),
+}));
+
 vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()

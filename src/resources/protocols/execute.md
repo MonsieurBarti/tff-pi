@@ -19,3 +19,7 @@
 - Only modify files in task scope
 - No changes to .tff/ directory
 - All tests must pass before done
+
+## Git Checkpoints
+
+After completing all tasks in a wave, call the `tff_checkpoint` tool with the current slice label and `wave-{N}` as the checkpoint name (e.g., `wave-1`, `wave-2`). This creates a rollback point that crash recovery can use.
