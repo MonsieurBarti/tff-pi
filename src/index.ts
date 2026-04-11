@@ -27,11 +27,12 @@ import {
 	getSlices,
 	openDatabase,
 } from "./common/db.js";
-import { type DiscussGate, unlockGate } from "./common/discuss-gates.js";
+import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
+import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
@@ -43,7 +44,7 @@ import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
 import { queryState } from "./tools/query-state.js";
 import { handleTransition } from "./tools/transition.js";
-import { type TaskInput, handleWritePlan } from "./tools/write-plan.js";
+import { handleWritePlan } from "./tools/write-plan.js";
 import { handleWriteResearch } from "./tools/write-research.js";
 import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
 
@@ -774,7 +775,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleClassify(database, slice.id, params.tier as (typeof TIERS)[number]);
+					const tier = TIERS.find((t) => t === params.tier);
+					if (!tier) {
+						return {
+							content: [{ type: "text", text: `Invalid tier: ${params.tier}` }],
+							details: { tier: params.tier },
+							isError: true,
+						};
+					}
+					return handleClassify(database, slice.id, tier);
 				} catch (err) {
 					return {
 						content: [
@@ -821,7 +830,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					unlockGate(slice.id, params.gate as DiscussGate);
+					const gate = DISCUSS_GATES.find((g) => g === params.gate);
+					if (!gate) {
+						return {
+							content: [{ type: "text", text: `Invalid gate: ${params.gate}` }],
+							details: { gate: params.gate },
+							isError: true,
+						};
+					}
+					unlockGate(slice.id, gate);
 					const gateLabel =
 						params.gate === "depth_verified"
 							? "Depth verified — tff_write_spec is now unlocked."
@@ -972,8 +989,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					}
 					const writeResult = handleWriteSpec(database, root, slice.id, params.content);
 					if (!writeResult.isError) {
-						const { requestReview } = await import("./common/plannotator-review.js");
-						requestReview(pi, writeResult.details.path as string, params.content, "spec");
+						requestReview(pi, String(writeResult.details.path), params.content, "spec");
 					}
 					return writeResult;
 				} catch (err) {
@@ -1031,8 +1047,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					}
 					const writeResult = handleWriteRequirements(database, root, slice.id, params.content);
 					if (!writeResult.isError) {
-						const { requestReview } = await import("./common/plannotator-review.js");
-						requestReview(pi, writeResult.details.path as string, params.content, "spec");
+						requestReview(pi, String(writeResult.details.path), params.content, "spec");
 					}
 					return writeResult;
 				} catch (err) {
@@ -1167,11 +1182,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						root,
 						slice.id,
 						params.content,
-						params.tasks as TaskInput[],
+						params.tasks,
 					);
 					if (!writeResult.isError) {
-						const { requestReview } = await import("./common/plannotator-review.js");
-						requestReview(pi, writeResult.details.path as string, params.content, "plan");
+						requestReview(pi, String(writeResult.details.path), params.content, "plan");
 					}
 					return writeResult;
 				} catch (err) {
