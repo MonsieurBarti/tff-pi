@@ -357,14 +357,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					pi.sendUserMessage(
-						`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
-					);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
-						pi.sendUserMessage("Discuss phase complete.");
+						if (ctx.hasUI) ctx.ui.notify("Discuss phase complete.", "info");
 					} else {
-						pi.sendUserMessage(`Discuss phase failed: ${result.error ?? "unknown error"}`);
+						if (ctx.hasUI)
+							ctx.ui.notify(`Discuss phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
 					break;
 				}
@@ -399,14 +402,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					pi.sendUserMessage(
-						`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
-					);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
-						pi.sendUserMessage("Research phase complete.");
+						if (ctx.hasUI) ctx.ui.notify("Research phase complete.", "info");
 					} else {
-						pi.sendUserMessage(`Research phase failed: ${result.error ?? "unknown error"}`);
+						if (ctx.hasUI)
+							ctx.ui.notify(`Research phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
 					break;
 				}
@@ -441,14 +447,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					pi.sendUserMessage(
-						`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
-					);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
-						pi.sendUserMessage("Plan phase complete.");
+						if (ctx.hasUI) ctx.ui.notify("Plan phase complete.", "info");
 					} else {
-						pi.sendUserMessage(`Plan phase failed: ${result.error ?? "unknown error"}`);
+						if (ctx.hasUI)
+							ctx.ui.notify(`Plan phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
 					break;
 				}
@@ -620,14 +629,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					pi.sendUserMessage(
-						`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
-					);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
-						pi.sendUserMessage("Execute phase complete.");
+						if (ctx.hasUI) ctx.ui.notify("Execute phase complete.", "info");
 					} else {
-						pi.sendUserMessage(`Execute phase failed: ${result.error ?? "unknown error"}`);
+						if (ctx.hasUI)
+							ctx.ui.notify(`Execute phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
 					break;
 				}
@@ -662,14 +674,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					pi.sendUserMessage(
-						`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
-					);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
-						pi.sendUserMessage("Verify phase complete.");
+						if (ctx.hasUI) ctx.ui.notify("Verify phase complete.", "info");
 					} else {
-						pi.sendUserMessage(`Verify phase failed: ${result.error ?? "unknown error"}`);
+						if (ctx.hasUI)
+							ctx.ui.notify(`Verify phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
 					break;
 				}
@@ -704,14 +719,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
 					};
-					pi.sendUserMessage(
-						`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
-					);
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
+							"info",
+						);
 					const result = await mod.run(phaseCtx);
 					if (result.success) {
-						pi.sendUserMessage("Ship phase complete.");
+						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
 					} else {
-						pi.sendUserMessage(`Ship phase failed: ${result.error ?? "unknown error"}`);
+						if (ctx.hasUI)
+							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
 					break;
 				}
@@ -856,7 +874,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_classify",
 			label: "TFF Classify Slice",
 			description:
-				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex.",
+				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex. Called during the discuss phase — do NOT call directly, use /tff discuss instead.",
+			promptSnippet:
+				"Do NOT call tff_classify directly. The /tff discuss phase handles tier classification via a sub-agent.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To classify a slice, tell the user to run /tff discuss <slice>",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
 					description: "Slice ID (UUID) or label (e.g., M01-S01)",
@@ -983,7 +1007,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_spec",
 			label: "TFF Write Spec",
 			description:
-				"Write the SPEC.md artifact for a slice. Called by the brainstormer agent during the discuss phase.",
+				"Write the SPEC.md artifact for a slice. Called by the brainstormer agent during the discuss phase. Do NOT call directly — use /tff discuss instead.",
+			promptSnippet:
+				"Do NOT call tff_write_spec directly. Use /tff discuss <slice> to run the discuss phase which writes the spec via a sub-agent.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To write a spec, tell the user to run /tff discuss <slice>",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
 					description: "Slice ID (UUID) or label (e.g., M01-S01)",
@@ -1033,7 +1063,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_research",
 			label: "TFF Write Research",
 			description:
-				"Write the RESEARCH.md artifact for a slice. Called by the researcher agent during the research phase.",
+				"Write the RESEARCH.md artifact for a slice. Called by the researcher agent during the research phase. Do NOT call directly — use /tff research instead.",
+			promptSnippet:
+				"Do NOT call tff_write_research directly. Use /tff research <slice> to run the research phase.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To write research, tell the user to run /tff research <slice>",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
 					description: "Slice ID (UUID) or label (e.g., M01-S01)",
@@ -1083,7 +1119,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Called by the planner agent during the plan phase.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Called by the planner agent during the plan phase. Do NOT call directly — use /tff plan instead.",
+			promptSnippet:
+				"Do NOT call tff_write_plan directly. Use /tff plan <slice> to run the plan phase which writes the plan via a sub-agent with review gates.",
+			promptGuidelines: [
+				"This tool is for sub-agents during phase execution, not for direct use",
+				"To write a plan, tell the user to run /tff plan <slice>",
+				"The plan phase includes a plannotator review gate that direct tool calls bypass",
+			],
 			parameters: Type.Object({
 				sliceId: Type.String({
 					description: "Slice ID (UUID) or label (e.g., M01-S01)",
