@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type SubAgentPrompt, buildSubagentTask } from "../../../src/common/dispatch.js";
 
 describe("buildSubagentTask", () => {
-	it("combines system prompt and user prompt into a task string", () => {
+	it("builds task from user prompt (system prompt passed separately via flag)", () => {
 		const prompt: SubAgentPrompt = {
 			systemPrompt: "You are a brainstormer.",
 			userPrompt: "Design slice S01.",
@@ -10,8 +10,8 @@ describe("buildSubagentTask", () => {
 			label: "M01-S01: discuss",
 		};
 		const task = buildSubagentTask(prompt);
-		expect(task).toContain("You are a brainstormer.");
 		expect(task).toContain("Design slice S01.");
+		expect(task).not.toContain("You are a brainstormer.");
 	});
 
 	it("includes tool list in the task", () => {
