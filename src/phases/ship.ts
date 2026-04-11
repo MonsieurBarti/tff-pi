@@ -13,7 +13,8 @@ import { makeBaseEvent } from "../common/events.js";
 import { getDefaultBranch, gitEnv } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import type { Settings } from "../common/settings.js";
-import { type Slice, milestoneLabel, sliceLabel } from "../common/types.js";
+import type { Slice } from "../common/types.js";
+import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath, removeWorktree } from "../common/worktree.js";
 
 export interface PreflightResult {
@@ -59,10 +60,37 @@ export function preflightCheck(
 	return { ok: errors.length === 0, errors };
 }
 
+function buildPrBody(root: string, mLabel: string, sLabel: string, sliceTitle: string): string {
+	const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
+	const verifyMd =
+		readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`) ?? "";
+	const reviewMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REVIEW.md`) ?? "";
+	return [
+		`## ${sLabel}: ${sliceTitle}`,
+		"",
+		"### Acceptance Criteria",
+		specMd,
+		"",
+		"### Verification",
+		verifyMd,
+		"",
+		"### Review Findings",
+		reviewMd,
+	].join("\n");
+}
+
+function suggestNextAction(db: Database.Database, milestoneId: string): string {
+	const slices = getSlices(db, milestoneId);
+	const openSlices = slices.filter((s) => s.status !== "closed");
+	if (openSlices.length === 0) {
+		return "All slices closed. Run `/tff complete-milestone` to create the milestone PR.";
+	}
+	return `${openSlices.length} slice(s) remaining. Run \`/tff discuss\` to start the next slice or \`/tff next\` to advance.`;
+}
+
 export const shipPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
-		updateSliceStatus(db, slice.id, "shipping");
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
@@ -79,6 +107,87 @@ export const shipPhase: PhaseModule = {
 		});
 
 		try {
+			// --- Re-entry: PR already exists ---
+			if (slice.prUrl) {
+				const prJson = execFileSync("gh", ["pr", "view", slice.prUrl, "--json", "state,comments"], {
+					cwd: root,
+					encoding: "utf-8",
+					env,
+				}).trim();
+				const pr = JSON.parse(prJson) as {
+					state: string;
+					comments: { body: string; author: { login: string } }[];
+				};
+
+				if (pr.state === "MERGED") {
+					removeWorktree(root, sLabel);
+					execFileSync("git", ["checkout", milestoneBranch], {
+						cwd: root,
+						encoding: "utf-8",
+						env,
+					});
+					execFileSync("git", ["pull", "origin", milestoneBranch], {
+						cwd: root,
+						encoding: "utf-8",
+						env,
+					});
+					updateSliceStatus(db, slice.id, "closed");
+					const next = suggestNextAction(db, slice.milestoneId);
+					pi.sendUserMessage(`PR merged. Slice closed.\n\n${next}`);
+					pi.events.emit("tff:phase", {
+						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+						type: "phase_complete",
+						phase: "ship",
+						durationMs: Date.now() - startTime,
+					});
+					return { success: true, retry: false };
+				}
+
+				if (pr.comments.length > 0) {
+					const feedback = pr.comments.map((c) => `**${c.author.login}**: ${c.body}`).join("\n\n");
+					updateSliceStatus(db, slice.id, "executing");
+					resetTasksToOpen(db, slice.id);
+					pi.events.emit("tff:phase", {
+						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+						type: "phase_failed",
+						phase: "ship",
+						durationMs: Date.now() - startTime,
+						error: "PR has review comments",
+					});
+					return { success: false, retry: true, feedback };
+				}
+
+				pi.sendUserMessage("PR still waiting for review.");
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_complete",
+					phase: "ship",
+					durationMs: Date.now() - startTime,
+				});
+				return { success: true, retry: false };
+			}
+
+			// --- First run: no PR yet ---
+
+			// Pre-flight check
+			const preflight = preflightCheck(root, slice, milestoneNumber);
+			if (!preflight.ok) {
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "ship",
+					durationMs: Date.now() - startTime,
+					error: "Pre-flight check failed",
+				});
+				return {
+					success: false,
+					retry: false,
+					error: `Pre-flight failed: ${preflight.errors.join(", ")}`,
+				};
+			}
+
+			updateSliceStatus(db, slice.id, "shipping");
+
 			// Push slice branch
 			execFileSync("git", ["push", "-u", "origin", sliceBranch], {
 				cwd: wtPath,
@@ -87,18 +196,7 @@ export const shipPhase: PhaseModule = {
 			});
 
 			// Build PR body
-			const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
-			const verifyMd =
-				readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`) ?? "";
-			const prBody = [
-				`## ${sLabel}: ${slice.title}`,
-				"",
-				"### Acceptance Criteria",
-				specMd,
-				"",
-				"### Verification",
-				verifyMd,
-			].join("\n");
+			const prBody = buildPrBody(root, mLabel, sLabel, slice.title);
 
 			// Create PR
 			const prUrl = execFileSync(
@@ -164,6 +262,18 @@ export const shipPhase: PhaseModule = {
 				return { success: false, retry: true, error: "CI checks failed" };
 			}
 
+			// Auto-merge disabled: leave PR open for manual review
+			if (!settings.ship.auto_merge) {
+				pi.sendUserMessage(`PR ready for review at ${prUrl}`);
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_complete",
+					phase: "ship",
+					durationMs: Date.now() - startTime,
+				});
+				return { success: true, retry: false };
+			}
+
 			// Squash merge
 			execFileSync("gh", ["pr", "merge", prNumber, "--squash"], {
 				cwd: wtPath,
@@ -205,8 +315,8 @@ export const shipPhase: PhaseModule = {
 			// Mark slice closed
 			updateSliceStatus(db, slice.id, "closed");
 
-			// Check if all slices in milestone are done
-			checkMilestoneCompletion(db, root, slice.milestoneId, settings);
+			const next = suggestNextAction(db, slice.milestoneId);
+			pi.sendUserMessage(`Slice shipped and merged.\n\n${next}`);
 
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
@@ -232,7 +342,10 @@ export const shipPhase: PhaseModule = {
 	},
 };
 
-// Milestone completion — called after slice is closed
+/**
+ * @deprecated Moves to a separate `/tff complete-milestone` command in Task 10.
+ * Kept temporarily so milestone-completion.spec.ts continues to pass.
+ */
 export function checkMilestoneCompletion(
 	db: Database.Database,
 	root: string,
