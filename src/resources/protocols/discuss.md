@@ -12,7 +12,7 @@ Read PROJECT.md and REQUIREMENTS.md from .tff artifacts.
 Identify the slice objective from its title and milestone scope.
 
 ### 2. Brainstorm Design
-- Consider 2-3 approaches for the slice objective
+- Propose 2-3 approaches for the slice objective (mandatory)
 - Evaluate each against YAGNI, scope containment, testability
 - Select simplest approach that satisfies requirements
 
@@ -20,25 +20,35 @@ Identify the slice objective from its title and milestone scope.
 - Extract testable conditions from requirements
 - Each AC: specific, measurable, binary pass/fail
 - Format: `AC-N: <condition>`
+- Quality: vague "fast search" → concrete "returns <200ms for 10k rows"
 
-### 4. Classify Tier
+### 4. Define Non-Goals
+- Explicitly list what this slice does NOT do
+- Format: `NG-N: <exclusion>`
+
+### 5. Classify Tier
 - S: trivial change, no unknowns, skip research
 - SS: standard work, some investigation needed
 - SSS: complex, multi-system, significant unknowns
 - Call `tff_classify(sliceId, tier)`
 
-### 5. Write SPEC.md
-Compose and call `tff_write_spec(sliceId, content)`:
+### 6. Self-Review
+Scan output for TBD/TODO/placeholders/contradictions. Fix inline.
+
+### 7. Write SPEC.md
+Call `tff_write_spec(sliceId, content)`:
 
 ```
 # <Slice Title> — Spec
 ## Objective
 <1-2 sentences>
 ## Design
-<Selected approach with rationale>
+<Selected from 2-3 approaches, with rationale>
 ## Acceptance Criteria
-- AC-1: ...
+- AC-1: <specific, measurable, binary>
 - AC-2: ...
+## Non-Goals
+- NG-1: ...
 ## Tier: <S|SS|SSS>
 ## Notes
 <Tier justification, constraints, open questions>

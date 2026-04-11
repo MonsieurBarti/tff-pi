@@ -49,7 +49,12 @@
 		"@mariozechner/pi-coding-agent": "*",
 		"@mariozechner/pi-ai": "*",
 		"@mariozechner/pi-tui": "*",
-		"@sinclair/typebox": "*"
+		"@sinclair/typebox": "*",
+		"@the-forge-flow/fff-pi": "*",
+		"@the-forge-flow/gitnexus-pi": "*",
+		"@the-forge-flow/lightpanda-pi": "*",
+		"@the-forge-flow/hippo-memory-pi": "*",
+		"@the-forge-flow/sub-agents-pi": "*"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
