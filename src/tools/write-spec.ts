@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
 import { getMilestone, getSlice } from "../common/db.js";
+import { isGateUnlocked } from "../common/discuss-gates.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
@@ -9,16 +10,37 @@ export interface ToolResult {
 	isError?: boolean;
 }
 
+export interface WriteSpecOptions {
+	headless?: boolean;
+}
+
 export function handleWriteSpec(
 	db: Database.Database,
 	root: string,
 	sliceId: string,
 	content: string,
+	options?: WriteSpecOptions,
 ): ToolResult {
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
 		return {
 			content: [{ type: "text", text: `Slice not found: ${sliceId}` }],
+			details: { sliceId },
+			isError: true,
+		};
+	}
+	if (
+		options !== undefined &&
+		options.headless !== true &&
+		!isGateUnlocked(sliceId, "depth_verified")
+	) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "Depth verification required before writing SPEC.md. Complete the discuss phase first.",
+				},
+			],
 			details: { sliceId },
 			isError: true,
 		};
