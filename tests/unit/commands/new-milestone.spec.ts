@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ import {
 	insertProject,
 	openDatabase,
 } from "../../../src/common/db.js";
+import { branchExists } from "../../../src/common/git.js";
 import { must } from "../../helpers.js";
 
 function createTestDb(): Database.Database {
@@ -76,5 +78,45 @@ describe("createMilestone", () => {
 		const content = readArtifact(root, "milestones/M01/REQUIREMENTS.md");
 		expect(content).toContain("Foundation");
 		expect(content).toContain("Requirements");
+	});
+
+	describe("git branch creation", () => {
+		let gitRoot: string;
+		const savedGitEnv: Record<string, string | undefined> = {};
+
+		beforeEach(() => {
+			for (const key of Object.keys(process.env)) {
+				if (key.startsWith("GIT_")) {
+					savedGitEnv[key] = process.env[key];
+					delete process.env[key];
+				}
+			}
+			gitRoot = mkdtempSync(join(tmpdir(), "tff-ms-git-"));
+			execSync("git init", { cwd: gitRoot, stdio: "pipe" });
+			execSync('git config user.email "test@test.com"', { cwd: gitRoot, stdio: "pipe" });
+			execSync('git config user.name "Test"', { cwd: gitRoot, stdio: "pipe" });
+			execSync("git commit --allow-empty -m 'init'", { cwd: gitRoot, stdio: "pipe" });
+			initTffDirectory(gitRoot);
+		});
+
+		afterEach(() => {
+			rmSync(gitRoot, { recursive: true, force: true });
+			for (const [key, value] of Object.entries(savedGitEnv)) {
+				if (value !== undefined) process.env[key] = value;
+			}
+		});
+
+		it("creates milestone/M01 git branch", () => {
+			createMilestone(db, gitRoot, projectId, "Foundation");
+			expect(branchExists("milestone/M01", gitRoot)).toBe(true);
+		});
+
+		it("does not fail if branch already exists", () => {
+			createMilestone(db, gitRoot, projectId, "Foundation");
+			// Second milestone uses a different branch name, but first branch should still exist
+			expect(branchExists("milestone/M01", gitRoot)).toBe(true);
+			createMilestone(db, gitRoot, projectId, "Core");
+			expect(branchExists("milestone/M02", gitRoot)).toBe(true);
+		});
 	});
 });

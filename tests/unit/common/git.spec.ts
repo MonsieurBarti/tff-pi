@@ -9,6 +9,7 @@ import {
 	getCurrentBranch,
 	getDefaultBranch,
 	getGitRoot,
+	initRepo,
 } from "../../../src/common/git.js";
 import { must } from "../../helpers.js";
 
@@ -91,6 +92,23 @@ describe("git", () => {
 			const head = execSync("git rev-parse HEAD", { cwd: repoDir, encoding: "utf-8" }).trim();
 			createBranch("dup-branch", head, repoDir);
 			expect(() => createBranch("dup-branch", head, repoDir)).toThrow();
+		});
+	});
+
+	describe("initRepo", () => {
+		it("initializes a git repository in a non-git directory", () => {
+			const nonGitDir = mkdtempSync(join(tmpdir(), "tff-initrepo-"));
+			try {
+				expect(getGitRoot(nonGitDir)).toBeNull();
+				initRepo(nonGitDir);
+				expect(getGitRoot(nonGitDir)).not.toBeNull();
+			} finally {
+				rmSync(nonGitDir, { recursive: true, force: true });
+			}
+		});
+
+		it("is idempotent — does not throw on existing repo", () => {
+			expect(() => initRepo(repoDir)).not.toThrow();
 		});
 	});
 

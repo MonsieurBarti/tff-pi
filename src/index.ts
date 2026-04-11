@@ -30,7 +30,7 @@ import {
 import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
 import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
-import { getGitRoot } from "./common/git.js";
+import { getGitRoot, initRepo } from "./common/git.js";
 import type { PhaseContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
@@ -206,10 +206,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 			switch (subcommand) {
 				case "new": {
-					const root = getGitRoot() ?? projectRoot;
+					let root = getGitRoot() ?? projectRoot;
 					if (!root) {
-						if (ctx.hasUI) ctx.ui.notify("Not inside a git repository.", "error");
-						return;
+						initRepo(process.cwd());
+						root = getGitRoot() ?? process.cwd();
 					}
 					projectRoot = root;
 					initDb(root);
