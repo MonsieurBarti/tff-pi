@@ -8,7 +8,6 @@ export const SLICE_STATUSES = [
 	"reviewing",
 	"shipping",
 	"closed",
-	"paused",
 ] as const;
 export type SliceStatus = (typeof SLICE_STATUSES)[number];
 

@@ -10,7 +10,6 @@ import { handleHealth } from "./commands/health.js";
 import { handleLogs } from "./commands/logs.js";
 import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
-import { handlePause } from "./commands/pause.js";
 import { validatePlan } from "./commands/plan.js";
 import { handleProgress } from "./commands/progress.js";
 import { validateResearch } from "./commands/research.js";
@@ -244,7 +243,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"- `/tff research [sliceId]` — Run the research phase on a slice\n" +
 							"- `/tff plan [sliceId]` — Run the plan phase on a slice\n" +
 							"- `/tff next` — Advance the active slice to its next phase\n" +
-							"- `/tff pause [sliceId]` — Pause the active slice\n\n" +
 							"**Monitoring:**\n" +
 							"- `/tff status` — Show current project status\n" +
 							"- `/tff progress` — Show detailed progress table\n" +
@@ -256,7 +254,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
 							"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
 							"- `/tff ship [sliceId]` — Ship the slice (PR + merge)\n\n" +
-							"Not yet implemented: complete-milestone, rollback",
+							"Not yet implemented: complete-milestone",
 					);
 					break;
 				}
@@ -616,26 +614,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					} else {
 						if (ctx.hasUI)
 							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
-					}
-					break;
-				}
-
-				case "pause": {
-					const database = getDb();
-					const label = rest[0] ?? "";
-					const slice = label
-						? (findSliceByLabel(database, label) ?? getSlice(database, label))
-						: findActiveSlice(database);
-					if (!slice) {
-						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
-						return;
-					}
-					const pauseResult = handlePause(database, slice.id);
-					if (!pauseResult.success) {
-						if (ctx.hasUI) ctx.ui.notify(pauseResult.error ?? "Unknown error", "error");
-					} else {
-						if (ctx.hasUI) ctx.ui.notify(`Slice ${slice.id} paused.`, "info");
 					}
 					break;
 				}

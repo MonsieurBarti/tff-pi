@@ -70,20 +70,6 @@ describe("findActiveSlice", () => {
 		const active = must(findActiveSlice(db));
 		expect(active.title).toBe("DB");
 	});
-
-	it("skips paused slices", () => {
-		insertProject(db, { name: "TFF", vision: "Vision" });
-		const projectId = must(getProject(db)).id;
-		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
-		const milestoneId = must(getMilestones(db, projectId)[0]).id;
-		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		insertSlice(db, { milestoneId, number: 2, title: "DB" });
-		const s1Id = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, s1Id, "paused");
-
-		const active = must(findActiveSlice(db));
-		expect(active.title).toBe("DB");
-	});
 });
 
 describe("determineNextPhase", () => {
@@ -132,10 +118,6 @@ describe("determineNextPhase", () => {
 
 	it("closed -> null", () => {
 		expect(determineNextPhase("closed")).toBeNull();
-	});
-
-	it("paused -> null", () => {
-		expect(determineNextPhase("paused")).toBeNull();
 	});
 });
 

@@ -388,20 +388,11 @@ describe("getActiveSlice", () => {
 		expect(getActiveSlice(db, milestoneId)).toBeNull();
 	});
 
-	it("returns the first non-closed non-paused slice", () => {
+	it("returns the first non-closed slice", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "S1" });
 		insertSlice(db, { milestoneId, number: 2, title: "S2" });
 		const s1Id = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceStatus(db, s1Id, "closed");
-		const active = must(getActiveSlice(db, milestoneId));
-		expect(active.title).toBe("S2");
-	});
-
-	it("skips paused slices", () => {
-		insertSlice(db, { milestoneId, number: 1, title: "S1" });
-		insertSlice(db, { milestoneId, number: 2, title: "S2" });
-		const s1Id = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, s1Id, "paused");
 		const active = must(getActiveSlice(db, milestoneId));
 		expect(active.title).toBe("S2");
 	});

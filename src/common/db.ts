@@ -405,7 +405,7 @@ export function getNextSliceNumber(db: Database.Database, milestoneId: string): 
 export function getActiveSlice(db: Database.Database, milestoneId: string): Slice | null {
 	const row = db
 		.prepare(
-			"SELECT * FROM slice WHERE milestone_id = ? AND status NOT IN ('closed', 'paused') ORDER BY number LIMIT 1",
+			"SELECT * FROM slice WHERE milestone_id = ? AND status != 'closed' ORDER BY number LIMIT 1",
 		)
 		.get(milestoneId) as SliceRow | undefined;
 	return row ? rowToSlice(row) : null;
