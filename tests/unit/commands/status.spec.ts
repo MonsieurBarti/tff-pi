@@ -5,9 +5,12 @@ import {
 	applyMigrations,
 	getMilestones,
 	getProject,
+	getSlices,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
+	updatePhaseRun,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
 
@@ -91,5 +94,44 @@ describe("handleStatus", () => {
 
 		const result = handleStatus(db);
 		expect(result).toContain("/tff discuss M01-S01");
+	});
+
+	it("shows phase run info when monitoring data exists", () => {
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const project = must(getProject(db));
+		insertMilestone(db, {
+			projectId: project.id,
+			number: 1,
+			name: "Foundation",
+			branch: "milestone/M01",
+		});
+		const milestones = getMilestones(db, project.id);
+		insertSlice(db, { milestoneId: must(milestones[0]).id, number: 1, title: "Auth" });
+		const slices = getSlices(db, must(milestones[0]).id);
+		const sliceId = must(slices[0]).id;
+
+		const runId1 = insertPhaseRun(db, {
+			sliceId,
+			phase: "research",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId1, {
+			status: "completed",
+			finishedAt: new Date().toISOString(),
+			durationMs: 5000,
+		});
+
+		const runId2 = insertPhaseRun(db, {
+			sliceId,
+			phase: "plan",
+			status: "running",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId2, { status: "running" });
+
+		const result = handleStatus(db);
+		expect(result).toContain("1/2 phases");
+		expect(result).toContain("5s total");
 	});
 });
