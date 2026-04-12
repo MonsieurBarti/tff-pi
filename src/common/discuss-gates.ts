@@ -19,3 +19,7 @@ export function unlockGate(sliceId: string, gate: DiscussGate): void {
 export function resetGates(sliceId: string): void {
 	gateState.delete(sliceId);
 }
+
+export function resetAllGates(): void {
+	gateState.clear();
+}

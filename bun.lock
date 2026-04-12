@@ -29,10 +29,12 @@
         "@mariozechner/pi-tui": "*",
         "@sinclair/typebox": "*",
         "@the-forge-flow/fff-pi": "*",
+        "@the-forge-flow/gh-pi": "*",
         "@the-forge-flow/gitnexus-pi": "*",
         "@the-forge-flow/hippo-memory-pi": "*",
         "@the-forge-flow/lightpanda-pi": "*",
         "@the-forge-flow/sub-agents-pi": "*",
+        "@the-forge-flow/ultra-compress-pi": "*",
       },
     },
   },
@@ -509,15 +511,19 @@
 
     "@smithy/uuid": ["@smithy/uuid@1.1.2", "", { "dependencies": { "tslib": "^2.6.2" } }, "sha512-O/IEdcCUKkubz60tFbGA7ceITTAJsty+lBjNoorP4Z6XRqaFb/OjQjZODophEcuq68nKm6/0r+6/lLQ+XVpk8g=="],
 
-    "@the-forge-flow/fff-pi": ["@the-forge-flow/fff-pi@0.1.1", "", { "dependencies": { "@ff-labs/fff-node": "^0.5.2" }, "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-byhHhOah5fkdY6bzfvehKguNZoYzA+TuyoZurYK013aqCRY7fnGuw5o4njTdb7HaPfRMkKz6bBPjJv5NaO0rVg=="],
+    "@the-forge-flow/fff-pi": ["@the-forge-flow/fff-pi@0.1.5", "", { "dependencies": { "@ff-labs/fff-node": "^0.5.2" }, "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-lp4hKVrmSdf2zrVWOPrYZ6fqmgPtcIkCjjl5/kA4XH9yazbwrrgNil3u/YRxR79WFKzRIWkHrocqrwLDiwkb9g=="],
+
+    "@the-forge-flow/gh-pi": ["@the-forge-flow/gh-pi@0.2.4", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-boY9xXsYx04i8P4k3B7FNDQk0N03jIDgXL24vYXthlFfhs1PfOJelIsUJh+EYDEiw3saSSxgnEkYNJ/zIvYPZg=="],
 
     "@the-forge-flow/gitnexus-pi": ["@the-forge-flow/gitnexus-pi@0.1.2", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-E+zfesH7fWEELbcQ19rcW7EjtWJpOdAzwLnBLQxsbz8AFCKS92d4hsIvLQl8rC3QKvfB+ikaBvqLaRq8W9NLpw=="],
 
-    "@the-forge-flow/hippo-memory-pi": ["@the-forge-flow/hippo-memory-pi@0.1.2", "", { "dependencies": { "@huggingface/transformers": "^3.0.0", "hippo-memory": "^0.19.0" }, "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-pzYfUsIGgflTSQPaMvgGVpCPUTAZtZvK7b33d5HBOxmm3QuIvXrQ3jh49w6XxzGfMxmYiCKeAu9/FEQJv5d+ug=="],
+    "@the-forge-flow/hippo-memory-pi": ["@the-forge-flow/hippo-memory-pi@0.1.7", "", { "dependencies": { "@huggingface/transformers": "^3.0.0", "hippo-memory": "^0.19.0" }, "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-P+tKAXnJh4ND0e98VmgA3DdHeaTCjD+azSmGAKNzGywyXdCQ5nxQqmOJg3A17kpsR0M/29eG3rd+9lzFEZcpkA=="],
 
     "@the-forge-flow/lightpanda-pi": ["@the-forge-flow/lightpanda-pi@0.2.0", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-ppcCdq94yS/Kmf6nXw4uCfPAkLxK7jiOs+En4wekdxLOIV86IHL8dc3+EJ8Sv13AfIcJ/5bQqos1fK3IuyAVeQ=="],
 
     "@the-forge-flow/sub-agents-pi": ["@the-forge-flow/sub-agents-pi@0.2.0", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-w4hYp38lNwSY3Y4MnhLgviePeRvZYvcCel5KpuuaQcdIoZPIrQS0B+69/UkhP3qzLFSYAzf0SySeFiy7w83WVA=="],
+
+    "@the-forge-flow/ultra-compress-pi": ["@the-forge-flow/ultra-compress-pi@0.1.3", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-KBHmP7xsAOjIlerTadDiZttuiS7vmiV6u5RosH4fhFEAmvNuqTsxSGlWcg7jkzWK2A8wJDT70bQhfwr5FWbIsA=="],
 
     "@tokenizer/inflate": ["@tokenizer/inflate@0.4.1", "", { "dependencies": { "debug": "^4.4.3", "token-types": "^6.1.1" } }, "sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA=="],
 

@@ -2,13 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	initMilestoneDir,
 	initSliceDir,
 	initTffDirectory,
 	readArtifact,
 } from "../../../src/common/artifacts.js";
+import { compressIfEnabled } from "../../../src/common/compress.js";
 import {
 	applyMigrations,
 	getDependencies,
@@ -23,6 +24,10 @@ import {
 } from "../../../src/common/db.js";
 import { handleWritePlan } from "../../../src/tools/write-plan.js";
 import { must } from "../../helpers.js";
+
+vi.mock("../../../src/common/compress.js", () => ({
+	compressIfEnabled: vi.fn((input: string) => input),
+}));
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -106,6 +111,36 @@ describe("handleWritePlan", () => {
 
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");
+	});
+
+	it("compresses content when enabled", () => {
+		vi.mocked(compressIfEnabled).mockReturnValueOnce("[COMPRESSED]plan");
+		handleWritePlan(db, root, sliceId, "plan", []);
+		const written = readArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md");
+		expect(written).toBe("[COMPRESSED]plan");
+	});
+
+	it("replaces prior tasks+deps when called twice for the same slice", () => {
+		const first = [
+			{ title: "First A", description: "" },
+			{ title: "First B", description: "", dependsOn: [1] },
+			{ title: "First C", description: "", dependsOn: [2] },
+		];
+		const second = [
+			{ title: "Second A", description: "" },
+			{ title: "Second B", description: "", dependsOn: [1] },
+		];
+
+		handleWritePlan(db, root, sliceId, "# Plan v1\n", first);
+		expect(getTasks(db, sliceId)).toHaveLength(3);
+		expect(getDependencies(db, sliceId)).toHaveLength(2);
+
+		handleWritePlan(db, root, sliceId, "# Plan v2\n", second);
+
+		const tasksAfter = getTasks(db, sliceId);
+		expect(tasksAfter).toHaveLength(2);
+		expect(tasksAfter.map((t) => t.title)).toEqual(["Second A", "Second B"]);
+		expect(getDependencies(db, sliceId)).toHaveLength(1);
 	});
 
 	it("handles tasks with no dependencies", () => {

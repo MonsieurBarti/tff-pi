@@ -29,6 +29,19 @@ vi.mock("node:child_process", async (importOriginal) => {
 	};
 });
 
+const mockView = vi.fn();
+const mockCreate = vi.fn();
+
+vi.mock("@the-forge-flow/gh-pi", () => ({
+	createGHClient: vi.fn(() => ({})),
+	createPRTools: vi.fn(() => ({
+		view: mockView,
+		create: mockCreate,
+		checks: vi.fn(),
+		merge: vi.fn(),
+	})),
+}));
+
 vi.mock("../../../src/common/git.js", () => ({
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
 	getGitRoot: vi.fn().mockReturnValue("/tmp"),
@@ -77,10 +90,21 @@ describe("handleCompleteMilestone", () => {
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
 			const cmdArgs = args[1] as string[];
-			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "create") {
-				return "https://github.com/org/repo/pull/99\n";
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
 			}
 			return "";
+		});
+
+		mockView.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({ state: "MERGED" }),
+			stderr: "",
+		});
+		mockCreate.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: "https://github.com/org/repo/pull/99",
+			stderr: "",
 		});
 
 		db = openDatabase(":memory:");
@@ -97,7 +121,7 @@ describe("handleCompleteMilestone", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("creates milestone PR when all slices are closed", () => {
+	it("creates milestone PR when all slices are closed", async () => {
 		// Add 2 closed slices with all artifacts
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
@@ -108,28 +132,36 @@ describe("handleCompleteMilestone", () => {
 		writeAllArtifacts(root, 1, 1);
 		writeAllArtifacts(root, 1, 2);
 
-		const result = handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
 		expect(result.success).toBe(true);
 		expect(result.prUrl).toContain("github.com");
+
+		expect(mockCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				title: expect.stringContaining("M01"),
+				head: "milestone/M01",
+				base: "main",
+			}),
+		);
 
 		// Milestone status should be "completing"
 		const milestone = must(getMilestone(db, milestoneId));
 		expect(milestone.status).toBe("completing");
 	});
 
-	it("rejects when slices are still open", () => {
+	it("rejects when slices are still open", async () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
 		updateSliceStatus(db, must(slices[0]).id, "closed");
 		// Leave slices[1] as "created"
 
-		const result = handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("not closed");
 	});
 
-	it("self-heals stale slice state when PR is merged", () => {
+	it("self-heals stale slice state when PR is merged", async () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
@@ -141,31 +173,27 @@ describe("handleCompleteMilestone", () => {
 		updateSlicePrUrl(db, must(slices[1]).id, "https://github.com/org/repo/pull/42");
 		writeAllArtifacts(root, 1, 2);
 
-		// Mock gh pr view to return MERGED for the stale slice
-		mockExec.mockImplementation((...args: unknown[]) => {
-			const cmd = args[0] as string;
-			const cmdArgs = args[1] as string[];
-			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "view") {
-				return JSON.stringify({ state: "MERGED" });
-			}
-			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "create") {
-				return "https://github.com/org/repo/pull/99\n";
-			}
-			return "";
-		});
+		// mockView defaults to MERGED, mockCreate defaults to a PR URL — both already set in beforeEach
 
-		const result = handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
 		expect(result.success).toBe(true);
 		expect(result.prUrl).toContain("github.com");
+
+		expect(mockView).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repo: "org/repo",
+				number: 42,
+			}),
+		);
 	});
 
-	it("validates artifacts for all slices", () => {
+	it("validates artifacts for all slices", async () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const slices = getSlices(db, milestoneId);
 		updateSliceStatus(db, must(slices[0]).id, "closed");
 		// Do NOT write artifacts
 
-		const result = handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("artifact");
 	});

@@ -107,10 +107,19 @@ export function createGitignore(cwd: string): void {
 			.filter(Boolean),
 	);
 	const missing = DEFAULT_GITIGNORE_ENTRIES.filter((entry) => !existingLines.has(entry));
-	if (missing.length === 0) return;
-	const suffix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-	const header = existing.length > 0 ? "\n# TFF defaults\n" : "";
-	writeFileSync(filePath, `${existing}${suffix}${header}${missing.join("\n")}\n`);
+	if (missing.length > 0) {
+		const suffix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+		const header = existing.length > 0 ? "\n# TFF defaults\n" : "";
+		writeFileSync(filePath, `${existing}${suffix}${header}${missing.join("\n")}\n`);
+	}
+	// Defensively untrack .tff/ and .pi/ if a reused remote has them committed.
+	// Observed: testtff project inherited a prior project's .tff/state.db via
+	// rebase, so getNextMilestoneNumber saw an M01 row and handed out M02.
+	// --ignore-unmatch keeps this a no-op when nothing is tracked.
+	execFileSync("git", ["rm", "-r", "--cached", "--ignore-unmatch", ".tff", ".pi"], {
+		cwd,
+		stdio: "pipe",
+	});
 }
 
 export function hasRemote(cwd?: string): boolean {
@@ -151,4 +160,36 @@ export function initialCommitAndPush(cwd?: string): void {
 		encoding: "utf-8",
 		stdio: "pipe",
 	});
+}
+
+/**
+ * Push a branch to origin and set upstream. No-op if no remote is configured.
+ *
+ * Called when the milestone branch is created so the slice PR has a valid
+ * base ref on GitHub. Without this, `gh pr create` fails with
+ * "Base ref must be a branch" because the milestone branch exists only
+ * locally when the slice is shipped.
+ */
+export function pushBranch(branchName: string, cwd: string): void {
+	if (!hasRemote(cwd)) return;
+	execFileSync("git", ["push", "-u", "origin", branchName], {
+		cwd,
+		encoding: "utf-8",
+		stdio: "pipe",
+	});
+}
+
+/**
+ * Returns true if the remote has a ref named `<branchName>`. Requires a remote
+ * named `origin`. Used by cleanup paths to decide whether to push/delete a
+ * branch on the remote rather than relying on try/catch around `git push`.
+ */
+export function remoteBranchExists(branchName: string, cwd: string): boolean {
+	if (!hasRemote(cwd)) return false;
+	const output = execFileSync("git", ["ls-remote", "--heads", "origin", branchName], {
+		cwd,
+		encoding: "utf-8",
+		stdio: "pipe",
+	}).trim();
+	return output.length > 0;
 }

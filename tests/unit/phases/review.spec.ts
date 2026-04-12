@@ -40,6 +40,8 @@ vi.mock("../../../src/orchestrator.js", () => ({
 		.fn()
 		.mockReturnValue({ agentPrompt: "# Reviewer", protocol: "# Protocol" }),
 	loadAgentResource: vi.fn().mockReturnValue("# Security Review\nOWASP checks"),
+	predecessorPhase: vi.fn().mockReturnValue(null),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
 
 import { reviewPhase } from "../../../src/phases/review.js";
@@ -85,9 +87,10 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await reviewPhase.run(ctx);
+		const result = await reviewPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
 	});
 
 	it("message includes spec, plan, verification, and diff", async () => {
@@ -104,12 +107,14 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await reviewPhase.run(ctx);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		const result = await reviewPhase.prepare(ctx);
+		const msg = result.message ?? "";
 		expect(msg).toContain("SPEC.md");
 		expect(msg).toContain("PLAN.md");
 		expect(msg).toContain("VERIFICATION.md");
-		expect(msg).toContain("diff content");
+		// Diff is no longer inlined — agent runs `git diff` itself
+		expect(msg).not.toContain("diff content");
+		expect(msg).toMatch(/git .* diff .*milestone\/M01\.\.\.slice\/M01-S01/);
 	});
 
 	it("message includes security reviewer content", async () => {
@@ -126,8 +131,8 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await reviewPhase.run(ctx);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		const result = await reviewPhase.prepare(ctx);
+		const msg = result.message ?? "";
 		expect(msg).toContain("Security Review");
 		expect(msg).toContain("OWASP checks");
 	});
@@ -146,7 +151,7 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await reviewPhase.run(ctx);
+		await reviewPhase.prepare(ctx);
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "review",
 		);

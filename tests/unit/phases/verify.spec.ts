@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { initTffDirectory, writeArtifact } from "../../../src/common/artifacts.js";
+import { type Mock, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { initTffDirectory, readArtifact, writeArtifact } from "../../../src/common/artifacts.js";
+import { compressIfEnabled } from "../../../src/common/compress.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -35,6 +36,23 @@ vi.mock("../../../src/common/git.js", () => ({
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
+vi.mock("../../../src/common/checkpoint.js", () => ({
+	createCheckpoint: vi.fn(),
+}));
+
+vi.mock("../../../src/common/verify-commands.js", () => ({
+	detectVerifyCommands: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../../../src/common/mechanical-verifier.js", () => ({
+	runMechanicalVerification: vi.fn(),
+	formatMechanicalReport: vi.fn().mockReturnValue(""),
+}));
+
+vi.mock("../../../src/common/compress.js", () => ({
+	compressIfEnabled: vi.fn((input: string) => input),
+}));
+
 vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()
@@ -42,8 +60,11 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
+	predecessorPhase: vi.fn().mockReturnValue(null),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
 
+import { getDiff } from "../../../src/common/git.js";
 import { verifyPhase } from "../../../src/phases/verify.js";
 
 describe("verifyPhase", () => {
@@ -73,7 +94,7 @@ describe("verifyPhase", () => {
 	});
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof verifyPhase.run).toBe("function");
+		expect(typeof verifyPhase.prepare).toBe("function");
 	});
 
 	it("returns success and sends message via sendUserMessage", async () => {
@@ -90,9 +111,10 @@ describe("verifyPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await verifyPhase.run(ctx);
+		const result = await verifyPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
 	});
 
 	it("message includes spec and diff", async () => {
@@ -109,10 +131,70 @@ describe("verifyPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await verifyPhase.run(ctx);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		const result = await verifyPhase.prepare(ctx);
+		const msg = result.message ?? "";
 		expect(msg).toContain("SPEC.md");
 		expect(msg).toContain("diff content");
+	});
+
+	it("compresses VERIFICATION-MECHANICAL.md when enabled", async () => {
+		const { detectVerifyCommands } = await import("../../../src/common/verify-commands.js");
+		const { runMechanicalVerification, formatMechanicalReport } = await import(
+			"../../../src/common/mechanical-verifier.js"
+		);
+		vi.mocked(detectVerifyCommands).mockResolvedValueOnce([
+			{ name: "lint", command: "echo", source: "settings" },
+		]);
+		vi.mocked(runMechanicalVerification).mockResolvedValueOnce({
+			allPassed: true,
+			commands: [],
+			timestamp: new Date().toISOString(),
+		});
+		vi.mocked(formatMechanicalReport).mockReturnValueOnce("raw-report");
+		vi.mocked(compressIfEnabled).mockReturnValueOnce("[COMPRESSED]raw-report");
+
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await verifyPhase.prepare(ctx);
+		const written = readArtifact(root, "milestones/M01/slices/M01-S01/VERIFICATION-MECHANICAL.md");
+		expect(written).toBe("[COMPRESSED]raw-report");
+	});
+
+	it("fails with phase_failed when diff is empty (no execute output)", async () => {
+		(getDiff as unknown as Mock).mockReturnValueOnce("");
+		const sendUserMessage = vi.fn();
+		const mockEmit = vi.fn();
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage,
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await verifyPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(false);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		const failedCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "verify",
+		);
+		expect(failedCalls).toHaveLength(1);
+		expect(failedCalls[0]?.[1]).toHaveProperty("error");
 	});
 
 	it("emits phase_start event", async () => {
@@ -129,7 +211,7 @@ describe("verifyPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await verifyPhase.run(ctx);
+		await verifyPhase.prepare(ctx);
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "verify",
 		);

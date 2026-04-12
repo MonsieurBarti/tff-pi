@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initTffDirectory, readArtifact, writeArtifact } from "../../../src/common/artifacts.js";
+import { compressIfEnabled } from "../../../src/common/compress.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -14,6 +15,7 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
+	updateSlicePrUrl,
 	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
@@ -22,17 +24,36 @@ import { DEFAULT_SETTINGS, type Settings } from "../../../src/common/settings.js
 import { must } from "../../helpers.js";
 
 const mockExec = vi.fn().mockReturnValue("");
-vi.mock("node:child_process", async (importOriginal) => {
-	const original = await importOriginal<typeof import("node:child_process")>();
-	return {
-		...original,
-		execFileSync: (...args: unknown[]) => mockExec(...args),
-	};
-});
+vi.mock("node:child_process", () => ({
+	execFileSync: (...args: unknown[]) => mockExec(...args),
+}));
+
+const mockView = vi.fn();
+const mockCreate = vi.fn();
+const mockChecks = vi.fn();
+const mockMerge = vi.fn();
+
+vi.mock("@the-forge-flow/gh-pi", () => ({
+	createGHClient: vi.fn(() => ({})),
+	createPRTools: vi.fn(() => ({
+		view: mockView,
+		create: mockCreate,
+		checks: mockChecks,
+		merge: mockMerge,
+	})),
+}));
+
+vi.mock("../../../src/common/checkpoint.js", () => ({
+	cleanupCheckpoints: vi.fn(),
+}));
 
 vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	removeWorktree: vi.fn(),
+}));
+
+vi.mock("../../../src/common/compress.js", () => ({
+	compressIfEnabled: vi.fn((input: string) => input),
 }));
 
 vi.mock("../../../src/common/git.js", () => ({
@@ -41,6 +62,8 @@ vi.mock("../../../src/common/git.js", () => ({
 	getCurrentBranch: vi.fn().mockReturnValue("main"),
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
+	pushBranch: vi.fn(),
+	remoteBranchExists: vi.fn().mockReturnValue(true),
 	getDiff: vi.fn().mockReturnValue(""),
 	gitEnv: vi.fn().mockReturnValue({}),
 }));
@@ -58,14 +81,24 @@ describe("shipPhase", () => {
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
 			const cmdArgs = args[1] as string[];
-			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "create") {
-				return "https://github.com/org/repo/pull/42\n";
-			}
-			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "checks") {
-				return "All checks passed\n";
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
 			}
 			return "";
 		});
+
+		mockView.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({ state: "OPEN", comments: [] }),
+			stderr: "",
+		});
+		mockCreate.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: "https://github.com/org/repo/pull/42",
+			stderr: "",
+		});
+		mockChecks.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+		mockMerge.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
 
 		db = openDatabase(":memory:");
 		applyMigrations(db);
@@ -111,7 +144,7 @@ describe("shipPhase", () => {
 	}
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof shipPhase.run).toBe("function");
+		expect(typeof shipPhase.prepare).toBe("function");
 	});
 
 	it("stores pr_url on slice after PR creation", async () => {
@@ -124,7 +157,7 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
-		const result = await shipPhase.run(ctx);
+		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.prUrl).toContain("github.com");
@@ -140,10 +173,26 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
-		await shipPhase.run(ctx);
+		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
 		expect(prMd).not.toBeNull();
 		expect(prMd).toContain("github.com");
+	});
+
+	it("compresses PR.md content when enabled", async () => {
+		vi.mocked(compressIfEnabled).mockReturnValueOnce("[COMPRESSED]pr");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		await shipPhase.prepare(ctx);
+		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
+		expect(prMd).toBe("[COMPRESSED]pr");
 	});
 
 	it("marks slice as closed after successful merge", async () => {
@@ -156,7 +205,7 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
-		await shipPhase.run(ctx);
+		await shipPhase.prepare(ctx);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.status).toBe("closed");
 	});
@@ -172,21 +221,139 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: false } }),
 		};
-		const result = await shipPhase.run(ctx);
+		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 
-		// gh pr merge should NOT have been called
-		const mergeCalls = mockExec.mock.calls.filter(
-			(call: unknown[]) =>
-				call[0] === "gh" &&
-				(call[1] as string[])?.[0] === "pr" &&
-				(call[1] as string[])?.[1] === "merge",
-		);
-		expect(mergeCalls).toHaveLength(0);
+		// pr merge should NOT have been called
+		expect(mockMerge).not.toHaveBeenCalled();
 
-		// sendUserMessage should mention "ready for review"
+		// sendUserMessage should hand the merge gate to the agent — include
+		// PR URL, tff_ask_user instruction, and tool routing.
 		expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
 		const msg = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
-		expect(msg).toContain("ready for review");
+		expect(msg).toContain("PR is open");
+		expect(msg).toContain("tff_ask_user");
+		expect(msg).toContain("tff_ship_merged");
+		expect(msg).toContain("tff_ship_changes");
+	});
+
+	it("creates PR via prTools.create with correct parameters", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		await shipPhase.prepare(ctx);
+		expect(mockCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repo: "org/repo",
+				title: expect.stringContaining("M01-S01"),
+				head: "slice/M01-S01",
+				base: "milestone/M01",
+			}),
+		);
+	});
+
+	it("re-entry: merged PR closes slice", async () => {
+		mockView.mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({ state: "MERGED", comments: [] }),
+			stderr: "",
+		});
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(true);
+		const updated = must(getSlice(db, sliceId));
+		expect(updated.status).toBe("closed");
+	});
+
+	it("re-entry: PR with comments returns to executing", async () => {
+		mockView.mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({
+				state: "OPEN",
+				comments: [{ body: "please fix", author: { login: "reviewer" } }],
+			}),
+			stderr: "",
+		});
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(true);
+		expect(result.feedback).toContain("please fix");
+		const updated = must(getSlice(db, sliceId));
+		expect(updated.status).toBe("executing");
+	});
+
+	it("re-entry: open PR with no comments returns waiting", async () => {
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(true);
+		expect(mockMerge).not.toHaveBeenCalled();
+	});
+
+	it("CI failure triggers retry path", async () => {
+		mockChecks.mockResolvedValue({ code: 1, stdout: "", stderr: "checks failed" });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(true);
+		const updated = must(getSlice(db, sliceId));
+		expect(updated.status).toBe("executing");
+	});
+
+	it("returns error for invalid PR URL", async () => {
+		updateSlicePrUrl(db, sliceId, "not a url");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("Invalid PR URL");
 	});
 });

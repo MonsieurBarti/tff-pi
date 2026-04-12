@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
+import { compressIfEnabled } from "../common/compress.js";
 import { getMilestone, getSlice } from "../common/db.js";
+import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
@@ -14,6 +16,7 @@ export function handleWriteResearch(
 	root: string,
 	sliceId: string,
 	content: string,
+	settings: Settings = DEFAULT_SETTINGS,
 ): ToolResult {
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
@@ -34,7 +37,7 @@ export function handleWriteResearch(
 	const label = sliceLabel(milestone.number, slice.number);
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/RESEARCH.md`;
-	writeArtifact(root, path, content);
+	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
 	return {
 		content: [{ type: "text", text: `RESEARCH.md written for ${label}.` }],
 		details: { sliceId, path },

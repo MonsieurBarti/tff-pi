@@ -85,7 +85,7 @@ describe("phase event emission", () => {
 		it("emits phase_start on entry", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
-			await discussPhase.run(ctx);
+			await discussPhase.prepare(ctx);
 
 			const startCalls = mockEmit.mock.calls.filter(
 				([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "discuss",
@@ -96,7 +96,7 @@ describe("phase event emission", () => {
 		it("does NOT emit phase_complete (tracked on /tff next)", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
-			const result = await discussPhase.run(ctx);
+			const result = await discussPhase.prepare(ctx);
 
 			expect(result.success).toBe(true);
 			const completeCalls = mockEmit.mock.calls.filter(
@@ -115,7 +115,7 @@ describe("phase event emission", () => {
 		it("emits phase_start on entry", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
-			await researchPhase.run(ctx);
+			await researchPhase.prepare(ctx);
 
 			const startCalls = mockEmit.mock.calls.filter(
 				([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "research",
@@ -126,7 +126,7 @@ describe("phase event emission", () => {
 		it("does NOT emit phase_complete (tracked on /tff next)", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
-			const result = await researchPhase.run(ctx);
+			const result = await researchPhase.prepare(ctx);
 
 			expect(result.success).toBe(true);
 			const completeCalls = mockEmit.mock.calls.filter(
@@ -146,7 +146,7 @@ describe("phase event emission", () => {
 		it("emits phase_start on entry", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
-			await planPhase.run(ctx);
+			await planPhase.prepare(ctx);
 
 			const startCalls = mockEmit.mock.calls.filter(
 				([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "plan",
@@ -157,7 +157,7 @@ describe("phase event emission", () => {
 		it("does NOT emit phase_complete (tracked on /tff next)", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
-			const result = await planPhase.run(ctx);
+			const result = await planPhase.prepare(ctx);
 
 			expect(result.success).toBe(true);
 			const completeCalls = mockEmit.mock.calls.filter(
@@ -172,7 +172,7 @@ describe("phase event emission", () => {
 			({ db, root, sliceId } = setupDb());
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
-			await discussPhase.run(ctx);
+			await discussPhase.prepare(ctx);
 
 			const startCall = mockEmit.mock.calls.find(
 				([ch, e]) => ch === "tff:phase" && e.type === "phase_start",

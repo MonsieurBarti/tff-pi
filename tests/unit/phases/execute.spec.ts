@@ -28,6 +28,13 @@ vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
 
+vi.mock("../../../src/common/checkpoint.js", () => ({
+	createCheckpoint: vi.fn(),
+	listCheckpoints: vi.fn().mockReturnValue([]),
+	getLastCheckpoint: vi.fn().mockReturnValue(null),
+	cleanupCheckpoints: vi.fn(),
+}));
+
 vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()
@@ -35,6 +42,8 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
+	predecessorPhase: vi.fn().mockReturnValue(null),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";
@@ -64,7 +73,7 @@ describe("executePhase", () => {
 	});
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof executePhase.run).toBe("function");
+		expect(typeof executePhase.prepare).toBe("function");
 	});
 
 	it("sends message with task list via sendUserMessage", async () => {
@@ -85,20 +94,49 @@ describe("executePhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await executePhase.run(ctx);
+		const result = await executePhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
-		expect(msg).toContain("Wave 1");
-		expect(msg).toContain("Wave 2");
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
+		expect(result.message).toContain("Wave 1");
+		expect(result.message).toContain("Wave 2");
 	});
 
-	it("returns success with no tasks (emits phase_complete)", async () => {
+	it("message contains a HARD-GATE block binding the agent to the worktree path", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const sendUserMessage = vi.fn();
 		const slice = must(getSlice(db, sliceId));
-		const mockEmit = vi.fn();
 		const ctx: PhaseContext = {
 			pi: {
-				sendUserMessage: vi.fn(),
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await executePhase.prepare(ctx);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		const msg = result.message ?? "";
+		// The worktree gate is a critical invariant — regressing it causes
+		// agents to write to the project root and the verify phase sees an
+		// empty diff. Guard it structurally.
+		expect(msg).toContain("<HARD-GATE>");
+		expect(msg).toContain("WORKTREE:");
+		expect(msg).toContain("/tmp/fake-worktree"); // the mocked createWorktree path
+		expect(msg).toMatch(/cd\s+\/tmp\/fake-worktree/);
+		expect(msg).toMatch(/Do NOT write to the project root/i);
+	});
+
+	it("fails with phase_failed when no tasks exist in DB", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const mockEmit = vi.fn();
+		const sendUserMessage = vi.fn();
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage,
 				events: { emit: mockEmit, on: vi.fn() },
 			} as unknown as PhaseContext["pi"],
 			db,
@@ -107,11 +145,19 @@ describe("executePhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await executePhase.run(ctx);
-		expect(result.success).toBe(true);
+		const result = await executePhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(false);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		const failedCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed",
+		);
+		expect(failedCalls).toHaveLength(1);
+		const failedEvent = failedCalls[0]?.[1] as { error?: string };
+		expect(failedEvent.error).toMatch(/no tasks/i);
 		const completeCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete",
 		);
-		expect(completeCalls).toHaveLength(1);
+		expect(completeCalls).toHaveLength(0);
 	});
 });

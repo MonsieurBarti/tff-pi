@@ -2,13 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	initMilestoneDir,
 	initSliceDir,
 	initTffDirectory,
 	readArtifact,
 } from "../../../src/common/artifacts.js";
+import { compressIfEnabled } from "../../../src/common/compress.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -21,6 +22,10 @@ import {
 } from "../../../src/common/db.js";
 import { handleWriteResearch } from "../../../src/tools/write-research.js";
 import { must } from "../../helpers.js";
+
+vi.mock("../../../src/common/compress.js", () => ({
+	compressIfEnabled: vi.fn((input: string) => input),
+}));
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -72,5 +77,12 @@ describe("handleWriteResearch", () => {
 
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");
+	});
+
+	it("compresses content when enabled", () => {
+		vi.mocked(compressIfEnabled).mockReturnValueOnce("[COMPRESSED]research");
+		handleWriteResearch(db, root, sliceId, "research");
+		const written = readArtifact(root, "milestones/M01/slices/M01-S01/RESEARCH.md");
+		expect(written).toBe("[COMPRESSED]research");
 	});
 });

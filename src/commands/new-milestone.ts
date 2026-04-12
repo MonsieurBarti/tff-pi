@@ -1,7 +1,9 @@
 import type Database from "better-sqlite3";
 import { initMilestoneDir, writeArtifact } from "../common/artifacts.js";
+import { compressIfEnabled } from "../common/compress.js";
 import { getNextMilestoneNumber, insertMilestone } from "../common/db.js";
-import { branchExists, createBranch, getCurrentBranch } from "../common/git.js";
+import { branchExists, createBranch, getCurrentBranch, pushBranch } from "../common/git.js";
+import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel } from "../common/types.js";
 
 export interface MilestoneResult {
@@ -15,6 +17,7 @@ export function createMilestone(
 	root: string,
 	projectId: string,
 	name: string,
+	settings: Settings = DEFAULT_SETTINGS,
 ): MilestoneResult {
 	const number = getNextMilestoneNumber(db, projectId);
 	const label = milestoneLabel(number);
@@ -27,10 +30,15 @@ export function createMilestone(
 		const current = getCurrentBranch(root) ?? "HEAD";
 		createBranch(branch, current, root);
 	}
+	// Push the milestone branch so slice PRs can target it as base. Without
+	// this, `gh pr create` fails with "Base ref must be a branch" because
+	// the milestone branch only exists locally.
+	pushBranch(branch, root);
+	const reqContent = `# ${name} — Requirements\n\n<!-- Requirements will be brainstormed by the agent -->\n`;
 	writeArtifact(
 		root,
 		`milestones/${label}/REQUIREMENTS.md`,
-		`# ${name} — Requirements\n\n<!-- Requirements will be brainstormed by the agent -->\n`,
+		compressIfEnabled(reqContent, "artifacts", settings),
 	);
 	return { milestoneId, number, branch };
 }

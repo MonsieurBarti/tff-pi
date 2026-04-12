@@ -1,14 +1,22 @@
-import { readArtifact } from "../common/artifacts.js";
-import { updateSliceStatus } from "../common/db.js";
+import { readArtifact, writeArtifact } from "../common/artifacts.js";
+import { createCheckpoint } from "../common/checkpoint.js";
+import { compressIfEnabled } from "../common/compress.js";
+import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
-import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
+import {
+	formatMechanicalReport,
+	runMechanicalVerification,
+} from "../common/mechanical-verifier.js";
+import { closePredecessorIfReady } from "../common/phase-completion.js";
+import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
+import { detectVerifyCommands } from "../common/verify-commands.js";
 import { getWorktreePath } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { loadPhaseResources, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
-	async run(ctx: PhaseContext): Promise<PhaseResult> {
+	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
 		updateSliceStatus(db, slice.id, "verifying");
 
@@ -19,6 +27,8 @@ export const verifyPhase: PhaseModule = {
 			type: "phase_start",
 			phase: "verify",
 		});
+
+		closePredecessorIfReady(pi, db, root, slice, "verify", predecessorPhase, verifyPhaseArtifacts);
 
 		const wtPath = getWorktreePath(root, sLabel);
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
@@ -40,7 +50,24 @@ export const verifyPhase: PhaseModule = {
 
 		const { agentPrompt, protocol } = loadPhaseResources("verify");
 		const milestoneBranch = `milestone/${mLabel}`;
-		const diff = getDiff(milestoneBranch, wtPath) ?? "";
+		const rawDiff = getDiff(milestoneBranch, wtPath) ?? "";
+		const diffLines = rawDiff.split("\n");
+		const MAX_DIFF_LINES = 800;
+		const diff =
+			diffLines.length > MAX_DIFF_LINES
+				? `${diffLines.slice(0, MAX_DIFF_LINES).join("\n")}\n\n[... ${diffLines.length - MAX_DIFF_LINES} more lines truncated; inspect the worktree directly for full diff ...]`
+				: rawDiff;
+
+		if (diff.trim() === "") {
+			const error = `No diff between ${milestoneBranch} and the slice worktree. The execute phase produced no changes — re-run execute before verifying.`;
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "verify",
+				error,
+			});
+			return { success: false, retry: false };
+		}
 
 		const message = [
 			agentPrompt,
@@ -67,7 +94,48 @@ export const verifyPhase: PhaseModule = {
 			compressHint,
 		].join("\n");
 
-		pi.sendUserMessage(message);
-		return { success: true, retry: false };
+		// --- Mechanical verification (runs independently of AI) ---
+		const verifyCommands = await detectVerifyCommands(root, settings);
+		if (verifyCommands.length > 0) {
+			const report = await runMechanicalVerification(verifyCommands, wtPath);
+			const reportMd = formatMechanicalReport(report);
+			writeArtifact(
+				root,
+				`milestones/${mLabel}/slices/${sLabel}/VERIFICATION-MECHANICAL.md`,
+				compressIfEnabled(reportMd, "artifacts", settings),
+			);
+
+			if (!report.allPassed) {
+				const failures = report.commands
+					.filter((c) => !c.passed)
+					.map(
+						(c) =>
+							`- ${c.name}: exit ${c.exitCode}${c.stderr ? `\n  ${c.stderr.split("\n")[0]}` : ""}`,
+					)
+					.join("\n");
+
+				// Roll back status so /tff next routes back to execute for retry
+				updateSliceStatus(db, slice.id, "executing");
+				resetTasksToOpen(db, slice.id);
+
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "verify",
+					error: "Mechanical verification failed",
+				});
+
+				return {
+					success: false,
+					retry: true,
+					feedback: `Mechanical verification found failures:\n${failures}\n\nFull report written to VERIFICATION-MECHANICAL.md. Run \`/tff next\` to route back to execute and fix.`,
+				};
+			}
+		}
+
+		// Post-verify checkpoint
+		createCheckpoint(wtPath, sLabel, "post-verify");
+
+		return { success: true, retry: false, message };
 	},
 };

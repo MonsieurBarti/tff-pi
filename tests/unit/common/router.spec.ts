@@ -19,7 +19,10 @@ describe("router", () => {
 				"execute",
 				"verify",
 				"ship",
+				"ship-merged",
+				"ship-changes",
 				"complete-milestone",
+				"recover",
 				"next",
 				"status",
 				"progress",
@@ -27,6 +30,7 @@ describe("router", () => {
 				"health",
 				"help",
 				"logs",
+				"doctor",
 			]);
 		});
 	});

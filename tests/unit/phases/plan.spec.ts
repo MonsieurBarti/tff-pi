@@ -51,7 +51,7 @@ describe("planPhase", () => {
 	});
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof planPhase.run).toBe("function");
+		expect(typeof planPhase.prepare).toBe("function");
 	});
 
 	it("returns success and sends message", async () => {
@@ -68,9 +68,10 @@ describe("planPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await planPhase.run(ctx);
+		const result = await planPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
 	});
 
 	it("transitions to planning during run", async () => {
@@ -86,7 +87,7 @@ describe("planPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await planPhase.run(ctx);
+		await planPhase.prepare(ctx);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.status).toBe("planning");
 	});

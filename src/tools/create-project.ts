@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { type NewProjectInput, handleNew } from "../commands/new.js";
+import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -11,9 +12,10 @@ export function handleCreateProject(
 	db: Database.Database,
 	root: string,
 	input: NewProjectInput,
+	settings: Settings = DEFAULT_SETTINGS,
 ): ToolResult {
 	try {
-		const { projectId } = handleNew(db, root, input);
+		const { projectId } = handleNew(db, root, input, settings);
 		return {
 			content: [
 				{

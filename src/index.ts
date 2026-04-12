@@ -1,11 +1,16 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { StringEnum } from "@mariozechner/pi-ai";
-import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	defineTool,
+} from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
+import { handleDoctor } from "./commands/doctor.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
 import { handleLogs } from "./commands/logs.js";
@@ -13,14 +18,21 @@ import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
 import { validatePlan } from "./commands/plan.js";
 import { handleProgress } from "./commands/progress.js";
+import { executeRecovery } from "./commands/recover.js";
 import { validateResearch } from "./commands/research.js";
+import { handleShipChanges } from "./commands/ship-changes.js";
+import { handleShipMerged } from "./commands/ship-merged.js";
 import { validateShip } from "./commands/ship.js";
 import { handleStatus } from "./commands/status.js";
 import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
+import { createCheckpoint } from "./common/checkpoint.js";
+import { refreshCompressionLevel } from "./common/compress.js";
+import { buildContextBlock } from "./common/context-injection.js";
 import {
 	applyMigrations,
 	getActiveMilestone,
+	getActiveSlice,
 	getMilestone,
 	getMilestones,
 	getProject,
@@ -28,9 +40,9 @@ import {
 	getSlices,
 	openDatabase,
 } from "./common/db.js";
-import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
+import { DISCUSS_GATES, resetAllGates, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
-import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
+import { type FffBridge, initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
 import {
 	addRemote,
 	createGitignore,
@@ -39,14 +51,38 @@ import {
 	initRepo,
 	initialCommitAndPush,
 } from "./common/git.js";
-import type { PhaseContext } from "./common/phase.js";
+import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
+import { emitPhaseCompleteIfArtifactsReady } from "./common/phase-completion.js";
+import {
+	type PhaseContext,
+	type PhaseModule,
+	clearPendingMessage,
+	readPendingMessage,
+	runPhaseWithFreshContext,
+} from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
+import {
+	type RecoveryClassification,
+	diagnoseRecovery,
+	formatRecoveryBriefing,
+	scanForStuckSlices,
+} from "./common/recovery.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
+import { isLockStale, readLock, releaseLock } from "./common/session-lock.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
-import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
-import { findActiveSlice } from "./orchestrator.js";
+import {
+	type Phase,
+	SLICE_STATUSES,
+	type Slice,
+	TIERS,
+	milestoneLabel,
+	sliceLabel,
+} from "./common/types.js";
+import { getWorktreePath } from "./common/worktree.js";
+import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
+import { type AskUserQuestion, handleAskUser } from "./tools/ask-user.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
@@ -54,7 +90,9 @@ import { queryState } from "./tools/query-state.js";
 import { handleTransition } from "./tools/transition.js";
 import { handleWritePlan } from "./tools/write-plan.js";
 import { handleWriteResearch } from "./tools/write-research.js";
+import { type ReviewVerdict, handleWriteReview } from "./tools/write-review.js";
 import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
+import { handleWriteVerification } from "./tools/write-verification.js";
 import { checkForUpdates } from "./update-check.js";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +105,12 @@ let settings: Settings | null = null;
 let initError: string | null = null;
 let eventLogger: EventLogger | null = null;
 let tuiMonitor: TUIMonitor | null = null;
-let _fffBridge: FffBridge | null = null;
+let fffBridge: FffBridge | null = null;
+let cmdCtx: ExtensionCommandContext | null = null;
+
+export function getCmdCtx() {
+	return cmdCtx;
+}
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -132,6 +175,26 @@ function resolveMilestone(
 	return findMilestoneByLabel(db, ref) ?? getMilestone(db, ref);
 }
 
+async function runHeavyPhase(
+	phase: Phase,
+	mod: PhaseModule,
+	phaseCtx: PhaseContext,
+): Promise<void> {
+	const result = await runPhaseWithFreshContext({
+		phaseModule: mod,
+		phaseCtx,
+		cmdCtx,
+		phase,
+	});
+	if (!result.success && result.error) {
+		if (cmdCtx?.hasUI) {
+			cmdCtx.ui.notify(`Phase ${phase} failed: ${result.error}`, "error");
+		} else {
+			phaseCtx.pi.sendUserMessage(`Phase ${phase} failed: ${result.error}`);
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -140,12 +203,56 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
+		// On startup (fresh PI launch), proactively clear any leftover pending
+		// phase message — it's from a crashed session, not useful anymore.
+		if (event.reason === "startup") {
+			const startupRoot = getGitRoot();
+			if (startupRoot) {
+				clearPendingMessage(startupRoot);
+			}
+		}
+
+		// Deliver any phase message queued on disk before newSession() was called.
+		// The new session's runtime is fully bound by the time session_start fires —
+		// sendMessage before this is a no-op.
+		if (event.reason === "new") {
+			const earlyRoot = getGitRoot();
+			const message = earlyRoot ? readPendingMessage(earlyRoot) : null;
+			if (earlyRoot) clearPendingMessage(earlyRoot);
+
+			if (message) {
+				try {
+					// deliverAs "steer" queues if the new session's agent is already
+					// processing a startup turn (observed: "Agent is already
+					// processing" on phase switch). When idle, triggerTurn fires it
+					// immediately. Covers both races from one call.
+					pi.sendMessage(
+						{ customType: "tff-phase", content: message, display: true },
+						{ triggerTurn: true, deliverAs: "steer" },
+					);
+				} catch (err) {
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
+							"error",
+						);
+					}
+				}
+			}
+		}
+
 		const root = getGitRoot();
 		if (!root) {
 			return;
 		}
 		projectRoot = root;
+
+		// Initialize hippo-memory (best-effort; null if not installed)
+		await initMemory(root);
+
+		// Refresh ultra-compress active level from user's state store
+		await refreshCompressionLevel(root);
 
 		const dbPath = tffPath(root, "state.db");
 		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
@@ -154,6 +261,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				applyMigrations(db);
 				loadSettings(root);
 				initError = null;
+				resetAllGates();
 
 				// Initialize monitoring
 				const logsDir = tffPath(root, "logs");
@@ -166,8 +274,52 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					ctx.ui.notify("TFF ready", "info");
 				}
 
-				// Discover fff-pi
-				_fffBridge = discoverFffService(pi);
+				// fff-pi bridge: enriches plan/execute phase prompts with related files.
+				fffBridge = await initFffBridge(root);
+
+				// --- Crash recovery scan (cold startup only) ---
+				// Phase transitions fire session_start with reason="new" while a
+				// slice is legitimately mid-flow (status=planning/executing/etc.)
+				// and the lock was just released. Running the scan here would
+				// flag the in-flight slice as stuck AND call sendUserMessage
+				// after we just triggered a turn via sendMessage — the agent is
+				// now streaming, sendUserMessage has no deliverAs, and PI
+				// reports "Extension <runtime> error: Agent is already processing".
+				try {
+					const lock = readLock(root);
+					const lockIsStale = lock && isLockStale(lock);
+					const needsScan = event.reason === "startup" && (lockIsStale || !lock);
+					if (needsScan && db) {
+						const stuck = scanForStuckSlices(db);
+						if (stuck.length > 0) {
+							const stuckSlice = stuck[0];
+							if (stuckSlice) {
+								const milestone = getMilestone(db, stuckSlice.milestoneId);
+								if (milestone) {
+									const diagnosis = diagnoseRecovery(root, db, stuckSlice.id, milestone.number);
+									const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
+									pi.sendUserMessage(briefing, { deliverAs: "steer" });
+
+									// Log crash to hippo-memory (best-effort)
+									const memory = getMemory();
+									if (memory) {
+										try {
+											await memory.remember({
+												content: `Crash during ${diagnosis.status} phase on ${diagnosis.sliceLabel}. Classification: ${diagnosis.classification}. Lock timestamp: ${lock?.timestamp ?? "unknown"}.`,
+												tags: ["tff-crash", "recovery", diagnosis.status],
+												kind: "observed",
+											});
+										} catch {
+											// best-effort
+										}
+									}
+								}
+							}
+						}
+					}
+				} catch {
+					// Best-effort — don't crash on recovery scan failure
+				}
 			} catch (err) {
 				initError = err instanceof Error ? err.message : String(err);
 			}
@@ -189,11 +341,40 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async () => {
 		eventLogger = null;
 		tuiMonitor = null;
-		_fffBridge = null;
+		await shutdownFffBridge();
+		fffBridge = null;
+		await shutdownMemory();
 		if (db) {
 			db.close();
 			db = null;
 		}
+	});
+
+	// -------------------------------------------------------------------------
+	// Lifecycle: before_agent_start — inject TFF context into system prompt
+	// -------------------------------------------------------------------------
+	pi.on("before_agent_start", async (event, _ctx) => {
+		if (!db || !projectRoot) return undefined;
+
+		const project = getProject(db);
+		if (!project) return undefined;
+
+		const milestone = getActiveMilestone(db, project.id);
+		const slice = milestone ? getActiveSlice(db, milestone.id) : null;
+
+		const contextBlock = buildContextBlock({
+			root: projectRoot,
+			project,
+			milestone,
+			slice,
+			settings: settings ?? undefined,
+		});
+
+		if (!contextBlock) return undefined;
+
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n${contextBlock}`,
+		};
 	});
 
 	// -------------------------------------------------------------------------
@@ -213,6 +394,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {
+			cmdCtx = ctx;
 			const { subcommand, args: rest } = parseSubcommand(args);
 
 			if (!isValidSubcommand(subcommand)) {
@@ -265,7 +447,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"**Execution:**\n" +
 							"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
 							"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
-							"- `/tff ship [sliceId]` — Ship the slice (PR + merge)\n\n" +
+							"- `/tff ship [sliceId]` — Open the slice PR and run CI\n" +
+							"- `/tff ship-merged [sliceId]` — You merged the PR: cleanup worktree + close slice\n" +
+							"- `/tff ship-changes [sliceId] <feedback>` — Reviewer requested changes: reopen for fixes\n\n" +
 							"- `/tff complete-milestone [M01]` — Create milestone PR after all slices ship",
 					);
 					break;
@@ -318,6 +502,23 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					break;
 				}
 
+				case "doctor": {
+					let msg: string;
+					try {
+						const database = getDb();
+						const recover = rest.includes("--recover");
+						const report = handleDoctor(database, { recover });
+						msg = report.message;
+					} catch (err) {
+						msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
+					}
+					if (ctx.hasUI) {
+						ctx.ui.notify(msg, "info");
+					}
+					pi.sendUserMessage(msg);
+					break;
+				}
+
 				case "settings": {
 					const current = settings ?? DEFAULT_SETTINGS;
 					pi.sendUserMessage(
@@ -339,7 +540,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						return;
 					}
 					const milestoneName = rest[0] ?? "New Milestone";
-					const result = createMilestone(database, root, project.id, milestoneName);
+					const result = createMilestone(
+						database,
+						root,
+						project.id,
+						milestoneName,
+						settings ?? DEFAULT_SETTINGS,
+					);
 					pi.sendUserMessage(
 						`Milestone ${milestoneLabel(result.number)} "${milestoneName}" created on branch ${result.branch}.\n\nNow brainstorm requirements and decompose into slices. Use the tff_create_slice tool to create each slice.`,
 					);
@@ -359,7 +566,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateDiscuss(database, slice.id);
+					const validation = validateDiscuss(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -375,13 +582,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("discuss", mod, phaseCtx);
 					break;
 				}
 
@@ -398,7 +606,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateResearch(database, slice.id);
+					const validation = validateResearch(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -414,13 +622,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("research", mod, phaseCtx);
 					break;
 				}
 
@@ -437,7 +646,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validatePlan(database, slice.id);
+					const validation = validatePlan(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -453,13 +662,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("plan", mod, phaseCtx);
 					break;
 				}
 
@@ -467,7 +677,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const validation = validateNext(database);
+					const validation = validateNext(database, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -488,8 +698,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
-					await mod.run(phaseCtx);
+					await runHeavyPhase(phase, mod, phaseCtx);
 					break;
 				}
 
@@ -506,7 +717,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateExecute(database, slice.id);
+					const validation = validateExecute(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -522,13 +733,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("execute", mod, phaseCtx);
 					break;
 				}
 
@@ -545,7 +757,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateVerify(database, slice.id);
+					const validation = validateVerify(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -561,13 +773,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await mod.run(phaseCtx);
+					await runHeavyPhase("verify", mod, phaseCtx);
 					break;
 				}
 
@@ -584,7 +797,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateShip(database, slice.id);
+					const validation = validateShip(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -600,13 +813,19 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
 							`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					const result = await mod.run(phaseCtx);
+					const result = await runPhaseWithFreshContext({
+						phaseModule: mod,
+						phaseCtx,
+						cmdCtx,
+						phase: "ship",
+					});
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
 					} else if (result.retry && result.feedback) {
@@ -625,12 +844,74 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								settings: currentSettings,
 								feedback: result.feedback,
 							};
-							await executeMod.run(execCtx);
+							await runHeavyPhase("execute", executeMod, execCtx);
 						}
 					} else {
 						if (ctx.hasUI)
 							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
+					break;
+				}
+
+				case "ship-merged": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
+					if (!slice) {
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						return;
+					}
+					const result = handleShipMerged(pi, database, root, slice.id);
+					if (result.success) {
+						pi.sendUserMessage(`PR merged. ${result.message}`);
+						if (ctx.hasUI) ctx.ui.notify("Slice closed.", "info");
+					} else {
+						if (ctx.hasUI) ctx.ui.notify(result.message, "error");
+					}
+					break;
+				}
+
+				case "ship-changes": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
+					if (!slice) {
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						return;
+					}
+					const feedback = rest.slice(1).join(" ").trim();
+					const result = handleShipChanges(pi, database, slice.id, feedback);
+					if (!result.success) {
+						if (ctx.hasUI) ctx.ui.notify(result.message, "error");
+						else pi.sendUserMessage(result.message);
+						break;
+					}
+					const milestone = getMilestone(database, slice.milestoneId);
+					if (!milestone) return;
+					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const freshSlice = getSlice(database, slice.id);
+					if (!freshSlice) return;
+					const execCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice: freshSlice,
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+						feedback: result.feedback,
+					};
+					pi.sendUserMessage(result.message);
+					await runHeavyPhase("execute", phaseModules.execute, execCtx);
 					break;
 				}
 
@@ -656,7 +937,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						return;
 					}
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					const result = handleCompleteMilestone(database, root, milestone.id, currentSettings);
+					const result = await handleCompleteMilestone(
+						database,
+						root,
+						milestone.id,
+						currentSettings,
+					);
 					if (result.success) {
 						pi.sendUserMessage(
 							`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
@@ -664,6 +950,65 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					} else {
 						pi.sendUserMessage(`Cannot complete milestone: ${result.error}`);
 					}
+					break;
+				}
+
+				case "recover": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+
+					const VALID_ACTIONS = ["resume", "rollback", "skip", "manual", "dismiss"] as const;
+					const rawArg = rest[0];
+					if (
+						rawArg !== undefined &&
+						!VALID_ACTIONS.includes(rawArg as (typeof VALID_ACTIONS)[number])
+					) {
+						pi.sendUserMessage(
+							`Invalid recover action: \`${rawArg}\`. Valid actions: ${VALID_ACTIONS.join(", ")}.`,
+						);
+						break;
+					}
+					const explicitAction = rawArg as RecoveryClassification | "dismiss" | undefined;
+
+					const stuck = scanForStuckSlices(database);
+					if (stuck.length === 0) {
+						pi.sendUserMessage("No stuck slices found. Nothing to recover.");
+						releaseLock(root);
+						break;
+					}
+
+					if (stuck.length > 1) {
+						const labels = stuck
+							.map((s) => {
+								const m = getMilestone(database, s.milestoneId);
+								return m ? sliceLabel(m.number, s.number) : s.id;
+							})
+							.join(", ");
+						pi.sendUserMessage(
+							`${stuck.length} stuck slices detected: ${labels}. Recovering the first one only. Re-run \`/tff recover\` to handle the rest.`,
+						);
+					}
+
+					const stuckSlice = stuck[0];
+					if (!stuckSlice) break;
+					const milestone = getMilestone(database, stuckSlice.milestoneId);
+					if (!milestone) {
+						pi.sendUserMessage("Cannot find milestone for stuck slice.");
+						break;
+					}
+
+					// Use explicit action if provided, otherwise fall back to diagnosed classification
+					const diagnosis = diagnoseRecovery(root, database, stuckSlice.id, milestone.number);
+					const action = explicitAction ?? diagnosis.classification;
+
+					const result = executeRecovery(database, root, {
+						action,
+						sliceId: stuckSlice.id,
+						milestoneNumber: milestone.number,
+					});
+
+					pi.sendUserMessage(result.message);
 					break;
 				}
 
@@ -735,13 +1080,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_transition",
 			label: "TFF Transition Slice",
 			description:
-				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status. IMPORTANT: Only call this tool when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status. IMPORTANT: Only call this tool when the user explicitly asks to advance phases. Never transition on your own initiative after a tool call.",
 			promptSnippet:
-				"IMPORTANT: Only call tff_transition when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+				"IMPORTANT: Only call tff_transition when the user explicitly asks to advance phases. Never transition on your own initiative after a tool call.",
 			promptGuidelines: [
 				"Do NOT call tff_transition automatically after writing specs or plans",
 				"Always ask the user before transitioning to the next phase",
-				"The /tff auto command handles transitions automatically — individual phases should not",
+				"Users advance phases explicitly with `/tff next` or the specific phase command",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -821,7 +1166,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleClassify(database, slice.id, tier);
+					const result = handleClassify(database, slice.id, tier);
+					if (!result.isError && projectRoot) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							projectRoot,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
+					}
+					return result;
 				} catch (err) {
 					return {
 						content: [
@@ -921,10 +1277,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						isError: true,
 					};
 				}
-				return handleCreateProject(database, root, {
-					projectName: params.projectName,
-					vision: params.vision,
-				});
+				return handleCreateProject(
+					database,
+					root,
+					{
+						projectName: params.projectName,
+						vision: params.vision,
+					},
+					settings ?? DEFAULT_SETTINGS,
+				);
 			},
 		}),
 	);
@@ -1058,12 +1419,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_spec",
 			label: "TFF Write Spec",
 			description:
-				"Write the SPEC.md artifact for a slice. During interactive discuss, requires depth verification gate to be unlocked first via tff_confirm_gate.",
+				"Write the SPEC.md artifact for a slice. During interactive discuss, requires depth verification gate to be unlocked first via tff_confirm_gate. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles spec review automatically. If this tool returns an error with feedback, the user rejected the spec; revise and call this tool again.",
 			promptSnippet:
-				"Call tff_confirm_gate('depth_verified') before calling tff_write_spec. The system enforces this.",
+				"Call tff_confirm_gate('depth_verified') before calling tff_write_spec. The system enforces this. After tff_write_spec succeeds, STOP — do not call plannotator tools. TFF handles review automatically.",
 			promptGuidelines: [
 				"Requires depth_verified gate — call tff_confirm_gate('depth_verified') first",
 				"Used during the discuss phase to write the spec after user confirms readiness",
+				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
+				"If tool returns error with feedback, user rejected spec; revise and retry.",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1092,9 +1455,44 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					const writeResult = handleWriteSpec(database, root, slice.id, params.content);
+					const writeResult = handleWriteSpec(
+						database,
+						root,
+						slice.id,
+						params.content,
+						settings ?? DEFAULT_SETTINGS,
+					);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"spec",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `SPEC.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_spec again.`,
+									},
+								],
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
+								isError: true,
+							};
+						}
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1118,10 +1516,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_requirements",
 			label: "TFF Write Requirements",
 			description:
-				"Write the REQUIREMENTS.md artifact for a slice. Used during the discuss phase alongside SPEC.md.",
+				"Write the REQUIREMENTS.md artifact for a slice. Used during the discuss phase alongside SPEC.md. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles requirements review automatically. If this tool returns an error with feedback, the user rejected the requirements; revise and call this tool again.",
 			promptGuidelines: [
 				"Write REQUIREMENTS.md with R-IDs, classes, acceptance conditions, and verification instructions",
 				"Used during the discuss phase after writing SPEC.md",
+				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
+				"If tool returns error with feedback, user rejected requirements; revise and retry.",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1150,9 +1550,44 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					const writeResult = handleWriteRequirements(database, root, slice.id, params.content);
+					const writeResult = handleWriteRequirements(
+						database,
+						root,
+						slice.id,
+						params.content,
+						settings ?? DEFAULT_SETTINGS,
+					);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"spec",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `REQUIREMENTS.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_requirements again.`,
+									},
+								],
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
+								isError: true,
+							};
+						}
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1210,7 +1645,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteResearch(database, root, slice.id, params.content);
+					const writeResult = handleWriteResearch(
+						database,
+						root,
+						slice.id,
+						params.content,
+						settings ?? DEFAULT_SETTINGS,
+					);
+					if (!writeResult.isError) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"research",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
 				} catch (err) {
 					return {
 						content: [
@@ -1232,10 +1684,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Triggers plannotator review after writing.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. THIS IS THE ONLY TOOL THAT MARKS THE PLAN PHASE COMPLETE — phase_complete fires here. After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles plan review automatically via event bus. If this tool returns an error with feedback, the user rejected the plan; revise and call this tool again.",
+			promptSnippet:
+				"The plan phase is not complete until tff_write_plan returns successfully. Writing PLAN.md via Write/Edit will NOT persist tasks — the database needs structured task entries via this tool.",
 			promptGuidelines: [
-				"Write PLAN.md with tasks, dependencies, and implementation details",
+				"Call this tool to persist PLAN.md AND structured tasks — not Write/Edit",
+				"A successful call is the sole phase_complete signal for plan",
+				"tasks array must not be empty — if you cannot decompose, ask the user via tff_ask_user",
 				"Plannotator review opens automatically after writing",
+				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
+				"If tool returns error with feedback, user rejected plan; revise and retry.",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1288,9 +1746,39 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice.id,
 						params.content,
 						params.tasks,
+						settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "plan");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"plan",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `PLAN.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_plan again with an updated tasks array.`,
+									},
+								],
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
+								isError: true,
+							};
+						}
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"plan",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1299,6 +1787,357 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
 						],
 						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_ask_user — curated multiple-choice questions for the user
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_ask_user",
+			label: "TFF Ask User",
+			description:
+				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-3 bounded options (single-select) or 2+ (multi-select). Use this INSTEAD of free-form questions to prevent agent-invented options.",
+			promptGuidelines: [
+				"Use for any user decision that has a discrete set of valid answers",
+				"Single-select questions: 2-3 options; 'None of the above' is auto-injected",
+				"Multi-select: set allowMultiple=true; any number of options",
+				"Headers must be ≤12 characters (TUI label)",
+				"Do not paraphrase user input into your own options — if the user gave a free-form answer, reflect it back literally",
+			],
+			parameters: Type.Object({
+				questions: Type.Array(
+					Type.Object({
+						id: Type.String({
+							description: "Stable snake_case id for mapping the user's answer back",
+						}),
+						header: Type.String({
+							description: "Short header shown in the UI (≤12 chars)",
+						}),
+						question: Type.String({
+							description: "Single-sentence prompt shown to the user",
+						}),
+						options: Type.Array(
+							Type.Object({
+								label: Type.String({ description: "1-5 word user-facing label" }),
+								description: Type.String({
+									description: "One short sentence explaining the impact/tradeoff",
+								}),
+							}),
+							{
+								description:
+									"2-3 mutually-exclusive options for single-select, or 2+ for multi-select",
+							},
+						),
+						allowMultiple: Type.Optional(
+							Type.Boolean({
+								description: "Allow the user to select multiple options. Default false.",
+							}),
+						),
+					}),
+					{ description: "One or more questions to ask the user" },
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					return handleAskUser(params.questions as AskUserQuestion[]);
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: {},
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_verification — persists VERIFICATION.md and marks verify complete
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_verification",
+			label: "TFF Write Verification",
+			description:
+				"Write VERIFICATION.md for a slice. THIS IS THE ONLY TOOL THAT MARKS THE VERIFY PHASE COMPLETE — phase_complete fires here. Use it to persist AC PASS/FAIL results and test output after the verify phase.",
+			promptSnippet:
+				"The verify phase is not complete until tff_write_verification returns successfully. Writing the file via Write/Edit will not mark the phase complete.",
+			promptGuidelines: [
+				"Include an AC checklist with [x]/[ ] markers so the ship pre-flight check can scan it",
+				"Include the test command run and its output summary (pass/fail counts)",
+				"On failures: mark the AC [ ] and describe what broke + which task(s) to re-execute",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "Markdown content of VERIFICATION.md",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
+					if (!writeResult.isError) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"verify",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_review — persists REVIEW.md and marks review complete
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_review",
+			label: "TFF Write Review",
+			description:
+				"Write REVIEW.md for a slice AND submit the verdict. THIS IS THE ONLY TOOL THAT MARKS THE REVIEW PHASE COMPLETE — phase_complete fires here. On verdict='denied' the slice is routed back to execute with tasks reset to open.",
+			promptSnippet:
+				"The review phase is not complete until tff_write_review returns successfully. Pass verdict='approved' to unlock ship, or verdict='denied' to loop back to execute.",
+			promptGuidelines: [
+				"content must include findings list with file:line references",
+				"Use verdict='approved' only when there are no blocking issues",
+				"Use verdict='denied' when any finding blocks shipping; describe what task(s) need rework",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "Markdown content of REVIEW.md (summary + findings + tasksToRework)",
+				}),
+				verdict: StringEnum(["approved", "denied"] as const, {
+					description:
+						"approved = no blocking issues, unlocks ship. denied = loop back to execute with tasks reset.",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const writeResult = handleWriteReview(
+						database,
+						root,
+						slice.id,
+						params.content,
+						params.verdict as ReviewVerdict,
+					);
+					if (!writeResult.isError && params.verdict === "approved") {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"review",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_ship_merged — user attests the PR was merged on GitHub
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_ship_merged",
+			label: "TFF Ship: PR Merged",
+			description:
+				"Call AFTER the user confirms (via tff_ask_user) that the slice PR was merged on GitHub. Cleans up the worktree, deletes the slice branch, pulls the milestone branch, and closes the slice. Do NOT call this without explicit user confirmation.",
+			parameters: Type.Object({
+				sliceLabel: Type.String({
+					description: "Slice label (e.g., M01-S01) or slice id",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				const database = getDb();
+				const root = projectRoot;
+				if (!root) {
+					return {
+						content: [{ type: "text", text: "Error: No project root." }],
+						details: {},
+						isError: true,
+					};
+				}
+				const slice = resolveSlice(database, params.sliceLabel);
+				if (!slice) {
+					return {
+						content: [{ type: "text", text: `Slice not found: ${params.sliceLabel}` }],
+						details: { sliceLabel: params.sliceLabel },
+						isError: true,
+					};
+				}
+				const result = handleShipMerged(pi, database, root, slice.id);
+				return {
+					content: [{ type: "text", text: result.message }],
+					details: { sliceLabel: params.sliceLabel },
+					isError: !result.success,
+				};
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_ship_changes — user reports reviewer requested changes
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_ship_changes",
+			label: "TFF Ship: Changes Requested",
+			description:
+				"Call AFTER the user confirms (via tff_ask_user) that the PR needs changes AND provides the reviewer feedback text. Flips the slice back to execute with the feedback attached. Pass the reviewer feedback verbatim — do NOT summarize.",
+			parameters: Type.Object({
+				sliceLabel: Type.String({
+					description: "Slice label (e.g., M01-S01) or slice id",
+				}),
+				feedback: Type.String({
+					description: "Reviewer's change request text, verbatim from the user's message",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				const database = getDb();
+				const slice = resolveSlice(database, params.sliceLabel);
+				if (!slice) {
+					return {
+						content: [{ type: "text", text: `Slice not found: ${params.sliceLabel}` }],
+						details: { sliceLabel: params.sliceLabel },
+						isError: true,
+					};
+				}
+				const result = handleShipChanges(pi, database, slice.id, params.feedback);
+				if (!result.success) {
+					return {
+						content: [{ type: "text", text: result.message }],
+						details: { sliceLabel: params.sliceLabel },
+						isError: true,
+					};
+				}
+				// Slice is now `executing` with tasks reset. Tell the agent to
+				// run /tff execute to re-enter with the feedback. We don't
+				// auto-invoke runHeavyPhase here because this handler runs
+				// inside the agent turn; the user will drive the next step
+				// via /tff execute (or agent-suggested `/tff next`).
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${result.message}\n\nNext: tell the user to run \`/tff execute ${params.sliceLabel}\` (or \`/tff next\`) to apply the changes.`,
+						},
+					],
+					details: { sliceLabel: params.sliceLabel, feedback: params.feedback },
+				};
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_checkpoint
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_checkpoint",
+			label: "TFF Create Checkpoint",
+			description:
+				"Create a git checkpoint tag at the current state of the slice's worktree. Call after completing each execution wave. Example: tff_checkpoint({ sliceLabel: 'M01-S01', name: 'wave-1' })",
+			parameters: Type.Object({
+				sliceLabel: Type.String({ description: "Slice label (e.g., M01-S01)" }),
+				name: Type.String({ description: "Checkpoint name (e.g., wave-1, wave-2)" }),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				const root = projectRoot;
+				if (!root) {
+					return {
+						content: [
+							{ type: "text", text: "Error: No project root. TFF may not be initialized." },
+						],
+						details: {},
+						isError: true,
+					};
+				}
+				const wtPath = getWorktreePath(root, params.sliceLabel);
+				try {
+					createCheckpoint(wtPath, params.sliceLabel, params.name);
+					const tag = `checkpoint/${params.sliceLabel}/${params.name}`;
+					return {
+						content: [{ type: "text", text: `Created checkpoint: ${tag}` }],
+						details: { checkpoint: tag },
+					};
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceLabel: params.sliceLabel, name: params.name },
 						isError: true,
 					};
 				}

@@ -28,6 +28,13 @@ vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
 
+vi.mock("../../../src/common/checkpoint.js", () => ({
+	createCheckpoint: vi.fn(),
+	listCheckpoints: vi.fn().mockReturnValue([]),
+	getLastCheckpoint: vi.fn().mockReturnValue(null),
+	cleanupCheckpoints: vi.fn(),
+}));
+
 vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()
@@ -35,6 +42,8 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
+	predecessorPhase: vi.fn().mockReturnValue(null),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";
@@ -87,7 +96,7 @@ describe("executePhase event emission", () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
+		await executePhase.prepare(ctx);
 
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "execute",
@@ -95,24 +104,24 @@ describe("executePhase event emission", () => {
 		expect(startCalls).toHaveLength(1);
 	});
 
-	it("emits phase_complete when no tasks (immediate completion)", async () => {
+	it("emits phase_failed when no tasks exist", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		const result = await executePhase.run(ctx);
+		const result = await executePhase.prepare(ctx);
 
-		expect(result.success).toBe(true);
-		const completeCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "execute",
+		expect(result.success).toBe(false);
+		const failedCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "execute",
 		);
-		expect(completeCalls).toHaveLength(1);
-		expect(completeCalls[0]?.[1]).toHaveProperty("durationMs");
+		expect(failedCalls).toHaveLength(1);
+		expect(failedCalls[0]?.[1]).toHaveProperty("error");
 	});
 
 	it("does NOT emit phase_complete when tasks exist (interactive)", async () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		const result = await executePhase.run(ctx);
+		const result = await executePhase.prepare(ctx);
 
 		expect(result.success).toBe(true);
 		const completeCalls = mockEmit.mock.calls.filter(
@@ -125,7 +134,7 @@ describe("executePhase event emission", () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
+		await executePhase.prepare(ctx);
 
 		const startCall = mockEmit.mock.calls.find(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start",
