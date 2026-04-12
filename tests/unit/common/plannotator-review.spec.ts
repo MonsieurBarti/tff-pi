@@ -135,13 +135,13 @@ describe("requestReview", () => {
 		}
 	});
 
-	it("auto-approves after 60s timeout when plannotator is silent", async () => {
+	it("auto-approves after 10min timeout when plannotator is silent", async () => {
 		vi.useFakeTimers();
 		try {
 			const { pi } = createFakePi();
 			const pending = requestReview(pi, "/SPEC.md", "content", "spec");
 
-			await vi.advanceTimersByTimeAsync(60_001);
+			await vi.advanceTimersByTimeAsync(600_001);
 
 			const result = await pending;
 			expect(result.approved).toBe(true);
@@ -149,5 +149,36 @@ describe("requestReview", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("matches the plannotator-assigned reviewId (not our requestId)", async () => {
+		const { pi, fire, emissions } = createFakePi();
+		const pending = requestReview(pi, "/PLAN.md", "content", "plan");
+
+		// Grab the request emitted on the bus and simulate plannotator's `handled`
+		// response with its own reviewId (different from our internal requestId).
+		const emitted = emissions.find((e) => e.channel === "plannotator:request");
+		const request = emitted?.data as {
+			requestId: string;
+			respond: (resp: unknown) => void;
+		};
+		const plannotatorReviewId = "plannotator-session-xyz";
+		expect(plannotatorReviewId).not.toBe(request.requestId);
+
+		request.respond({
+			status: "handled",
+			result: { status: "pending", reviewId: plannotatorReviewId },
+		});
+
+		// Emit the result using plannotator's id — TFF should now match and resolve.
+		fire("plannotator:review-result", {
+			reviewId: plannotatorReviewId,
+			approved: true,
+			feedback: "lgtm",
+		});
+
+		const result = await pending;
+		expect(result.approved).toBe(true);
+		expect(result.feedback).toBe("lgtm");
 	});
 });

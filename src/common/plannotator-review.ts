@@ -43,6 +43,10 @@ export function requestReview(
 		const REVIEW_RESULT_CHANNEL = "plannotator:review-result";
 		const REVIEW_REQUEST_CHANNEL = "plannotator:request";
 		let resolved = false;
+		// Plannotator mints its OWN reviewId and uses that in the result event,
+		// ignoring our requestId. We must capture the plannotator-assigned id
+		// from the `handled` response and match against it.
+		let plannotatorReviewId: string | null = null;
 
 		const finish = (result: ReviewResult) => {
 			if (resolved) return;
@@ -52,14 +56,17 @@ export function requestReview(
 			resolve(result);
 		};
 
-		// Timeout: auto-approve after 60s if no response
+		// Timeout: auto-approve after 10 minutes — gives humans real time to review
+		// while still bounding hangs if plannotator crashes or the user walks away.
 		const timer = setTimeout(() => {
-			finish({ approved: true, feedback: "Review timed out — auto-approved" });
-		}, 60_000);
+			finish({ approved: true, feedback: "Review timed out after 10 minutes — auto-approved" });
+		}, 600_000);
 
 		const unsubscribe = pi.events.on(REVIEW_RESULT_CHANNEL, (data: unknown) => {
 			const result = data as { reviewId: string; approved: boolean; feedback?: string };
-			if (result.reviewId === requestId) {
+			// Match against the plannotator-assigned id (learned via `handled` response).
+			// Fall back to our requestId for back-compat with consumers that honor it.
+			if (result.reviewId === plannotatorReviewId || result.reviewId === requestId) {
 				const reviewResult: ReviewResult = { approved: result.approved };
 				if (result.feedback !== undefined) {
 					reviewResult.feedback = result.feedback;
@@ -72,9 +79,16 @@ export function requestReview(
 		pi.events.emit(REVIEW_REQUEST_CHANNEL, {
 			...request,
 			respond: (response: unknown) => {
-				const resp = response as { status: string };
+				const resp = response as {
+					status: string;
+					result?: { reviewId?: string; status?: string };
+				};
 				if (resp.status === "unavailable" || resp.status === "error") {
 					finish({ approved: true, feedback: "Plannotator unavailable — auto-approved" });
+					return;
+				}
+				if (resp.status === "handled" && typeof resp.result?.reviewId === "string") {
+					plannotatorReviewId = resp.result.reviewId;
 				}
 			},
 		});
