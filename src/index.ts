@@ -19,7 +19,7 @@ import { handleShipMerged } from "./commands/ship-merged.js";
 import { validateShip } from "./commands/ship.js";
 import { handleStatus } from "./commands/status.js";
 import { validateVerify } from "./commands/verify.js";
-import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
+import { initTffDirectory, tffPath } from "./common/artifacts.js";
 import { createCheckpoint } from "./common/checkpoint.js";
 import { type TffContext, createTffContext } from "./common/context.js";
 import {
@@ -51,7 +51,7 @@ import {
 } from "./common/recovery.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { releaseLock } from "./common/session-lock.js";
-import { DEFAULT_SETTINGS, parseSettings } from "./common/settings.js";
+import { DEFAULT_SETTINGS, loadSettings } from "./common/settings.js";
 import {
 	type Phase,
 	SLICE_STATUSES,
@@ -92,13 +92,6 @@ function initDb(ctx: TffContext, root: string): void {
 	const dbPath = tffPath(root, "state.db");
 	ctx.db = openDatabase(dbPath);
 	applyMigrations(ctx.db);
-}
-
-function loadSettings(ctx: TffContext, root: string): void {
-	const yaml = readArtifact(root, "settings.yaml");
-	ctx.settings = yaml
-		? parseSettings(yaml)
-		: { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
 }
 
 function findSliceByLabel(db: Database.Database, label: string): Slice | null {

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { readArtifact, tffPath } from "./common/artifacts.js";
+import { tffPath } from "./common/artifacts.js";
 import { refreshCompressionLevel } from "./common/compress.js";
 import { buildContextBlock } from "./common/context-injection.js";
 import type { TffContext } from "./common/context.js";
@@ -21,18 +21,9 @@ import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { isLockStale, readLock } from "./common/session-lock.js";
-import { DEFAULT_SETTINGS, parseSettings } from "./common/settings.js";
+import { loadSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import { checkForUpdates } from "./update-check.js";
-
-// `loadSettings` is also defined in src/index.ts; kept local here to avoid a
-// circular import between index.ts and lifecycle.ts.
-function loadSettings(ctx: TffContext, root: string): void {
-	const yaml = readArtifact(root, "settings.yaml");
-	ctx.settings = yaml
-		? parseSettings(yaml)
-		: { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
-}
 
 /**
  * Wires all three session lifecycle hooks: session_start (project init,

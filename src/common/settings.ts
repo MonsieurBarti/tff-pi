@@ -1,4 +1,6 @@
 import YAML from "yaml";
+import { readArtifact } from "./artifacts.js";
+import type { TffContext } from "./context.js";
 
 export interface Settings {
 	model_profile: "quality" | "balanced" | "budget";
@@ -107,4 +109,11 @@ export function parseSettings(yamlString: string): Settings {
 
 export function serializeSettings(settings: Settings): string {
 	return YAML.stringify(settings);
+}
+
+export function loadSettings(ctx: TffContext, root: string): void {
+	const yaml = readArtifact(root, "settings.yaml");
+	ctx.settings = yaml
+		? parseSettings(yaml)
+		: { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
 }
