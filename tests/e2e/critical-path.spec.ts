@@ -329,7 +329,7 @@ describe("E2E critical path", () => {
 			expect(shippedSlice.status).toBe("closed");
 
 			// Step 12: handleCompleteMilestone → milestone PR created
-			const completeResult = handleCompleteMilestone(db, root, milestoneId, DEFAULT_SETTINGS);
+			const completeResult = await handleCompleteMilestone(db, root, milestoneId, DEFAULT_SETTINGS);
 			expect(completeResult.success).toBe(true);
 			expect(completeResult.prUrl).toContain("github.com");
 		});

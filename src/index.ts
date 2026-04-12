@@ -800,7 +800,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						return;
 					}
 					const currentSettings = settings ?? DEFAULT_SETTINGS;
-					const result = handleCompleteMilestone(database, root, milestone.id, currentSettings);
+					const result = await handleCompleteMilestone(
+						database,
+						root,
+						milestone.id,
+						currentSettings,
+					);
 					if (result.success) {
 						pi.sendUserMessage(
 							`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
