@@ -67,7 +67,8 @@
 		"@the-forge-flow/gitnexus-pi": "*",
 		"@the-forge-flow/lightpanda-pi": "*",
 		"@the-forge-flow/hippo-memory-pi": "*",
-		"@the-forge-flow/sub-agents-pi": "*"
+		"@the-forge-flow/sub-agents-pi": "*",
+		"@the-forge-flow/ultra-compress-pi": "*"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
