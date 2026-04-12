@@ -63,6 +63,7 @@
 		"@mariozechner/pi-tui": "*",
 		"@sinclair/typebox": "*",
 		"@the-forge-flow/fff-pi": "*",
+		"@the-forge-flow/gh-pi": "*",
 		"@the-forge-flow/gitnexus-pi": "*",
 		"@the-forge-flow/lightpanda-pi": "*",
 		"@the-forge-flow/hippo-memory-pi": "*",

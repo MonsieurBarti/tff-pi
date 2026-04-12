@@ -29,6 +29,7 @@
         "@mariozechner/pi-tui": "*",
         "@sinclair/typebox": "*",
         "@the-forge-flow/fff-pi": "*",
+        "@the-forge-flow/gh-pi": "*",
         "@the-forge-flow/gitnexus-pi": "*",
         "@the-forge-flow/hippo-memory-pi": "*",
         "@the-forge-flow/lightpanda-pi": "*",
@@ -510,6 +511,8 @@
     "@smithy/uuid": ["@smithy/uuid@1.1.2", "", { "dependencies": { "tslib": "^2.6.2" } }, "sha512-O/IEdcCUKkubz60tFbGA7ceITTAJsty+lBjNoorP4Z6XRqaFb/OjQjZODophEcuq68nKm6/0r+6/lLQ+XVpk8g=="],
 
     "@the-forge-flow/fff-pi": ["@the-forge-flow/fff-pi@0.1.1", "", { "dependencies": { "@ff-labs/fff-node": "^0.5.2" }, "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-byhHhOah5fkdY6bzfvehKguNZoYzA+TuyoZurYK013aqCRY7fnGuw5o4njTdb7HaPfRMkKz6bBPjJv5NaO0rVg=="],
+
+    "@the-forge-flow/gh-pi": ["@the-forge-flow/gh-pi@0.2.2", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-sSRbTuzzyzL/Qgzd49d3iLdzgt1JEjhXJ8Fs9QboJTAAZWBa14kLS0634ZV0EGPe19YHg/UWgyWe52dVjHQQRw=="],
 
     "@the-forge-flow/gitnexus-pi": ["@the-forge-flow/gitnexus-pi@0.1.2", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-E+zfesH7fWEELbcQ19rcW7EjtWJpOdAzwLnBLQxsbz8AFCKS92d4hsIvLQl8rC3QKvfB+ikaBvqLaRq8W9NLpw=="],
 
