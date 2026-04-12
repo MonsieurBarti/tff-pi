@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initTffDirectory, readArtifact, writeArtifact } from "../../../src/common/artifacts.js";
+import { compressIfEnabled } from "../../../src/common/compress.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -49,6 +50,10 @@ vi.mock("../../../src/common/checkpoint.js", () => ({
 vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	removeWorktree: vi.fn(),
+}));
+
+vi.mock("../../../src/common/compress.js", () => ({
+	compressIfEnabled: vi.fn((input: string) => input),
 }));
 
 vi.mock("../../../src/common/git.js", () => ({
@@ -170,6 +175,22 @@ describe("shipPhase", () => {
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
 		expect(prMd).not.toBeNull();
 		expect(prMd).toContain("github.com");
+	});
+
+	it("compresses PR.md content when enabled", async () => {
+		vi.mocked(compressIfEnabled).mockReturnValueOnce("[COMPRESSED]pr");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		await shipPhase.prepare(ctx);
+		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
+		expect(prMd).toBe("[COMPRESSED]pr");
 	});
 
 	it("marks slice as closed after successful merge", async () => {

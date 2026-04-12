@@ -502,7 +502,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						return;
 					}
 					const milestoneName = rest[0] ?? "New Milestone";
-					const result = createMilestone(database, root, project.id, milestoneName);
+					const result = createMilestone(
+						database,
+						root,
+						project.id,
+						milestoneName,
+						settings ?? DEFAULT_SETTINGS,
+					);
 					pi.sendUserMessage(
 						`Milestone ${milestoneLabel(result.number)} "${milestoneName}" created on branch ${result.branch}.\n\nNow brainstorm requirements and decompose into slices. Use the tff_create_slice tool to create each slice.`,
 					);
@@ -1160,10 +1166,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						isError: true,
 					};
 				}
-				return handleCreateProject(database, root, {
-					projectName: params.projectName,
-					vision: params.vision,
-				});
+				return handleCreateProject(
+					database,
+					root,
+					{
+						projectName: params.projectName,
+						vision: params.vision,
+					},
+					settings ?? DEFAULT_SETTINGS,
+				);
 			},
 		}),
 	);
@@ -1331,7 +1342,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					const writeResult = handleWriteSpec(database, root, slice.id, params.content);
+					const writeResult = handleWriteSpec(
+						database,
+						root,
+						slice.id,
+						params.content,
+						settings ?? DEFAULT_SETTINGS,
+					);
 					if (!writeResult.isError) {
 						requestReview(pi, String(writeResult.details.path), params.content, "spec");
 					}
@@ -1389,7 +1406,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					const writeResult = handleWriteRequirements(database, root, slice.id, params.content);
+					const writeResult = handleWriteRequirements(
+						database,
+						root,
+						slice.id,
+						params.content,
+						settings ?? DEFAULT_SETTINGS,
+					);
 					if (!writeResult.isError) {
 						requestReview(pi, String(writeResult.details.path), params.content, "spec");
 					}
@@ -1449,7 +1472,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteResearch(database, root, slice.id, params.content);
+					return handleWriteResearch(
+						database,
+						root,
+						slice.id,
+						params.content,
+						settings ?? DEFAULT_SETTINGS,
+					);
 				} catch (err) {
 					return {
 						content: [
@@ -1527,6 +1556,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice.id,
 						params.content,
 						params.tasks,
+						settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
 						requestReview(pi, String(writeResult.details.path), params.content, "plan");

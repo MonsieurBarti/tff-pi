@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
+import { compressIfEnabled } from "../common/compress.js";
 import {
 	getMilestone,
 	getSlice,
@@ -7,6 +8,7 @@ import {
 	insertTask,
 	updateTaskWave,
 } from "../common/db.js";
+import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { computeWaves } from "../common/waves.js";
 
@@ -29,6 +31,7 @@ export function handleWritePlan(
 	sliceId: string,
 	content: string,
 	tasks: TaskInput[],
+	settings: Settings = DEFAULT_SETTINGS,
 ): ToolResult {
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
@@ -49,7 +52,7 @@ export function handleWritePlan(
 	const label = sliceLabel(milestone.number, slice.number);
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/PLAN.md`;
-	writeArtifact(root, path, content);
+	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
 
 	const taskIds: Map<number, string> = new Map();
 	for (let i = 0; i < tasks.length; i++) {

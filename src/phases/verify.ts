@@ -1,5 +1,6 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { createCheckpoint } from "../common/checkpoint.js";
+import { compressIfEnabled } from "../common/compress.js";
 import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
@@ -87,7 +88,7 @@ export const verifyPhase: PhaseModule = {
 			writeArtifact(
 				root,
 				`milestones/${mLabel}/slices/${sLabel}/VERIFICATION-MECHANICAL.md`,
-				reportMd,
+				compressIfEnabled(reportMd, "artifacts", settings),
 			);
 
 			if (!report.allPassed) {

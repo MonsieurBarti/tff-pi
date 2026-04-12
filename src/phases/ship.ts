@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { cleanupCheckpoints } from "../common/checkpoint.js";
+import { compressIfEnabled } from "../common/compress.js";
 import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
@@ -258,7 +259,11 @@ export const shipPhase: PhaseModule = {
 						"## Description",
 						prBody,
 					].join("\n");
-			writeArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PR.md`, prMd);
+			writeArtifact(
+				root,
+				`milestones/${mLabel}/slices/${sLabel}/PR.md`,
+				compressIfEnabled(prMd, "artifacts", settings),
+			);
 
 			// Wait for CI
 			try {
