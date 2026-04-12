@@ -275,8 +275,12 @@ export function predecessorPhase(target: Phase, tier?: Tier | null): Phase | nul
 		case "execute":
 			return "plan";
 		case "verify":
-			// Verify's own empty-diff check in verify.ts is the real gate; no artifact required here.
-			return null;
+			// verify.ts has an inline empty-diff gate that catches "execute produced
+			// nothing" better than an artifact check. We still return "execute" here
+			// so `closePredecessorIfReady` can mark execute complete when verify
+			// starts — verifyPhaseArtifacts has no execute-case, so the artifact
+			// check is a no-op (ok=true).
+			return "execute";
 		case "review":
 			return "verify";
 		case "ship":

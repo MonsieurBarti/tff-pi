@@ -1,8 +1,14 @@
 import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
+import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { sliceLabel } from "../common/types.js";
-import { collectPhaseContext, loadPhaseResources } from "../orchestrator.js";
+import {
+	collectPhaseContext,
+	loadPhaseResources,
+	predecessorPhase,
+	verifyPhaseArtifacts,
+} from "../orchestrator.js";
 
 export const planPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -15,6 +21,8 @@ export const planPhase: PhaseModule = {
 			type: "phase_start",
 			phase: "plan",
 		});
+
+		closePredecessorIfReady(pi, db, root, slice, "plan", predecessorPhase, verifyPhaseArtifacts);
 
 		const { agentPrompt, protocol } = loadPhaseResources("plan");
 		const context = collectPhaseContext(root, slice, milestoneNumber, "plan");

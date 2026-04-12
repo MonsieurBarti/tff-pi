@@ -2,10 +2,11 @@ import { readArtifact } from "../common/artifacts.js";
 import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
+import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { loadPhaseResources, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -19,6 +20,8 @@ export const verifyPhase: PhaseModule = {
 			type: "phase_start",
 			phase: "verify",
 		});
+
+		closePredecessorIfReady(pi, db, root, slice, "verify", predecessorPhase, verifyPhaseArtifacts);
 
 		const wtPath = getWorktreePath(root, sLabel);
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";

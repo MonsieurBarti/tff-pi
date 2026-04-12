@@ -35,6 +35,8 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
+	predecessorPhase: vi.fn().mockReturnValue(null),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";

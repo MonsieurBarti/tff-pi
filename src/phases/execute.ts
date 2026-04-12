@@ -1,10 +1,11 @@
 import { readArtifact } from "../common/artifacts.js";
 import { getTasksByWave, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
+import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sanitizeForPrompt, sliceLabel, taskLabel } from "../common/types.js";
 import { createWorktree } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { loadPhaseResources, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
 export const executePhase: PhaseModule = {
 	async run(ctx: PhaseContext): Promise<PhaseResult> {
@@ -18,6 +19,8 @@ export const executePhase: PhaseModule = {
 			type: "phase_start",
 			phase: "execute",
 		});
+
+		closePredecessorIfReady(pi, db, root, slice, "execute", predecessorPhase, verifyPhaseArtifacts);
 
 		const milestoneBranch = `milestone/${mLabel}`;
 		const wtPath = createWorktree(root, sLabel, milestoneBranch);
