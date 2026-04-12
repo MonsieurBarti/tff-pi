@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import type { FffBridge } from "./fff-integration.js";
 import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
 import type { Phase, Slice } from "./types.js";
@@ -51,6 +52,7 @@ export interface PhaseContext {
 	milestoneNumber: number;
 	settings: Settings;
 	feedback?: string;
+	fffBridge?: FffBridge | null;
 }
 
 export interface PhasePrepareResult {

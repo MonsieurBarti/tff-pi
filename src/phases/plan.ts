@@ -27,7 +27,26 @@ export const planPhase: PhaseModule = {
 			? "\n\n**IMPORTANT:** Write all artifact content in compressed R1-R10 notation."
 			: "";
 
-		const message = [
+		// Best-effort: enrich with related files discovered via fff bridge.
+		let relatedFiles = "";
+		if (ctx.fffBridge) {
+			try {
+				const sliceWords = slice.title
+					.split(/\s+/)
+					.filter((w) => w.length > 3)
+					.slice(0, 5);
+				if (sliceWords.length > 0) {
+					const grepResults = await ctx.fffBridge.grep(sliceWords, { maxResults: 10 });
+					if (grepResults.length > 0) {
+						relatedFiles = grepResults.map((r) => r.path).join("\n");
+					}
+				}
+			} catch {
+				// best-effort — don't fail the phase
+			}
+		}
+
+		const messageParts = [
 			agentPrompt,
 			protocol,
 			"",
@@ -40,8 +59,14 @@ export const planPhase: PhaseModule = {
 			"## Context",
 			"",
 			contextBlock,
-			compressHint,
-		].join("\n");
+		];
+
+		if (relatedFiles) {
+			messageParts.push("", "## Related Files", "", relatedFiles);
+		}
+
+		messageParts.push(compressHint);
+		const message = messageParts.join("\n");
 
 		return { success: true, retry: false, message };
 	},

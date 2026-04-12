@@ -3,9 +3,15 @@ import { createCheckpoint } from "../common/checkpoint.js";
 import { getTasksByWave, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
-import { milestoneLabel, sanitizeForPrompt, sliceLabel, taskLabel } from "../common/types.js";
+import {
+	type Task,
+	milestoneLabel,
+	sanitizeForPrompt,
+	sliceLabel,
+	taskLabel,
+} from "../common/types.js";
 import { createWorktree } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { enrichContextWithFff, loadPhaseResources } from "../orchestrator.js";
 
 export const executePhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
@@ -58,7 +64,17 @@ export const executePhase: PhaseModule = {
 			taskLines.push("");
 		}
 
-		const message = [
+		// Best-effort: enrich with related files discovered via fff bridge.
+		const extrasContext: Record<string, string> = {};
+		if (ctx.fffBridge) {
+			const allTasks: Task[] = [];
+			for (const waveTasks of waveMap.values()) {
+				allTasks.push(...waveTasks);
+			}
+			await enrichContextWithFff(extrasContext, allTasks, ctx.fffBridge);
+		}
+
+		const messageParts = [
 			agentPrompt,
 			protocol,
 			"",
@@ -75,9 +91,14 @@ export const executePhase: PhaseModule = {
 			"",
 			"## Tasks",
 			taskLines.join("\n"),
-			compressHint,
-			retryContext,
-		].join("\n");
+		];
+
+		if (extrasContext.RELATED_FILES) {
+			messageParts.push("", "## Related Files", "", extrasContext.RELATED_FILES);
+		}
+
+		messageParts.push(compressHint, retryContext);
+		const message = messageParts.join("\n");
 
 		return { success: true, retry: false, message };
 	},

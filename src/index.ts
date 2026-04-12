@@ -38,7 +38,7 @@ import {
 } from "./common/db.js";
 import { DISCUSS_GATES, resetAllGates, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
-import type { FffBridge } from "./common/fff-integration.js";
+import { type FffBridge, initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
 import {
 	addRemote,
 	createGitignore,
@@ -96,7 +96,7 @@ let settings: Settings | null = null;
 let initError: string | null = null;
 let eventLogger: EventLogger | null = null;
 let tuiMonitor: TUIMonitor | null = null;
-let _fffBridge: FffBridge | null = null;
+let fffBridge: FffBridge | null = null;
 let cmdCtx: ExtensionCommandContext | null = null;
 
 export function getCmdCtx() {
@@ -255,8 +255,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					ctx.ui.notify("TFF ready", "info");
 				}
 
-				// fff-pi bridge: wired in Task 5 (initFffBridge/shutdownFffBridge)
-				_fffBridge = null;
+				// fff-pi bridge: enriches plan/execute phase prompts with related files.
+				fffBridge = await initFffBridge(root);
 
 				// --- Crash recovery scan ---
 				try {
@@ -301,7 +301,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async () => {
 		eventLogger = null;
 		tuiMonitor = null;
-		_fffBridge = null;
+		await shutdownFffBridge();
+		fffBridge = null;
 		if (db) {
 			db.close();
 			db = null;
@@ -514,6 +515,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -553,6 +555,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -592,6 +595,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -627,6 +631,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					await runHeavyPhase(phase, mod, phaseCtx);
 					break;
@@ -661,6 +666,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -700,6 +706,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
@@ -739,6 +746,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
+						fffBridge,
 					};
 					if (ctx.hasUI)
 						ctx.ui.notify(
