@@ -1,11 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { StringEnum } from "@mariozechner/pi-ai";
-import {
-	type ExtensionAPI,
-	type ExtensionCommandContext,
-	defineTool,
-} from "@mariozechner/pi-coding-agent";
+import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { handleCompleteMilestone } from "./commands/complete-milestone.js";
@@ -29,6 +25,7 @@ import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import { createCheckpoint } from "./common/checkpoint.js";
 import { refreshCompressionLevel } from "./common/compress.js";
 import { buildContextBlock } from "./common/context-injection.js";
+import { type TffContext, createTffContext } from "./common/context.js";
 import {
 	applyMigrations,
 	getActiveMilestone,
@@ -42,7 +39,7 @@ import {
 } from "./common/db.js";
 import { DISCUSS_GATES, resetAllGates, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
-import { type FffBridge, initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
+import { initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
 import {
 	addRemote,
 	createGitignore,
@@ -69,7 +66,7 @@ import {
 } from "./common/recovery.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { isLockStale, readLock, releaseLock } from "./common/session-lock.js";
-import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
+import { DEFAULT_SETTINGS, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import {
 	type Phase,
@@ -96,43 +93,26 @@ import { handleWriteVerification } from "./tools/write-verification.js";
 import { checkForUpdates } from "./update-check.js";
 
 // ---------------------------------------------------------------------------
-// Module-level state
-// ---------------------------------------------------------------------------
-
-let db: Database.Database | null = null;
-let projectRoot: string | null = null;
-let settings: Settings | null = null;
-let initError: string | null = null;
-let eventLogger: EventLogger | null = null;
-let tuiMonitor: TUIMonitor | null = null;
-let fffBridge: FffBridge | null = null;
-let cmdCtx: ExtensionCommandContext | null = null;
-
-export function getCmdCtx() {
-	return cmdCtx;
-}
-
-// ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
 
-function getDb(): Database.Database {
-	if (!db) {
+function getDb(ctx: TffContext): Database.Database {
+	if (!ctx.db) {
 		throw new Error("TFF database not initialized. Run `/tff new` to set up the project.");
 	}
-	return db;
+	return ctx.db;
 }
 
-function initDb(root: string): void {
+function initDb(ctx: TffContext, root: string): void {
 	initTffDirectory(root);
 	const dbPath = tffPath(root, "state.db");
-	db = openDatabase(dbPath);
-	applyMigrations(db);
+	ctx.db = openDatabase(dbPath);
+	applyMigrations(ctx.db);
 }
 
-function loadSettings(root: string): void {
+function loadSettings(ctx: TffContext, root: string): void {
 	const yaml = readArtifact(root, "settings.yaml");
-	settings = yaml
+	ctx.settings = yaml
 		? parseSettings(yaml)
 		: { ...DEFAULT_SETTINGS, compress: { ...DEFAULT_SETTINGS.compress } };
 }
@@ -176,6 +156,7 @@ function resolveMilestone(
 }
 
 async function runHeavyPhase(
+	ctx: TffContext,
 	phase: Phase,
 	mod: PhaseModule,
 	phaseCtx: PhaseContext,
@@ -183,12 +164,12 @@ async function runHeavyPhase(
 	const result = await runPhaseWithFreshContext({
 		phaseModule: mod,
 		phaseCtx,
-		cmdCtx,
+		cmdCtx: ctx.cmdCtx,
 		phase,
 	});
 	if (!result.success && result.error) {
-		if (cmdCtx?.hasUI) {
-			cmdCtx.ui.notify(`Phase ${phase} failed: ${result.error}`, "error");
+		if (ctx.cmdCtx?.hasUI) {
+			ctx.cmdCtx.ui.notify(`Phase ${phase} failed: ${result.error}`, "error");
 		} else {
 			phaseCtx.pi.sendUserMessage(`Phase ${phase} failed: ${result.error}`);
 		}
@@ -200,10 +181,12 @@ async function runHeavyPhase(
 // ---------------------------------------------------------------------------
 
 export default function tffExtension(pi: ExtensionAPI): void {
+	const ctx = createTffContext(pi);
+
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
-	pi.on("session_start", async (event, ctx) => {
+	pi.on("session_start", async (event, uiCtx) => {
 		// On startup (fresh PI launch), proactively clear any leftover pending
 		// phase message — it's from a crashed session, not useful anymore.
 		if (event.reason === "startup") {
@@ -232,8 +215,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						{ triggerTurn: true, deliverAs: "steer" },
 					);
 				} catch (err) {
-					if (ctx.hasUI) {
-						ctx.ui.notify(
+					if (uiCtx.hasUI) {
+						uiCtx.ui.notify(
 							`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
 							"error",
 						);
@@ -246,7 +229,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 		if (!root) {
 			return;
 		}
-		projectRoot = root;
+		ctx.projectRoot = root;
 
 		// Initialize hippo-memory (best-effort; null if not installed)
 		await initMemory(root);
@@ -257,25 +240,25 @@ export default function tffExtension(pi: ExtensionAPI): void {
 		const dbPath = tffPath(root, "state.db");
 		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
 			try {
-				db = openDatabase(dbPath);
-				applyMigrations(db);
-				loadSettings(root);
-				initError = null;
+				ctx.db = openDatabase(dbPath);
+				applyMigrations(ctx.db);
+				loadSettings(ctx, root);
+				ctx.initError = null;
 				resetAllGates();
 
 				// Initialize monitoring
 				const logsDir = tffPath(root, "logs");
-				eventLogger = new EventLogger(db, logsDir);
-				eventLogger.subscribe(pi.events);
+				ctx.eventLogger = new EventLogger(ctx.db, logsDir);
+				ctx.eventLogger.subscribe(pi.events);
 
-				if (ctx.hasUI) {
-					tuiMonitor = new TUIMonitor(ctx.ui);
-					tuiMonitor.subscribe(pi.events);
-					ctx.ui.notify("TFF ready", "info");
+				if (uiCtx.hasUI) {
+					ctx.tuiMonitor = new TUIMonitor(uiCtx.ui);
+					ctx.tuiMonitor.subscribe(pi.events);
+					uiCtx.ui.notify("TFF ready", "info");
 				}
 
 				// fff-pi bridge: enriches plan/execute phase prompts with related files.
-				fffBridge = await initFffBridge(root);
+				ctx.fffBridge = await initFffBridge(root);
 
 				// --- Crash recovery scan (cold startup only) ---
 				// Phase transitions fire session_start with reason="new" while a
@@ -289,14 +272,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const lock = readLock(root);
 					const lockIsStale = lock && isLockStale(lock);
 					const needsScan = event.reason === "startup" && (lockIsStale || !lock);
-					if (needsScan && db) {
-						const stuck = scanForStuckSlices(db);
+					if (needsScan && ctx.db) {
+						const stuck = scanForStuckSlices(ctx.db);
 						if (stuck.length > 0) {
 							const stuckSlice = stuck[0];
 							if (stuckSlice) {
-								const milestone = getMilestone(db, stuckSlice.milestoneId);
+								const milestone = getMilestone(ctx.db, stuckSlice.milestoneId);
 								if (milestone) {
-									const diagnosis = diagnoseRecovery(root, db, stuckSlice.id, milestone.number);
+									const diagnosis = diagnoseRecovery(root, ctx.db, stuckSlice.id, milestone.number);
 									const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
 									pi.sendUserMessage(briefing, { deliverAs: "steer" });
 
@@ -321,14 +304,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					// Best-effort — don't crash on recovery scan failure
 				}
 			} catch (err) {
-				initError = err instanceof Error ? err.message : String(err);
+				ctx.initError = err instanceof Error ? err.message : String(err);
 			}
 		}
 
 		// Check for extension updates
 		const updateInfo = await checkForUpdates(pi);
-		if (updateInfo?.updateAvailable && ctx.hasUI) {
-			ctx.ui.notify(
+		if (updateInfo?.updateAvailable && uiCtx.hasUI) {
+			uiCtx.ui.notify(
 				`📦 Update available: ${updateInfo.latestVersion} (you have ${updateInfo.currentVersion}). Run: pi install npm:@the-forge-flow/tff-pi`,
 				"info",
 			);
@@ -339,35 +322,35 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	// Lifecycle: session_shutdown
 	// -------------------------------------------------------------------------
 	pi.on("session_shutdown", async () => {
-		eventLogger = null;
-		tuiMonitor = null;
+		ctx.eventLogger = null;
+		ctx.tuiMonitor = null;
 		await shutdownFffBridge();
-		fffBridge = null;
+		ctx.fffBridge = null;
 		await shutdownMemory();
-		if (db) {
-			db.close();
-			db = null;
+		if (ctx.db) {
+			ctx.db.close();
+			ctx.db = null;
 		}
 	});
 
 	// -------------------------------------------------------------------------
 	// Lifecycle: before_agent_start — inject TFF context into system prompt
 	// -------------------------------------------------------------------------
-	pi.on("before_agent_start", async (event, _ctx) => {
-		if (!db || !projectRoot) return undefined;
+	pi.on("before_agent_start", async (event, _uiCtx) => {
+		if (!ctx.db || !ctx.projectRoot) return undefined;
 
-		const project = getProject(db);
+		const project = getProject(ctx.db);
 		if (!project) return undefined;
 
-		const milestone = getActiveMilestone(db, project.id);
-		const slice = milestone ? getActiveSlice(db, milestone.id) : null;
+		const milestone = getActiveMilestone(ctx.db, project.id);
+		const slice = milestone ? getActiveSlice(ctx.db, milestone.id) : null;
 
 		const contextBlock = buildContextBlock({
-			root: projectRoot,
+			root: ctx.projectRoot,
 			project,
 			milestone,
 			slice,
-			settings: settings ?? undefined,
+			settings: ctx.settings ?? undefined,
 		});
 
 		if (!contextBlock) return undefined;
@@ -393,28 +376,31 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}));
 			return items.length > 0 ? items : null;
 		},
-		handler: async (args, ctx) => {
-			cmdCtx = ctx;
+		handler: async (args, uiCtx) => {
+			ctx.cmdCtx = uiCtx;
 			const { subcommand, args: rest } = parseSubcommand(args);
 
 			if (!isValidSubcommand(subcommand)) {
-				if (ctx.hasUI) {
-					ctx.ui.notify(`Unknown subcommand: ${subcommand}. Run \`/tff help\` for usage.`, "error");
+				if (uiCtx.hasUI) {
+					uiCtx.ui.notify(
+						`Unknown subcommand: ${subcommand}. Run \`/tff help\` for usage.`,
+						"error",
+					);
 				}
 				return;
 			}
 
 			switch (subcommand) {
 				case "new": {
-					let root = getGitRoot() ?? projectRoot;
+					let root = getGitRoot() ?? ctx.projectRoot;
 					if (!root) {
 						initRepo(process.cwd());
 						root = getGitRoot() ?? process.cwd();
 					}
 					createGitignore(root);
-					projectRoot = root;
-					initDb(root);
-					loadSettings(root);
+					ctx.projectRoot = root;
+					initDb(ctx, root);
+					loadSettings(ctx, root);
 
 					const projectName = rest[0] ?? "New Project";
 					const remoteInstruction = hasRemote(root)
@@ -456,19 +442,19 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}
 
 				case "status": {
-					const result = handleStatus(getDb());
+					const result = handleStatus(getDb(ctx));
 					pi.sendUserMessage(result);
 					break;
 				}
 
 				case "progress": {
-					const result = handleProgress(getDb());
+					const result = handleProgress(getDb(ctx));
 					pi.sendUserMessage(result);
 					break;
 				}
 
 				case "logs": {
-					const db = getDb();
+					const db = getDb(ctx);
 					const rawArgs = rest.join(" ").trim();
 					const jsonFlag = rawArgs.includes("--json");
 					const label = rawArgs.replace("--json", "").trim();
@@ -487,16 +473,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				case "health": {
 					let msg: string;
 					try {
-						const database = getDb();
+						const database = getDb(ctx);
 						msg = handleHealth(database);
 					} catch (err) {
 						msg = `TFF health: NOT OK — ${err instanceof Error ? err.message : String(err)}`;
 					}
-					if (initError) {
-						msg += `\n- Init warning: ${initError}`;
+					if (ctx.initError) {
+						msg += `\n- Init warning: ${ctx.initError}`;
 					}
-					if (ctx.hasUI) {
-						ctx.ui.notify(msg, "info");
+					if (uiCtx.hasUI) {
+						uiCtx.ui.notify(msg, "info");
 					}
 					pi.sendUserMessage(msg);
 					break;
@@ -505,22 +491,22 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				case "doctor": {
 					let msg: string;
 					try {
-						const database = getDb();
+						const database = getDb(ctx);
 						const recover = rest.includes("--recover");
 						const report = handleDoctor(database, { recover });
 						msg = report.message;
 					} catch (err) {
 						msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
 					}
-					if (ctx.hasUI) {
-						ctx.ui.notify(msg, "info");
+					if (uiCtx.hasUI) {
+						uiCtx.ui.notify(msg, "info");
 					}
 					pi.sendUserMessage(msg);
 					break;
 				}
 
 				case "settings": {
-					const current = settings ?? DEFAULT_SETTINGS;
+					const current = ctx.settings ?? DEFAULT_SETTINGS;
 					pi.sendUserMessage(
 						`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n- ship.auto_merge: ${current.ship.auto_merge}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
 					);
@@ -528,15 +514,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}
 
 				case "new-milestone": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
-						if (ctx.hasUI) ctx.ui.notify("Not inside a git repository.", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify("Not inside a git repository.", "error");
 						return;
 					}
 					const project = getProject(database);
 					if (!project) {
-						if (ctx.hasUI) ctx.ui.notify("No project found. Run /tff new first.", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify("No project found. Run /tff new first.", "error");
 						return;
 					}
 					const milestoneName = rest[0] ?? "New Milestone";
@@ -545,7 +531,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						root,
 						project.id,
 						milestoneName,
-						settings ?? DEFAULT_SETTINGS,
+						ctx.settings ?? DEFAULT_SETTINGS,
 					);
 					pi.sendUserMessage(
 						`Milestone ${milestoneLabel(result.number)} "${milestoneName}" created on branch ${result.branch}.\n\nNow brainstorm requirements and decompose into slices. Use the tff_create_slice tool to create each slice.`,
@@ -554,8 +540,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}
 
 				case "discuss": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -563,17 +549,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateDiscuss(database, slice.id, projectRoot);
+					const validation = validateDiscuss(database, slice.id, ctx.projectRoot);
 					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
 					}
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.discuss;
 					const phaseCtx: PhaseContext = {
 						pi,
@@ -582,20 +568,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						fffBridge,
+						fffBridge: ctx.fffBridge,
 					};
-					if (ctx.hasUI)
-						ctx.ui.notify(
+					if (uiCtx.hasUI)
+						uiCtx.ui.notify(
 							`Starting discuss phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await runHeavyPhase("discuss", mod, phaseCtx);
+					await runHeavyPhase(ctx, "discuss", mod, phaseCtx);
 					break;
 				}
 
 				case "research": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -603,17 +589,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateResearch(database, slice.id, projectRoot);
+					const validation = validateResearch(database, slice.id, ctx.projectRoot);
 					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
 					}
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.research;
 					const phaseCtx: PhaseContext = {
 						pi,
@@ -622,20 +608,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						fffBridge,
+						fffBridge: ctx.fffBridge,
 					};
-					if (ctx.hasUI)
-						ctx.ui.notify(
+					if (uiCtx.hasUI)
+						uiCtx.ui.notify(
 							`Starting research phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await runHeavyPhase("research", mod, phaseCtx);
+					await runHeavyPhase(ctx, "research", mod, phaseCtx);
 					break;
 				}
 
 				case "plan": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -643,17 +629,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validatePlan(database, slice.id, projectRoot);
+					const validation = validatePlan(database, slice.id, ctx.projectRoot);
 					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
 					}
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.plan;
 					const phaseCtx: PhaseContext = {
 						pi,
@@ -662,24 +648,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						fffBridge,
+						fffBridge: ctx.fffBridge,
 					};
-					if (ctx.hasUI)
-						ctx.ui.notify(
+					if (uiCtx.hasUI)
+						uiCtx.ui.notify(
 							`Starting plan phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await runHeavyPhase("plan", mod, phaseCtx);
+					await runHeavyPhase(ctx, "plan", mod, phaseCtx);
 					break;
 				}
 
 				case "next": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
-					const validation = validateNext(database, projectRoot);
+					const validation = validateNext(database, ctx.projectRoot);
 					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
 					}
 					const sliceId = validation.sliceId;
@@ -689,7 +675,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!slice) return;
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules[phase];
 					const phaseCtx: PhaseContext = {
 						pi,
@@ -698,15 +684,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						fffBridge,
+						fffBridge: ctx.fffBridge,
 					};
-					await runHeavyPhase(phase, mod, phaseCtx);
+					await runHeavyPhase(ctx, phase, mod, phaseCtx);
 					break;
 				}
 
 				case "execute": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -714,17 +700,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateExecute(database, slice.id, projectRoot);
+					const validation = validateExecute(database, slice.id, ctx.projectRoot);
 					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
 					}
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.execute;
 					const phaseCtx: PhaseContext = {
 						pi,
@@ -733,20 +719,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						fffBridge,
+						fffBridge: ctx.fffBridge,
 					};
-					if (ctx.hasUI)
-						ctx.ui.notify(
+					if (uiCtx.hasUI)
+						uiCtx.ui.notify(
 							`Starting execute phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await runHeavyPhase("execute", mod, phaseCtx);
+					await runHeavyPhase(ctx, "execute", mod, phaseCtx);
 					break;
 				}
 
 				case "verify": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -754,17 +740,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateVerify(database, slice.id, projectRoot);
+					const validation = validateVerify(database, slice.id, ctx.projectRoot);
 					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
 					}
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.verify;
 					const phaseCtx: PhaseContext = {
 						pi,
@@ -773,20 +759,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						fffBridge,
+						fffBridge: ctx.fffBridge,
 					};
-					if (ctx.hasUI)
-						ctx.ui.notify(
+					if (uiCtx.hasUI)
+						uiCtx.ui.notify(
 							`Starting verify phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
-					await runHeavyPhase("verify", mod, phaseCtx);
+					await runHeavyPhase(ctx, "verify", mod, phaseCtx);
 					break;
 				}
 
 				case "ship": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -794,17 +780,17 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateShip(database, slice.id, projectRoot);
+					const validation = validateShip(database, slice.id, ctx.projectRoot);
 					if (!validation.valid) {
-						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
 					}
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const mod = phaseModules.ship;
 					const phaseCtx: PhaseContext = {
 						pi,
@@ -813,25 +799,28 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice,
 						milestoneNumber: milestone.number,
 						settings: currentSettings,
-						fffBridge,
+						fffBridge: ctx.fffBridge,
 					};
-					if (ctx.hasUI)
-						ctx.ui.notify(
+					if (uiCtx.hasUI)
+						uiCtx.ui.notify(
 							`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
 							"info",
 						);
 					const result = await runPhaseWithFreshContext({
 						phaseModule: mod,
 						phaseCtx,
-						cmdCtx,
+						cmdCtx: ctx.cmdCtx,
 						phase: "ship",
 					});
 					if (result.success) {
-						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");
+						if (uiCtx.hasUI) uiCtx.ui.notify("Ship phase complete.", "info");
 					} else if (result.retry && result.feedback) {
 						// PR has review comments — re-enter execute with feedback
-						if (ctx.hasUI)
-							ctx.ui.notify("PR has review comments. Re-entering execute phase for fixes.", "info");
+						if (uiCtx.hasUI)
+							uiCtx.ui.notify(
+								"PR has review comments. Re-entering execute phase for fixes.",
+								"info",
+							);
 						const executeMod = phaseModules.execute;
 						const freshSlice = getSlice(database, slice.id);
 						if (freshSlice) {
@@ -844,18 +833,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								settings: currentSettings,
 								feedback: result.feedback,
 							};
-							await runHeavyPhase("execute", executeMod, execCtx);
+							await runHeavyPhase(ctx, "execute", executeMod, execCtx);
 						}
 					} else {
-						if (ctx.hasUI)
-							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
+						if (uiCtx.hasUI)
+							uiCtx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
 					break;
 				}
 
 				case "ship-merged": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -863,22 +852,22 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
 					const result = handleShipMerged(pi, database, root, slice.id);
 					if (result.success) {
 						pi.sendUserMessage(`PR merged. ${result.message}`);
-						if (ctx.hasUI) ctx.ui.notify("Slice closed.", "info");
+						if (uiCtx.hasUI) uiCtx.ui.notify("Slice closed.", "info");
 					} else {
-						if (ctx.hasUI) ctx.ui.notify(result.message, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(result.message, "error");
 					}
 					break;
 				}
 
 				case "ship-changes": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 					const label = rest[0] ?? "";
 					const slice = label
@@ -886,19 +875,19 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: findActiveSlice(database);
 					if (!slice) {
 						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
 					const feedback = rest.slice(1).join(" ").trim();
 					const result = handleShipChanges(pi, database, slice.id, feedback);
 					if (!result.success) {
-						if (ctx.hasUI) ctx.ui.notify(result.message, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(result.message, "error");
 						else pi.sendUserMessage(result.message);
 						break;
 					}
 					const milestone = getMilestone(database, slice.milestoneId);
 					if (!milestone) return;
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const freshSlice = getSlice(database, slice.id);
 					if (!freshSlice) return;
 					const execCtx: PhaseContext = {
@@ -911,21 +900,21 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						feedback: result.feedback,
 					};
 					pi.sendUserMessage(result.message);
-					await runHeavyPhase("execute", phaseModules.execute, execCtx);
+					await runHeavyPhase(ctx, "execute", phaseModules.execute, execCtx);
 					break;
 				}
 
 				case "complete-milestone": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
-						if (ctx.hasUI) ctx.ui.notify("Not inside a git repository.", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify("Not inside a git repository.", "error");
 						return;
 					}
 					const label = rest[0] ?? "";
 					const project = getProject(database);
 					if (!project) {
-						if (ctx.hasUI) ctx.ui.notify("No project found. Run /tff new first.", "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify("No project found. Run /tff new first.", "error");
 						return;
 					}
 					const milestone = label
@@ -933,10 +922,10 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: getActiveMilestone(database, project.id);
 					if (!milestone) {
 						const msg = label ? `Milestone not found: ${label}` : "No active milestone found.";
-						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
 						return;
 					}
-					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 					const result = await handleCompleteMilestone(
 						database,
 						root,
@@ -954,8 +943,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}
 
 				case "recover": {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) return;
 
 					const VALID_ACTIONS = ["resume", "rollback", "skip", "manual", "dismiss"] as const;
@@ -1044,7 +1033,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
+					const database = getDb(ctx);
 					let result: unknown;
 					if (params.scope === "overview") {
 						result = queryState(database, "overview");
@@ -1101,7 +1090,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
+					const database = getDb(ctx);
 					const slice = resolveSlice(database, params.sliceId);
 					if (!slice) {
 						return {
@@ -1149,7 +1138,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
+					const database = getDb(ctx);
 					const slice = resolveSlice(database, params.sliceId);
 					if (!slice) {
 						return {
@@ -1167,11 +1156,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						};
 					}
 					const result = handleClassify(database, slice.id, tier);
-					if (!result.isError && projectRoot) {
+					if (!result.isError && ctx.projectRoot) {
 						emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
-							projectRoot,
+							ctx.projectRoot,
 							slice,
 							"discuss",
 							verifyPhaseArtifacts,
@@ -1215,7 +1204,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
+					const database = getDb(ctx);
 					const slice = resolveSlice(database, params.sliceId);
 					if (!slice) {
 						return {
@@ -1268,8 +1257,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				vision: Type.String({ description: "Vision statement for the project" }),
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-				const database = getDb();
-				const root = projectRoot;
+				const database = getDb(ctx);
+				const root = ctx.projectRoot;
 				if (!root) {
 					return {
 						content: [{ type: "text", text: "Error: No project root found." }],
@@ -1284,7 +1273,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						projectName: params.projectName,
 						vision: params.vision,
 					},
-					settings ?? DEFAULT_SETTINGS,
+					ctx.settings ?? DEFAULT_SETTINGS,
 				);
 			},
 		}),
@@ -1306,7 +1295,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const root = projectRoot;
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -1376,8 +1365,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -1438,8 +1427,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -1460,7 +1449,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						root,
 						slice.id,
 						params.content,
-						settings ?? DEFAULT_SETTINGS,
+						ctx.settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
 						const review = await requestReview(
@@ -1533,8 +1522,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -1555,7 +1544,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						root,
 						slice.id,
 						params.content,
-						settings ?? DEFAULT_SETTINGS,
+						ctx.settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
 						const review = await requestReview(
@@ -1628,8 +1617,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -1650,7 +1639,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						root,
 						slice.id,
 						params.content,
-						settings ?? DEFAULT_SETTINGS,
+						ctx.settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
 						emitPhaseCompleteIfArtifactsReady(
@@ -1723,8 +1712,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -1746,7 +1735,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						slice.id,
 						params.content,
 						params.tasks,
-						settings ?? DEFAULT_SETTINGS,
+						ctx.settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
 						const review = await requestReview(
@@ -1885,8 +1874,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -1957,8 +1946,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				try {
-					const database = getDb();
-					const root = projectRoot;
+					const database = getDb(ctx);
+					const root = ctx.projectRoot;
 					if (!root) {
 						return {
 							content: [{ type: "text", text: "Error: No project root found." }],
@@ -2020,8 +2009,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}),
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-				const database = getDb();
-				const root = projectRoot;
+				const database = getDb(ctx);
+				const root = ctx.projectRoot;
 				if (!root) {
 					return {
 						content: [{ type: "text", text: "Error: No project root." }],
@@ -2065,7 +2054,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				}),
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-				const database = getDb();
+				const database = getDb(ctx);
 				const slice = resolveSlice(database, params.sliceLabel);
 				if (!slice) {
 					return {
@@ -2114,7 +2103,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				name: Type.String({ description: "Checkpoint name (e.g., wave-1, wave-2)" }),
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-				const root = projectRoot;
+				const root = ctx.projectRoot;
 				if (!root) {
 					return {
 						content: [
