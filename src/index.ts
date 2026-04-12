@@ -1125,7 +1125,28 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					}
 					const writeResult = handleWriteSpec(database, root, slice.id, params.content);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"spec",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `SPEC.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_spec again.`,
+									},
+								],
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
+								isError: true,
+							};
+						}
 						emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
@@ -1191,7 +1212,28 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					}
 					const writeResult = handleWriteRequirements(database, root, slice.id, params.content);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"spec",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `REQUIREMENTS.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_requirements again.`,
+									},
+								],
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
+								isError: true,
+							};
+						}
 						emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
@@ -1352,7 +1394,28 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						params.tasks,
 					);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "plan");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"plan",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `PLAN.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_plan again with an updated tasks array.`,
+									},
+								],
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
+								isError: true,
+							};
+						}
 						emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
