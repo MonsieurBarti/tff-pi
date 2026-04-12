@@ -894,13 +894,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_transition",
 			label: "TFF Transition Slice",
 			description:
-				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status. IMPORTANT: Only call this tool when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+				"Transition a slice to a new status. Validates the transition is allowed by the state machine. If targetStatus is omitted, advances to the next status. IMPORTANT: Only call this tool when the user explicitly asks to advance phases. Never transition on your own initiative after a tool call.",
 			promptSnippet:
-				"IMPORTANT: Only call tff_transition when the user explicitly asks to advance phases, or when running /tff auto. Never transition on your own initiative after a tool call.",
+				"IMPORTANT: Only call tff_transition when the user explicitly asks to advance phases. Never transition on your own initiative after a tool call.",
 			promptGuidelines: [
 				"Do NOT call tff_transition automatically after writing specs or plans",
 				"Always ask the user before transitioning to the next phase",
-				"The /tff auto command handles transitions automatically — individual phases should not",
+				"Users advance phases explicitly with `/tff next` or the specific phase command",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
