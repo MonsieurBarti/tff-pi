@@ -771,13 +771,37 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const explicitAction = rest[0] as RecoveryClassification | "dismiss" | undefined;
+
+					const VALID_ACTIONS = ["resume", "rollback", "skip", "manual", "dismiss"] as const;
+					const rawArg = rest[0];
+					if (
+						rawArg !== undefined &&
+						!VALID_ACTIONS.includes(rawArg as (typeof VALID_ACTIONS)[number])
+					) {
+						pi.sendUserMessage(
+							`Invalid recover action: \`${rawArg}\`. Valid actions: ${VALID_ACTIONS.join(", ")}.`,
+						);
+						break;
+					}
+					const explicitAction = rawArg as RecoveryClassification | "dismiss" | undefined;
 
 					const stuck = scanForStuckSlices(database);
 					if (stuck.length === 0) {
 						pi.sendUserMessage("No stuck slices found. Nothing to recover.");
 						releaseLock(root);
 						break;
+					}
+
+					if (stuck.length > 1) {
+						const labels = stuck
+							.map((s) => {
+								const m = getMilestone(database, s.milestoneId);
+								return m ? sliceLabel(m.number, s.number) : s.id;
+							})
+							.join(", ");
+						pi.sendUserMessage(
+							`${stuck.length} stuck slices detected: ${labels}. Recovering the first one only. Re-run \`/tff recover\` to handle the rest.`,
+						);
 					}
 
 					const stuckSlice = stuck[0];
@@ -791,12 +815,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					// Use explicit action if provided, otherwise fall back to diagnosed classification
 					const diagnosis = diagnoseRecovery(root, database, stuckSlice.id, milestone.number);
 					const action = explicitAction ?? diagnosis.classification;
-
-					if (stuck.length > 1) {
-						pi.sendUserMessage(
-							`Note: ${stuck.length} stuck slices found. Recovering first (${diagnosis.sliceLabel}) only.`,
-						);
-					}
 
 					const result = executeRecovery(database, root, {
 						action,
