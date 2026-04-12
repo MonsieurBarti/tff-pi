@@ -5,6 +5,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PhaseContext, PhaseModule } from "../../../src/common/phase.js";
 import { runPhaseWithFreshContext } from "../../../src/common/phase.js";
 
+type NewSessionResult = { cancelled: boolean };
+type NewSessionFn = (options?: unknown) => Promise<NewSessionResult>;
+
+function makeNewSessionMock(result: NewSessionResult) {
+	return vi.fn<NewSessionFn>().mockResolvedValue(result);
+}
+
+function makeCmdCtx(
+	newSessionMock: ReturnType<typeof makeNewSessionMock>,
+): Parameters<typeof runPhaseWithFreshContext>[0]["cmdCtx"] {
+	return { newSession: newSessionMock } as unknown as Parameters<
+		typeof runPhaseWithFreshContext
+	>[0]["cmdCtx"];
+}
+
 describe("runPhaseWithFreshContext", () => {
 	let root: string;
 
@@ -38,11 +53,8 @@ describe("runPhaseWithFreshContext", () => {
 	it("calls prepare, writes pending message to disk, then newSession", async () => {
 		const { readPendingMessage } = await import("../../../src/common/phase.js");
 
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
-		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
-		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
-			typeof runPhaseWithFreshContext
-		>[0]["cmdCtx"];
+		const newSessionMock = makeNewSessionMock({ cancelled: false });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		let messageAtNewSession: string | null = null;
 		newSessionMock.mockImplementation(async () => {
 			// Snapshot disk state at the moment newSession is called
@@ -70,11 +82,8 @@ describe("runPhaseWithFreshContext", () => {
 	it("clears pending message on disk if newSession is cancelled", async () => {
 		const { readPendingMessage } = await import("../../../src/common/phase.js");
 
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
-		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: true }) as any;
-		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
-			typeof runPhaseWithFreshContext
-		>[0]["cmdCtx"];
+		const newSessionMock = makeNewSessionMock({ cancelled: true });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
 		};
@@ -91,11 +100,8 @@ describe("runPhaseWithFreshContext", () => {
 	});
 
 	it("skips newSession when prepare returns no message", async () => {
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
-		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
-		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
-			typeof runPhaseWithFreshContext
-		>[0]["cmdCtx"];
+		const newSessionMock = makeNewSessionMock({ cancelled: false });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false }),
 		};
@@ -114,11 +120,8 @@ describe("runPhaseWithFreshContext", () => {
 	});
 
 	it("skips newSession when prepare fails", async () => {
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
-		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
-		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
-			typeof runPhaseWithFreshContext
-		>[0]["cmdCtx"];
+		const newSessionMock = makeNewSessionMock({ cancelled: false });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({
 				success: false,
@@ -142,11 +145,8 @@ describe("runPhaseWithFreshContext", () => {
 	});
 
 	it("returns error when newSession is cancelled", async () => {
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
-		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: true }) as any;
-		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
-			typeof runPhaseWithFreshContext
-		>[0]["cmdCtx"];
+		const newSessionMock = makeNewSessionMock({ cancelled: true });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
 		};
@@ -165,13 +165,14 @@ describe("runPhaseWithFreshContext", () => {
 
 	it("returns error on newSession timeout", async () => {
 		const newSessionMock = vi
-			.fn()
+			.fn<NewSessionFn>()
 			.mockImplementation(
-				() => new Promise((resolve) => setTimeout(() => resolve({ cancelled: true }), 200)),
+				() =>
+					new Promise<NewSessionResult>((resolve) =>
+						setTimeout(() => resolve({ cancelled: true }), 200),
+					),
 			);
-		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
-			typeof runPhaseWithFreshContext
-		>[0]["cmdCtx"];
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
 		};
@@ -191,11 +192,8 @@ describe("runPhaseWithFreshContext", () => {
 
 	it("releases lock even when prepare throws", async () => {
 		const { readLock } = await import("../../../src/common/session-lock.js");
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
-		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
-		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
-			typeof runPhaseWithFreshContext
-		>[0]["cmdCtx"];
+		const newSessionMock = makeNewSessionMock({ cancelled: false });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockRejectedValue(new Error("boom")),
 		};
