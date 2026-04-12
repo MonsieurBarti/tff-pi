@@ -349,6 +349,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			project,
 			milestone,
 			slice,
+			settings: settings ?? undefined,
 		});
 
 		if (!contextBlock) return undefined;

@@ -1,8 +1,16 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildContextBlock } from "../../../src/common/context-injection.js";
+import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
+
+vi.mock("../../../src/common/compress.js", () => ({
+	compressIfEnabled: vi.fn((input: string, scope: string, settings: unknown) => {
+		const s = settings as { compress: { apply_to?: string[] } };
+		return s.compress.apply_to?.includes(scope) ? `[C:${scope}]${input}` : input;
+	}),
+}));
 
 describe("context-injection", () => {
 	let root: string;
@@ -215,5 +223,80 @@ describe("context-injection", () => {
 			worktreePath: "/tmp/wt",
 		});
 		expect(block).toContain("/tmp/wt");
+	});
+
+	it("compresses artifact content when apply_to includes context_injection", () => {
+		writeFileSync(
+			join(root, ".tff", "milestones", "M01", "slices", "M01-S01", "SPEC.md"),
+			"hello world",
+			"utf-8",
+		);
+		const block = buildContextBlock({
+			root,
+			project: { id: "p1", name: "P", vision: "V", createdAt: "" },
+			milestone: {
+				id: "m1",
+				projectId: "p1",
+				number: 1,
+				name: "M",
+				status: "in_progress",
+				branch: "milestone/M01",
+				createdAt: "",
+			},
+			slice: {
+				id: "s1",
+				milestoneId: "m1",
+				number: 1,
+				title: "S",
+				status: "executing",
+				tier: "SS",
+				prUrl: null,
+				createdAt: "",
+			},
+			settings: {
+				...DEFAULT_SETTINGS,
+				compress: { user_artifacts: false, apply_to: ["context_injection"] },
+				ship: { ...DEFAULT_SETTINGS.ship },
+			},
+		});
+		expect(block).toContain("[C:context_injection]hello world");
+	});
+
+	it("does NOT compress when apply_to omits context_injection", () => {
+		writeFileSync(
+			join(root, ".tff", "milestones", "M01", "slices", "M01-S01", "SPEC.md"),
+			"hello world",
+			"utf-8",
+		);
+		const block = buildContextBlock({
+			root,
+			project: { id: "p1", name: "P", vision: "V", createdAt: "" },
+			milestone: {
+				id: "m1",
+				projectId: "p1",
+				number: 1,
+				name: "M",
+				status: "in_progress",
+				branch: "milestone/M01",
+				createdAt: "",
+			},
+			slice: {
+				id: "s1",
+				milestoneId: "m1",
+				number: 1,
+				title: "S",
+				status: "executing",
+				tier: "SS",
+				prUrl: null,
+				createdAt: "",
+			},
+			settings: {
+				...DEFAULT_SETTINGS,
+				compress: { user_artifacts: false, apply_to: ["artifacts"] },
+				ship: { ...DEFAULT_SETTINGS.ship },
+			},
+		});
+		expect(block).not.toContain("[C:");
+		expect(block).toContain("hello world");
 	});
 });
