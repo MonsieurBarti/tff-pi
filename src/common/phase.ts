@@ -38,14 +38,12 @@ interface FreshContextOpts {
 	cmdCtx: ExtensionCommandContext | null;
 	phase: Phase;
 	timeoutMs?: number;
-	/** Getter for the current pi reference, used to send the message to the new session after newSession() resolves. */
-	getPi?: () => ExtensionAPI | null;
 }
 
 export async function runPhaseWithFreshContext(
 	opts: FreshContextOpts,
 ): Promise<PhasePrepareResult> {
-	const { phaseModule, phaseCtx, cmdCtx, phase, timeoutMs = NEW_SESSION_TIMEOUT_MS, getPi } = opts;
+	const { phaseModule, phaseCtx, cmdCtx, phase, timeoutMs = NEW_SESSION_TIMEOUT_MS } = opts;
 
 	if (!cmdCtx) {
 		return {
@@ -76,7 +74,10 @@ export async function runPhaseWithFreshContext(
 			return prepareResult;
 		}
 
-		// Create fresh session (no setup — we trigger the turn ourselves).
+		// Create fresh session — no setup callback. After newSession() resolves,
+		// the shared ExtensionRuntime has been rebound to the new session's actions,
+		// so pi.sendMessage() on the old facade routes to the new session.
+		// This mirrors GSD-2's exact pattern (auto/run-unit.ts).
 		const message = prepareResult.message;
 		const sessionPromise = cmdCtx.newSession();
 		const timeoutPromise = new Promise<{ cancelled: true }>((resolve) => {
@@ -93,16 +94,16 @@ export async function runPhaseWithFreshContext(
 			};
 		}
 
-		// Session is now fresh. Use the NEW pi (post-reload) to send the message and trigger a turn.
-		const newPi = getPi?.();
-		if (!newPi) {
-			return {
-				success: false,
-				retry: true,
-				error: "New session pi reference unavailable — cannot deliver phase prompt.",
-			};
-		}
-		newPi.sendUserMessage(message);
+		// Send the phase prompt as a custom message with triggerTurn:true to
+		// kick off the agent loop immediately in the fresh session.
+		phaseCtx.pi.sendMessage(
+			{
+				customType: "tff-phase",
+				content: message,
+				display: true,
+			},
+			{ triggerTurn: true },
+		);
 
 		return { success: true, retry: false };
 	} finally {
