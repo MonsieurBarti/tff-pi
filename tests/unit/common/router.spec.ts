@@ -20,6 +20,7 @@ describe("router", () => {
 				"verify",
 				"ship",
 				"complete-milestone",
+				"recover",
 				"next",
 				"status",
 				"progress",

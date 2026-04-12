@@ -17,6 +17,7 @@ import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
 import { validatePlan } from "./commands/plan.js";
 import { handleProgress } from "./commands/progress.js";
+import { executeRecovery } from "./commands/recover.js";
 import { validateResearch } from "./commands/research.js";
 import { validateShip } from "./commands/ship.js";
 import { handleStatus } from "./commands/status.js";
@@ -48,7 +49,14 @@ import {
 } from "./common/git.js";
 import { type PhaseContext, type PhaseModule, runPhaseWithFreshContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
+import {
+	type RecoveryClassification,
+	diagnoseRecovery,
+	formatRecoveryBriefing,
+	scanForStuckSlices,
+} from "./common/recovery.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
+import { isLockStale, readLock, releaseLock } from "./common/session-lock.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import {
@@ -205,6 +213,29 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 				// Discover fff-pi
 				_fffBridge = discoverFffService(pi);
+
+				// --- Crash recovery scan ---
+				try {
+					const lock = readLock(root);
+					const lockIsStale = lock && isLockStale(lock);
+					const needsScan = lockIsStale || !lock;
+					if (needsScan && db) {
+						const stuck = scanForStuckSlices(db);
+						if (stuck.length > 0) {
+							const stuckSlice = stuck[0];
+							if (stuckSlice) {
+								const milestone = getMilestone(db, stuckSlice.milestoneId);
+								if (milestone) {
+									const diagnosis = diagnoseRecovery(root, db, stuckSlice.id, milestone.number);
+									const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
+									pi.sendUserMessage(briefing);
+								}
+							}
+						}
+					}
+				} catch {
+					// Best-effort — don't crash on recovery scan failure
+				}
 			} catch (err) {
 				initError = err instanceof Error ? err.message : String(err);
 			}
@@ -733,6 +764,37 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					} else {
 						pi.sendUserMessage(`Cannot complete milestone: ${result.error}`);
 					}
+					break;
+				}
+
+				case "recover": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const action = (rest[0] ?? "resume") as RecoveryClassification | "dismiss";
+
+					const stuck = scanForStuckSlices(database);
+					if (stuck.length === 0) {
+						pi.sendUserMessage("No stuck slices found. Nothing to recover.");
+						releaseLock(root);
+						break;
+					}
+
+					const stuckSlice = stuck[0];
+					if (!stuckSlice) break;
+					const milestone = getMilestone(database, stuckSlice.milestoneId);
+					if (!milestone) {
+						pi.sendUserMessage("Cannot find milestone for stuck slice.");
+						break;
+					}
+
+					const result = executeRecovery(database, root, {
+						action,
+						sliceId: stuckSlice.id,
+						milestoneNumber: milestone.number,
+					});
+
+					pi.sendUserMessage(result.message);
 					break;
 				}
 
