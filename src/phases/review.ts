@@ -1,7 +1,6 @@
 import { readArtifact } from "../common/artifacts.js";
 import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import { getDiff } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
@@ -33,7 +32,7 @@ export const reviewPhase: PhaseModule = {
 		const { agentPrompt, protocol } = loadPhaseResources("review");
 		const securityReviewerPrompt = loadAgentResource("security-reviewer");
 		const milestoneBranch = `milestone/${mLabel}`;
-		const diff = getDiff(milestoneBranch, wtPath) ?? "";
+		const sliceBranch = `slice/${sLabel}`;
 
 		const message = [
 			agentPrompt,
@@ -43,6 +42,8 @@ export const reviewPhase: PhaseModule = {
 			"",
 			`## Slice: ${sLabel}`,
 			`Working directory: ${wtPath}`,
+			`Milestone branch: ${milestoneBranch}`,
+			`Slice branch: ${sliceBranch}`,
 			"",
 			"## SPEC.md",
 			specMd,
@@ -53,10 +54,21 @@ export const reviewPhase: PhaseModule = {
 			"## VERIFICATION.md",
 			verifyMd,
 			"",
-			"## Diff from milestone branch",
-			"```diff",
-			diff,
+			"## Diff",
+			"Inspect the diff yourself using git. The full diff is NOT inlined to keep your context focused.",
+			"",
+			"```bash",
+			"# overview of changed files",
+			`git -C ${wtPath} diff --stat ${milestoneBranch}...${sliceBranch}`,
+			"",
+			"# full diff",
+			`git -C ${wtPath} diff ${milestoneBranch}...${sliceBranch}`,
+			"",
+			"# scope to one file",
+			`git -C ${wtPath} diff ${milestoneBranch}...${sliceBranch} -- <path>`,
 			"```",
+			"",
+			"Prefer `--stat` first to plan your reads, then diff specific files as needed.",
 			"",
 			"---",
 			"",
