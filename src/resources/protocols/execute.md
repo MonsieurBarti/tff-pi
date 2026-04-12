@@ -27,6 +27,10 @@ worktree diff and the work is effectively lost.
    - Commit: `feat(<slice>): T<nn> — <desc>`
 3. Repeat until task scope covered
 4. Multiple commits expected (1 per TDD cycle)
+5. After every task in a wave is complete, call `tff_checkpoint` then
+   IMMEDIATELY proceed to the next wave in the same session. Do NOT stop,
+   summarize, or ask the user to continue between waves. The phase only
+   ends when every wave's tasks are implemented and committed.
 
 ## Rules
 - Only modify files in task scope

@@ -7,7 +7,7 @@ import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
-import { gitEnv } from "../common/git.js";
+import { branchExists, gitEnv, remoteBranchExists } from "../common/git.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import type { Slice } from "../common/types.js";
@@ -18,6 +18,73 @@ import { predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 export interface PreflightResult {
 	ok: boolean;
 	errors: string[];
+}
+
+/**
+ * Cleanup after a slice PR is merged: remove worktree + checkpoints, delete
+ * slice branch (local + remote), checkout the milestone branch and pull,
+ * mark the slice closed. Shared between the `shipPhase` re-entry path and the
+ * new `/tff ship-merged` slash command (user-attested merge, no PR fetch).
+ */
+export function finalizeMergedSlice(
+	db: Database.Database,
+	root: string,
+	slice: Slice,
+	milestoneNumber: number,
+): void {
+	const mLabel = milestoneLabel(milestoneNumber);
+	const sLabel = sliceLabel(milestoneNumber, slice.number);
+	const milestoneBranch = `milestone/${mLabel}`;
+	const sliceBranch = `slice/${sLabel}`;
+	const env = gitEnv();
+
+	cleanupCheckpoints(root, sLabel);
+	removeWorktree(root, sLabel);
+
+	// Stash any uncommitted work before swapping branches.
+	const status = execFileSync("git", ["status", "--porcelain"], {
+		cwd: root,
+		encoding: "utf-8",
+		env,
+	}).trim();
+	if (status) {
+		execFileSync("git", ["stash", "push", "-m", `tff-ship-${sLabel}`], {
+			cwd: root,
+			encoding: "utf-8",
+			env,
+		});
+	}
+
+	execFileSync("git", ["checkout", milestoneBranch], {
+		cwd: root,
+		encoding: "utf-8",
+		env,
+	});
+	execFileSync("git", ["pull", "origin", milestoneBranch], {
+		cwd: root,
+		encoding: "utf-8",
+		env,
+	});
+
+	// Delete slice branches — local and remote. Check existence first rather
+	// than swallowing errors: GitHub's squash-merge often deletes the remote
+	// branch automatically, and the local branch may already be gone.
+	if (branchExists(sliceBranch, root)) {
+		execFileSync("git", ["branch", "-D", sliceBranch], {
+			cwd: root,
+			encoding: "utf-8",
+			env,
+		});
+	}
+	if (remoteBranchExists(sliceBranch, root)) {
+		execFileSync("git", ["push", "origin", "--delete", sliceBranch], {
+			cwd: root,
+			encoding: "utf-8",
+			env,
+		});
+	}
+
+	updateSliceStatus(db, slice.id, "closed");
 }
 
 export function preflightCheck(
@@ -51,7 +118,9 @@ export function preflightCheck(
 	if (uncheckedItems && uncheckedItems.length > 0) {
 		errors.push(`VERIFICATION.md has ${uncheckedItems.length} unchecked item(s)`);
 	}
-	if (/\bFAIL\b/i.test(verification) || /\bBLOCKED\b/i.test(verification)) {
+	// Match FAIL/BLOCKED only as shouty-case verdict markers — lowercase
+	// mentions ("0 fail", "would fail if...") are narrative text, not status.
+	if (/\bFAIL\b/.test(verification) || /\bBLOCKED\b/.test(verification)) {
 		errors.push("VERIFICATION.md contains failure marker (FAIL or BLOCKED)");
 	}
 
@@ -77,7 +146,7 @@ function buildPrBody(root: string, mLabel: string, sLabel: string, sliceTitle: s
 	].join("\n");
 }
 
-function suggestNextAction(db: Database.Database, milestoneId: string): string {
+export function suggestNextAction(db: Database.Database, milestoneId: string): string {
 	const slices = getSlices(db, milestoneId);
 	const openSlices = slices.filter((s) => s.status !== "closed");
 	if (openSlices.length === 0) {
@@ -128,19 +197,7 @@ export const shipPhase: PhaseModule = {
 				};
 
 				if (pr.state === "MERGED") {
-					cleanupCheckpoints(root, sLabel);
-					removeWorktree(root, sLabel);
-					execFileSync("git", ["checkout", milestoneBranch], {
-						cwd: root,
-						encoding: "utf-8",
-						env,
-					});
-					execFileSync("git", ["pull", "origin", milestoneBranch], {
-						cwd: root,
-						encoding: "utf-8",
-						env,
-					});
-					updateSliceStatus(db, slice.id, "closed");
+					finalizeMergedSlice(db, root, slice, milestoneNumber);
 					const next = suggestNextAction(db, slice.milestoneId);
 					pi.sendUserMessage(`PR merged. Slice closed.\n\n${next}`);
 					pi.events.emit("tff:phase", {
@@ -196,6 +253,17 @@ export const shipPhase: PhaseModule = {
 			}
 
 			updateSliceStatus(db, slice.id, "shipping");
+
+			// Ensure the milestone branch is on origin before pushing the slice
+			// branch — `gh pr create` needs the base ref to exist remotely, and
+			// older projects may have created the milestone branch locally
+			// without ever pushing it. Idempotent: if origin already has it,
+			// `push -u` is a no-op.
+			execFileSync("git", ["push", "-u", "origin", milestoneBranch], {
+				cwd: wtPath,
+				encoding: "utf-8",
+				env,
+			});
 
 			// Push slice branch
 			execFileSync("git", ["push", "-u", "origin", sliceBranch], {
@@ -269,31 +337,56 @@ export const shipPhase: PhaseModule = {
 				compressIfEnabled(prMd, "artifacts", settings),
 			);
 
-			// Wait for CI
-			try {
-				const checksResult = await prTools.checks({ repo, number: prNumber, watch: true });
-				if (checksResult.code !== 0) {
-					throw new Error(
-						`CI checks failed (exit ${checksResult.code}): ${checksResult.stderr || checksResult.stdout}`,
-					);
-				}
-			} catch {
+			// Wait for CI. Treat "no checks configured" as green — repos without
+			// a CI workflow have nothing to fail on, and we don't want to
+			// punish users for not wiring up GitHub Actions.
+			const checksResult = await prTools.checks({ repo, number: prNumber, watch: true });
+			const noChecksConfigured =
+				checksResult.code !== 0 &&
+				/no checks? (?:reported|found)/i.test(
+					`${checksResult.stderr ?? ""}\n${checksResult.stdout ?? ""}`,
+				);
+			if (checksResult.code !== 0 && !noChecksConfigured) {
 				// CI failed — loop back to executing for fixes
 				updateSliceStatus(db, slice.id, "executing");
 				resetTasksToOpen(db, slice.id);
+				const detail = (checksResult.stderr || checksResult.stdout || "").trim();
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 					type: "phase_failed",
 					phase: "ship",
 					durationMs: Date.now() - startTime,
-					error: "CI checks failed",
+					error: `CI checks failed: ${detail}`,
 				});
-				return { success: false, retry: true, error: "CI checks failed" };
+				return {
+					success: false,
+					retry: true,
+					error: `CI checks failed: ${detail}`,
+				};
 			}
 
-			// Auto-merge disabled: leave PR open for manual review
+			// Auto-merge disabled: hand control to the agent to poll the user
+			// via tff_ask_user until they report merged/changes. Mirrors
+			// TFF-CC's ship-slice merge gate (AskUserQuestion with 2 options).
+			// The agent is authorized to call tff_ship_merged or
+			// tff_ship_changes based on the user's reply — no polling of
+			// GitHub; the user's answer is the source of truth.
 			if (!settings.ship.auto_merge) {
-				pi.sendUserMessage(`PR ready for review at ${prUrl}`);
+				pi.sendUserMessage(
+					[
+						`The slice PR is open: ${prUrl}`,
+						"",
+						`Now ask the user whether the PR was merged, using tff_ask_user with id \`pr_gate_${sLabel}\`, header "PR status", and two options:`,
+						'  1) label "PR merged"       — description "I merged the PR on GitHub."',
+						'  2) label "PR needs changes" — description "Reviewers requested changes."',
+						"",
+						"After the user replies:",
+						`  - If "PR merged": call tff_ship_merged({ sliceLabel: "${sLabel}" }).`,
+						`  - If "PR needs changes": ask the user for the reviewer feedback text in one follow-up message, then call tff_ship_changes({ sliceLabel: "${sLabel}", feedback: "<their exact feedback>" }).`,
+						"",
+						"Do NOT call these tools before the user has explicitly answered. Do NOT poll GitHub or guess the state — the user's reply is the source of truth.",
+					].join("\n"),
+				);
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 					type: "phase_complete",
@@ -313,40 +406,7 @@ export const shipPhase: PhaseModule = {
 				};
 			}
 
-			// Cleanup checkpoints and worktree
-			cleanupCheckpoints(root, sLabel);
-			removeWorktree(root, sLabel);
-
-			// Pull milestone branch — stash any uncommitted work first
-			try {
-				const status = execFileSync("git", ["status", "--porcelain"], {
-					cwd: root,
-					encoding: "utf-8",
-					env,
-				}).trim();
-				if (status) {
-					execFileSync("git", ["stash", "push", "-m", `tff-ship-${sLabel}`], {
-						cwd: root,
-						encoding: "utf-8",
-						env,
-					});
-				}
-			} catch {
-				// Ignore stash errors
-			}
-			execFileSync("git", ["checkout", milestoneBranch], {
-				cwd: root,
-				encoding: "utf-8",
-				env,
-			});
-			execFileSync("git", ["pull", "origin", milestoneBranch], {
-				cwd: root,
-				encoding: "utf-8",
-				env,
-			});
-
-			// Mark slice closed
-			updateSliceStatus(db, slice.id, "closed");
+			finalizeMergedSlice(db, root, slice, milestoneNumber);
 
 			const next = suggestNextAction(db, slice.milestoneId);
 			pi.sendUserMessage(`Slice shipped and merged.\n\n${next}`);

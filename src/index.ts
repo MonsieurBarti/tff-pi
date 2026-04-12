@@ -20,6 +20,8 @@ import { validatePlan } from "./commands/plan.js";
 import { handleProgress } from "./commands/progress.js";
 import { executeRecovery } from "./commands/recover.js";
 import { validateResearch } from "./commands/research.js";
+import { handleShipChanges } from "./commands/ship-changes.js";
+import { handleShipMerged } from "./commands/ship-merged.js";
 import { validateShip } from "./commands/ship.js";
 import { handleStatus } from "./commands/status.js";
 import { validateVerify } from "./commands/verify.js";
@@ -221,9 +223,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 			if (message) {
 				try {
+					// deliverAs "steer" queues if the new session's agent is already
+					// processing a startup turn (observed: "Agent is already
+					// processing" on phase switch). When idle, triggerTurn fires it
+					// immediately. Covers both races from one call.
 					pi.sendMessage(
 						{ customType: "tff-phase", content: message, display: true },
-						{ triggerTurn: true },
+						{ triggerTurn: true, deliverAs: "steer" },
 					);
 				} catch (err) {
 					if (ctx.hasUI) {
@@ -271,11 +277,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				// fff-pi bridge: enriches plan/execute phase prompts with related files.
 				fffBridge = await initFffBridge(root);
 
-				// --- Crash recovery scan ---
+				// --- Crash recovery scan (cold startup only) ---
+				// Phase transitions fire session_start with reason="new" while a
+				// slice is legitimately mid-flow (status=planning/executing/etc.)
+				// and the lock was just released. Running the scan here would
+				// flag the in-flight slice as stuck AND call sendUserMessage
+				// after we just triggered a turn via sendMessage — the agent is
+				// now streaming, sendUserMessage has no deliverAs, and PI
+				// reports "Extension <runtime> error: Agent is already processing".
 				try {
 					const lock = readLock(root);
 					const lockIsStale = lock && isLockStale(lock);
-					const needsScan = lockIsStale || !lock;
+					const needsScan = event.reason === "startup" && (lockIsStale || !lock);
 					if (needsScan && db) {
 						const stuck = scanForStuckSlices(db);
 						if (stuck.length > 0) {
@@ -285,7 +298,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								if (milestone) {
 									const diagnosis = diagnoseRecovery(root, db, stuckSlice.id, milestone.number);
 									const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
-									pi.sendUserMessage(briefing);
+									pi.sendUserMessage(briefing, { deliverAs: "steer" });
 
 									// Log crash to hippo-memory (best-effort)
 									const memory = getMemory();
@@ -434,7 +447,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							"**Execution:**\n" +
 							"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
 							"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
-							"- `/tff ship [sliceId]` — Ship the slice (PR + merge)\n\n" +
+							"- `/tff ship [sliceId]` — Open the slice PR and run CI\n" +
+							"- `/tff ship-merged [sliceId]` — You merged the PR: cleanup worktree + close slice\n" +
+							"- `/tff ship-changes [sliceId] <feedback>` — Reviewer requested changes: reopen for fixes\n\n" +
 							"- `/tff complete-milestone [M01]` — Create milestone PR after all slices ship",
 					);
 					break;
@@ -835,6 +850,68 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI)
 							ctx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
 					}
+					break;
+				}
+
+				case "ship-merged": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
+					if (!slice) {
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						return;
+					}
+					const result = handleShipMerged(pi, database, root, slice.id);
+					if (result.success) {
+						pi.sendUserMessage(`PR merged. ${result.message}`);
+						if (ctx.hasUI) ctx.ui.notify("Slice closed.", "info");
+					} else {
+						if (ctx.hasUI) ctx.ui.notify(result.message, "error");
+					}
+					break;
+				}
+
+				case "ship-changes": {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) return;
+					const label = rest[0] ?? "";
+					const slice = label
+						? (findSliceByLabel(database, label) ?? getSlice(database, label))
+						: findActiveSlice(database);
+					if (!slice) {
+						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+						if (ctx.hasUI) ctx.ui.notify(msg, "error");
+						return;
+					}
+					const feedback = rest.slice(1).join(" ").trim();
+					const result = handleShipChanges(pi, database, slice.id, feedback);
+					if (!result.success) {
+						if (ctx.hasUI) ctx.ui.notify(result.message, "error");
+						else pi.sendUserMessage(result.message);
+						break;
+					}
+					const milestone = getMilestone(database, slice.milestoneId);
+					if (!milestone) return;
+					const currentSettings = settings ?? DEFAULT_SETTINGS;
+					const freshSlice = getSlice(database, slice.id);
+					if (!freshSlice) return;
+					const execCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice: freshSlice,
+						milestoneNumber: milestone.number,
+						settings: currentSettings,
+						feedback: result.feedback,
+					};
+					pi.sendUserMessage(result.message);
+					await runHeavyPhase("execute", phaseModules.execute, execCtx);
 					break;
 				}
 
@@ -1924,6 +2001,101 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						isError: true,
 					};
 				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_ship_merged — user attests the PR was merged on GitHub
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_ship_merged",
+			label: "TFF Ship: PR Merged",
+			description:
+				"Call AFTER the user confirms (via tff_ask_user) that the slice PR was merged on GitHub. Cleans up the worktree, deletes the slice branch, pulls the milestone branch, and closes the slice. Do NOT call this without explicit user confirmation.",
+			parameters: Type.Object({
+				sliceLabel: Type.String({
+					description: "Slice label (e.g., M01-S01) or slice id",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				const database = getDb();
+				const root = projectRoot;
+				if (!root) {
+					return {
+						content: [{ type: "text", text: "Error: No project root." }],
+						details: {},
+						isError: true,
+					};
+				}
+				const slice = resolveSlice(database, params.sliceLabel);
+				if (!slice) {
+					return {
+						content: [{ type: "text", text: `Slice not found: ${params.sliceLabel}` }],
+						details: { sliceLabel: params.sliceLabel },
+						isError: true,
+					};
+				}
+				const result = handleShipMerged(pi, database, root, slice.id);
+				return {
+					content: [{ type: "text", text: result.message }],
+					details: { sliceLabel: params.sliceLabel },
+					isError: !result.success,
+				};
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_ship_changes — user reports reviewer requested changes
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_ship_changes",
+			label: "TFF Ship: Changes Requested",
+			description:
+				"Call AFTER the user confirms (via tff_ask_user) that the PR needs changes AND provides the reviewer feedback text. Flips the slice back to execute with the feedback attached. Pass the reviewer feedback verbatim — do NOT summarize.",
+			parameters: Type.Object({
+				sliceLabel: Type.String({
+					description: "Slice label (e.g., M01-S01) or slice id",
+				}),
+				feedback: Type.String({
+					description: "Reviewer's change request text, verbatim from the user's message",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				const database = getDb();
+				const slice = resolveSlice(database, params.sliceLabel);
+				if (!slice) {
+					return {
+						content: [{ type: "text", text: `Slice not found: ${params.sliceLabel}` }],
+						details: { sliceLabel: params.sliceLabel },
+						isError: true,
+					};
+				}
+				const result = handleShipChanges(pi, database, slice.id, params.feedback);
+				if (!result.success) {
+					return {
+						content: [{ type: "text", text: result.message }],
+						details: { sliceLabel: params.sliceLabel },
+						isError: true,
+					};
+				}
+				// Slice is now `executing` with tasks reset. Tell the agent to
+				// run /tff execute to re-enter with the feedback. We don't
+				// auto-invoke runHeavyPhase here because this handler runs
+				// inside the agent turn; the user will drive the next step
+				// via /tff execute (or agent-suggested `/tff next`).
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${result.message}\n\nNext: tell the user to run \`/tff execute ${params.sliceLabel}\` (or \`/tff next\`) to apply the changes.`,
+						},
+					],
+					details: { sliceLabel: params.sliceLabel, feedback: params.feedback },
+				};
 			},
 		}),
 	);

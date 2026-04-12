@@ -120,6 +120,13 @@ export const executePhase: PhaseModule = {
 			"",
 			"## Tasks",
 			taskLines.join("\n"),
+			"",
+			"## Wave progression",
+			"Process every wave above in order within this same session. After all",
+			"tasks in a wave are committed, call `tff_checkpoint` with `wave-{N}`",
+			"and move straight to the next wave — do NOT stop or ask the user to",
+			"resume between waves. The phase is only done when the final wave's",
+			"tasks are all committed.",
 		];
 
 		if (extrasContext.RELATED_FILES) {

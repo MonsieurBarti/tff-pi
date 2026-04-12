@@ -92,6 +92,19 @@ describe("preflightCheck", () => {
 		expect(result.errors.length).toBeGreaterThanOrEqual(5);
 	});
 
+	it("passes when VERIFICATION.md mentions lowercase 'fail' in prose (e.g. '0 fail')", () => {
+		// Regression: the preflight used to be case-insensitive and false-flagged
+		// test-summary lines like "0 fail" or "would fail if..." as verdicts.
+		// FAIL/BLOCKED are shouty-case verdict markers only.
+		writeAllArtifacts(
+			root,
+			"# Verification\n- [x] Check 1\n```\n59 pass\n0 fail\n```\nOverall: PASS",
+		);
+		const result = preflightCheck(root, fakeSlice, 1);
+		expect(result.ok).toBe(true);
+		expect(result.errors).toEqual([]);
+	});
+
 	it("S-tier preflight still requires REVIEW.md (review required for all tiers)", () => {
 		const sTierSlice: Slice = { ...fakeSlice, tier: "S" };
 		writeArtifact(root, `${base}/SPEC.md`, "# Spec");

@@ -13,6 +13,12 @@ Your first questions must reflect reality, not assumptions.
 <HARD-GATE>
 Do NOT call tff_classify or tff_write_spec during questioning.
 The system will reject the call. Complete exploration first.
+
+After EVERY `tff_ask_user` call, END YOUR TURN IMMEDIATELY. Do not
+emit any further tool calls, restatements, or "waiting..." messages.
+The user's next message is their numeric reply — you must receive
+it before proceeding. Calling the next tool without waiting is the
+bug that causes discuss to auto-complete without user input.
 </HARD-GATE>
 
 One question per message (C4). Position-first (C6).

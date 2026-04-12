@@ -109,6 +109,15 @@ export function handleAskUser(questions: AskUserQuestion[]): ToolResult {
 	}
 
 	const sections: string[] = [];
+	// Agent-directed stop instruction. Without this the agent tends to keep
+	// calling tools (confirm_gate, write_spec, next tff_ask_user) immediately
+	// after displaying a question, bypassing the user entirely. PI cannot
+	// pause the agent loop, so the instruction has to live in the tool
+	// result the agent reads next.
+	sections.push(
+		"[AGENT-STOP] You have just shown the user a question. End your turn NOW — emit no further tool calls, no summary, no restatement. Wait for the user's next message (their numeric reply). Only after receiving that reply may you proceed.",
+	);
+	sections.push("");
 	for (const q of questions) {
 		const finalOptions = q.allowMultiple
 			? q.options

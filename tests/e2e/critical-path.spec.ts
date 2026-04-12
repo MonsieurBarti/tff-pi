@@ -75,6 +75,8 @@ vi.mock("../../src/common/git.js", () => ({
 	getCurrentBranch: vi.fn().mockReturnValue("main"),
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
+	pushBranch: vi.fn(),
+	remoteBranchExists: vi.fn().mockReturnValue(true),
 	getDiff: vi.fn().mockReturnValue("diff --git a/foo.ts b/foo.ts\n+added line"),
 	gitEnv: vi.fn().mockReturnValue({}),
 }));
@@ -402,10 +404,14 @@ describe("E2E critical path", () => {
 			// pr merge should NOT have been called
 			expect(mockMerge).not.toHaveBeenCalled();
 
-			// sendUserMessage should mention "ready for review"
+			// sendUserMessage hands the merge gate to the agent — PR URL +
+			// tff_ask_user + tool routing for merged/changes.
 			expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
 			const msg = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
-			expect(msg).toContain("ready for review");
+			expect(msg).toContain("PR is open");
+			expect(msg).toContain("tff_ask_user");
+			expect(msg).toContain("tff_ship_merged");
+			expect(msg).toContain("tff_ship_changes");
 		});
 	});
 

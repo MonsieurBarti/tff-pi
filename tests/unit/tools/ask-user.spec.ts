@@ -95,4 +95,9 @@ describe("handleAskUser", () => {
 		expect(text).not.toContain("**");
 		expect(result.details.questionCount).toBe(2);
 	});
+
+	it("instructs the agent to stop after displaying the question", () => {
+		const result = handleAskUser([makeQuestion()]);
+		expect(must(result.content[0]).text).toMatch(/AGENT-STOP/);
+	});
 });

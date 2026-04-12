@@ -62,6 +62,8 @@ vi.mock("../../../src/common/git.js", () => ({
 	getCurrentBranch: vi.fn().mockReturnValue("main"),
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
+	pushBranch: vi.fn(),
+	remoteBranchExists: vi.fn().mockReturnValue(true),
 	getDiff: vi.fn().mockReturnValue(""),
 	gitEnv: vi.fn().mockReturnValue({}),
 }));
@@ -225,10 +227,14 @@ describe("shipPhase", () => {
 		// pr merge should NOT have been called
 		expect(mockMerge).not.toHaveBeenCalled();
 
-		// sendUserMessage should mention "ready for review"
+		// sendUserMessage should hand the merge gate to the agent — include
+		// PR URL, tff_ask_user instruction, and tool routing.
 		expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
 		const msg = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
-		expect(msg).toContain("ready for review");
+		expect(msg).toContain("PR is open");
+		expect(msg).toContain("tff_ask_user");
+		expect(msg).toContain("tff_ship_merged");
+		expect(msg).toContain("tff_ship_changes");
 	});
 
 	it("creates PR via prTools.create with correct parameters", async () => {
