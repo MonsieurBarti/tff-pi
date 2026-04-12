@@ -71,20 +71,40 @@ export interface PhaseModule {
 	prepare(ctx: PhaseContext): Promise<PhasePrepareResult>;
 }
 
-const NEW_SESSION_TIMEOUT_MS = 30_000;
-
 interface FreshContextOpts {
 	phaseModule: PhaseModule;
 	phaseCtx: PhaseContext;
 	cmdCtx: ExtensionCommandContext | null;
 	phase: Phase;
+	/**
+	 * Kept for API back-compat but no longer honored — newSession is fired
+	 * fire-and-forget to avoid the deadlock described in the function body.
+	 */
 	timeoutMs?: number;
 }
 
+/**
+ * Runs a phase's prepare() in the current session, stashes the resulting
+ * prompt to disk, and schedules a fresh PI session to deliver it.
+ *
+ * **Critical: newSession() is fire-and-forget.** Awaiting it inside this
+ * command handler deadlocks — PI cannot tear down the current session
+ * until our handler returns, but awaiting newSession here prevents us
+ * from returning. Prior versions used `Promise.race(newSession, timeout)`
+ * which hung every `/tff next` post-plan in the wild (session.lock stayed
+ * held, pending-phase-message.txt stashed, no new jsonl, no timeout ever
+ * firing because the event loop was blocked by the unresolved handler
+ * promise).
+ *
+ * Trade-off: we cannot surface newSession's cancellation/failure to the
+ * user directly — the current session is gone by the time newSession
+ * resolves. Failure recovery flows through `/tff doctor`, which reads
+ * the orphaned session.lock + pending-phase-message.txt.
+ */
 export async function runPhaseWithFreshContext(
 	opts: FreshContextOpts,
 ): Promise<PhasePrepareResult> {
-	const { phaseModule, phaseCtx, cmdCtx, phase, timeoutMs = NEW_SESSION_TIMEOUT_MS } = opts;
+	const { phaseModule, phaseCtx, cmdCtx, phase } = opts;
 
 	if (!cmdCtx) {
 		return {
@@ -97,49 +117,41 @@ export async function runPhaseWithFreshContext(
 
 	acquireLock(phaseCtx.root, { phase, sliceId: phaseCtx.slice.id });
 
+	// Run prepare in the LIVE session — db and pi are valid here.
+	let prepareResult: PhasePrepareResult;
 	try {
-		// Run prepare in the LIVE session — db and pi are valid here.
-		let prepareResult: PhasePrepareResult;
-		try {
-			prepareResult = await phaseModule.prepare(phaseCtx);
-		} catch (err) {
-			return {
-				success: false,
-				retry: false,
-				error: err instanceof Error ? err.message : String(err),
-			};
-		}
-
-		// If prepare failed or produced no message, we're done — no fresh session needed.
-		if (!prepareResult.success || !prepareResult.message) {
-			return prepareResult;
-		}
-
-		// Stash the message on disk (module-level state is not guaranteed to
-		// survive the extension reload triggered by newSession). The
-		// session_start handler for the new session reads it back.
-		const message = prepareResult.message;
-		writePendingMessage(phaseCtx.root, message);
-
-		const sessionPromise = cmdCtx.newSession();
-		const timeoutPromise = new Promise<{ cancelled: true }>((resolve) => {
-			setTimeout(() => resolve({ cancelled: true }), timeoutMs);
-		});
-
-		const result = await Promise.race([sessionPromise, timeoutPromise]);
-
-		if (result.cancelled) {
-			clearPendingMessage(phaseCtx.root);
-			return {
-				success: false,
-				retry: true,
-				error: "Session creation timed out or was cancelled. Try again.",
-			};
-		}
-
-		// Message delivery happens in the session_start handler.
-		return { success: true, retry: false };
-	} finally {
+		prepareResult = await phaseModule.prepare(phaseCtx);
+	} catch (err) {
 		releaseLock(phaseCtx.root);
+		return {
+			success: false,
+			retry: false,
+			error: err instanceof Error ? err.message : String(err),
+		};
 	}
+
+	// If prepare failed or produced no message, we're done — no fresh
+	// session needed, release the lock and return.
+	if (!prepareResult.success || !prepareResult.message) {
+		releaseLock(phaseCtx.root);
+		return prepareResult;
+	}
+
+	// Stash the message on disk (module-level state is not guaranteed to
+	// survive the extension reload triggered by newSession). The
+	// session_start handler for the new session reads it back.
+	writePendingMessage(phaseCtx.root, prepareResult.message);
+
+	// Release the lock before scheduling — the new session starts without
+	// holding a lock (acquireLock happens only inside command handlers),
+	// and /tff doctor handles any rare orphaned state.
+	releaseLock(phaseCtx.root);
+
+	// Schedule newSession to fire AFTER this handler returns. void discards
+	// the promise: we intentionally do not await it (see docblock).
+	setImmediate(() => {
+		void cmdCtx.newSession();
+	});
+
+	return { success: true, retry: false };
 }

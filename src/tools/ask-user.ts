@@ -108,20 +108,28 @@ export function handleAskUser(questions: AskUserQuestion[]): ToolResult {
 		}
 	}
 
-	const sections: string[] = ["## Please choose"];
+	const sections: string[] = [];
 	for (const q of questions) {
 		const finalOptions = q.allowMultiple
 			? q.options
 			: [...q.options, { label: "None of the above", description: "Request a different option." }];
 		const mode = q.allowMultiple ? "choose any that apply" : "choose one";
-		sections.push(`\n### ${q.header} (${mode})`);
-		sections.push(`${q.question}\n`);
+		sections.push(`## ${q.header} — ${mode}`);
+		sections.push("");
+		sections.push(q.question);
+		sections.push("");
 		for (let i = 0; i < finalOptions.length; i++) {
 			const opt = finalOptions[i];
 			if (!opt) continue;
-			sections.push(`${i + 1}. **${opt.label}** — ${opt.description}`);
+			// Label and description on separate lines so narrow terminals and
+			// raw-text renderers both keep them readable. No bold markers —
+			// they render as literal `**` in plain-text TUI contexts.
+			sections.push(`  ${i + 1}) ${opt.label}`);
+			sections.push(`     ${opt.description}`);
 		}
-		sections.push(`\n_(Reply with the option number(s) for \`${q.id}\`.)_`);
+		sections.push("");
+		sections.push(`Reply with the option number(s) for "${q.id}".`);
+		sections.push("");
 	}
 
 	return {

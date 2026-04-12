@@ -50,7 +50,7 @@ describe("runPhaseWithFreshContext", () => {
 		expect(mockModule.prepare).not.toHaveBeenCalled();
 	});
 
-	it("calls prepare, writes pending message to disk, then newSession", async () => {
+	it("writes pending message to disk BEFORE scheduling newSession", async () => {
 		const { readPendingMessage } = await import("../../../src/common/phase.js");
 
 		const newSessionMock = makeNewSessionMock({ cancelled: false });
@@ -74,14 +74,21 @@ describe("runPhaseWithFreshContext", () => {
 		});
 
 		expect(mockModule.prepare).toHaveBeenCalledOnce();
-		expect(messageAtNewSession).toBe("phase msg");
-		expect(newSessionMock).toHaveBeenCalledOnce();
+		// Return must be synchronous wrt newSession — the whole point of the
+		// fire-and-forget fix is that the handler returns BEFORE newSession
+		// actually fires, so PI can settle the current session.
+		expect(newSessionMock).not.toHaveBeenCalled();
 		expect(result.success).toBe(true);
+		// Wait one tick for the scheduled setImmediate to fire.
+		await new Promise((r) => setImmediate(r));
+		expect(newSessionMock).toHaveBeenCalledOnce();
+		expect(messageAtNewSession).toBe("phase msg");
 	});
 
-	it("clears pending message on disk if newSession is cancelled", async () => {
+	it("returns success optimistically even if newSession would report cancelled", async () => {
+		// Fire-and-forget means we can't observe cancellation. Pending message
+		// survives for /tff doctor to diagnose + clean up.
 		const { readPendingMessage } = await import("../../../src/common/phase.js");
-
 		const newSessionMock = makeNewSessionMock({ cancelled: true });
 		const mockCmdCtx = makeCmdCtx(newSessionMock);
 		const mockModule: PhaseModule = {
@@ -89,14 +96,16 @@ describe("runPhaseWithFreshContext", () => {
 		};
 		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
 
-		await runPhaseWithFreshContext({
+		const result = await runPhaseWithFreshContext({
 			phaseModule: mockModule,
 			phaseCtx: mockCtx,
 			cmdCtx: mockCmdCtx,
 			phase: "plan",
 		});
 
-		expect(readPendingMessage(root)).toBeNull();
+		expect(result.success).toBe(true);
+		// Message stays on disk — doctor command owns recovery.
+		expect(readPendingMessage(root)).toBe("phase msg");
 	});
 
 	it("skips newSession when prepare returns no message", async () => {
@@ -144,9 +153,17 @@ describe("runPhaseWithFreshContext", () => {
 		expect(result.error).toBe("bad validation");
 	});
 
-	it("returns error when newSession is cancelled", async () => {
-		const newSessionMock = makeNewSessionMock({ cancelled: true });
-		const mockCmdCtx = makeCmdCtx(newSessionMock);
+	it("does NOT deadlock even if newSession never resolves (regression guard)", async () => {
+		// This is the core regression this module exists to prevent:
+		// awaiting newSession() inside a command handler deadlocks because
+		// PI cannot start a new session until the handler returns, but
+		// awaiting newSession here prevents returning. We proved this
+		// hung every `/tff next` post-plan in the wild. The fire-and-forget
+		// design guarantees the handler returns regardless.
+		const neverResolves = vi
+			.fn<NewSessionFn>()
+			.mockImplementation(() => new Promise<NewSessionResult>(() => {}));
+		const mockCmdCtx = makeCmdCtx(neverResolves);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
 		};
@@ -159,35 +176,9 @@ describe("runPhaseWithFreshContext", () => {
 			phase: "execute",
 		});
 
-		expect(result.success).toBe(false);
-		expect(result.error).toContain("cancelled");
-	});
-
-	it("returns error on newSession timeout", async () => {
-		const newSessionMock = vi
-			.fn<NewSessionFn>()
-			.mockImplementation(
-				() =>
-					new Promise<NewSessionResult>((resolve) =>
-						setTimeout(() => resolve({ cancelled: true }), 200),
-					),
-			);
-		const mockCmdCtx = makeCmdCtx(newSessionMock);
-		const mockModule: PhaseModule = {
-			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
-		};
-		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
-
-		const result = await runPhaseWithFreshContext({
-			phaseModule: mockModule,
-			phaseCtx: mockCtx,
-			cmdCtx: mockCmdCtx,
-			phase: "plan",
-			timeoutMs: 50,
-		});
-
-		expect(result.success).toBe(false);
-		expect(result.error).toContain("timed out");
+		// Handler returns synchronously with success — pending message is on
+		// disk, newSession is scheduled, doctor handles any hang recovery.
+		expect(result.success).toBe(true);
 	});
 
 	it("releases lock even when prepare throws", async () => {

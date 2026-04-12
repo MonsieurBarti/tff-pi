@@ -87,10 +87,12 @@ describe("handleAskUser", () => {
 			makeQuestion({ id: "db_choice", header: "DB", question: "Which DB?" }),
 		]);
 		const text = must(result.content[0]).text;
-		expect(text).toContain("Scope (choose one)");
-		expect(text).toContain("DB (choose one)");
-		expect(text).toContain("1. **Auth only**");
-		expect(text).toContain("2. **Auth + session**");
+		expect(text).toContain("Scope — choose one");
+		expect(text).toContain("DB — choose one");
+		expect(text).toMatch(/^\s*1\) Auth only/m);
+		expect(text).toMatch(/^\s*2\) Auth \+ session/m);
+		// No literal bold markers — breaks plain-text TUI rendering.
+		expect(text).not.toContain("**");
 		expect(result.details.questionCount).toBe(2);
 	});
 });
