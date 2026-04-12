@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { FffService } from "@the-forge-flow/fff-pi";
 
 export interface FffFindResult {
 	path: string;
@@ -12,45 +12,89 @@ export interface FffGrepResult {
 }
 
 export class FffBridge {
-	constructor(private pi: ExtensionAPI) {}
+	private service: FffService;
+	private ready = false;
 
-	async find(query: string, maxResults = 10): Promise<FffFindResult[]> {
+	constructor() {
+		this.service = new FffService();
+	}
+
+	async initialize(cwd: string): Promise<void> {
+		if (this.ready) return;
+		await this.service.initialize(cwd);
+		this.ready = true;
+	}
+
+	async shutdown(): Promise<void> {
+		if (!this.ready) return;
+		await this.service.shutdown();
+		this.ready = false;
+	}
+
+	async find(query: string, opts?: { maxResults?: number }): Promise<FffFindResult[]> {
+		if (!this.ready) return [];
 		try {
-			const result = await this.pi.exec("pi", [
-				"tff-fff_find",
-				query,
-				"--max-results",
-				String(maxResults),
-			]);
-			if (result.code !== 0) return [];
-			const parsed = JSON.parse(result.stdout) as { items: FffFindResult[] };
-			return parsed.items ?? [];
+			const result = await this.service.find(query, opts);
+			const items = (result as { items?: Array<{ path: string; score?: number }> }).items ?? [];
+			return items.map((item) => {
+				const out: FffFindResult = { path: item.path };
+				if (item.score !== undefined) out.score = item.score;
+				return out;
+			});
 		} catch {
 			return [];
 		}
 	}
 
 	async grep(patterns: string[], opts?: { maxResults?: number }): Promise<FffGrepResult[]> {
-		const maxResults = opts?.maxResults ?? 10;
+		if (!this.ready) return [];
 		try {
-			const result = await this.pi.exec("pi", [
-				"tff-fff_grep",
-				...patterns,
-				"--max-results",
-				String(maxResults),
-			]);
-			if (result.code !== 0) return [];
-			const parsed = JSON.parse(result.stdout) as { items: FffGrepResult[] };
-			return parsed.items ?? [];
+			const result = await this.service.grep(patterns, opts);
+			const items =
+				(result as { items?: Array<{ path: string; lineNumber?: number; lineContent?: string }> })
+					.items ?? [];
+			return items.map((item) => {
+				const out: FffGrepResult = { path: item.path };
+				if (item.lineNumber !== undefined) out.line = item.lineNumber;
+				if (item.lineContent !== undefined) out.text = item.lineContent;
+				return out;
+			});
 		} catch {
 			return [];
 		}
 	}
 }
 
-export function discoverFffService(pi: ExtensionAPI): FffBridge | null {
-	const tools = pi.getAllTools();
-	const hasFff = tools.some((t: { name: string }) => t.name === "tff-fff_find");
-	if (!hasFff) return null;
-	return new FffBridge(pi);
+let cached: FffBridge | null = null;
+
+export async function initFffBridge(cwd: string): Promise<FffBridge | null> {
+	try {
+		if (!cached) {
+			cached = new FffBridge();
+			await cached.initialize(cwd);
+		}
+		return cached;
+	} catch {
+		cached = null;
+		return null;
+	}
+}
+
+export function getFffBridge(): FffBridge | null {
+	return cached;
+}
+
+export async function shutdownFffBridge(): Promise<void> {
+	if (cached) {
+		try {
+			await cached.shutdown();
+		} catch {
+			// best-effort
+		}
+		cached = null;
+	}
+}
+
+export function resetFffBridgeForTest(): void {
+	cached = null;
 }

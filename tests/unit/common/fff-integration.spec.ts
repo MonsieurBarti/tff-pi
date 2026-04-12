@@ -1,131 +1,91 @@
-import { describe, expect, it, vi } from "vitest";
-import { FffBridge, discoverFffService } from "../../../src/common/fff-integration.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-function makePi(
-	toolNames: string[],
-	execResult?: { code: number; stdout: string; stderr: string },
-) {
-	return {
-		getAllTools: vi.fn(() => toolNames.map((name) => ({ name }))),
-		exec: vi
-			.fn()
-			.mockResolvedValue(
-				execResult ?? { code: 0, stdout: JSON.stringify({ items: [] }), stderr: "" },
-			),
-	};
-}
+const mockInitialize = vi.fn();
+const mockShutdown = vi.fn();
+const mockFind = vi.fn();
+const mockGrep = vi.fn();
 
-describe("discoverFffService", () => {
-	it("returns null when fff tools not registered", () => {
-		const pi = makePi(["some-other-tool"]);
-		const result = discoverFffService(pi as never);
-		expect(result).toBeNull();
+vi.mock("@the-forge-flow/fff-pi", () => ({
+	FffService: vi.fn().mockImplementation(() => ({
+		initialize: mockInitialize,
+		shutdown: mockShutdown,
+		find: mockFind,
+		grep: mockGrep,
+	})),
+}));
+
+import {
+	FffBridge,
+	getFffBridge,
+	initFffBridge,
+	resetFffBridgeForTest,
+	shutdownFffBridge,
+} from "../../../src/common/fff-integration.js";
+
+describe("fff-integration", () => {
+	beforeEach(() => {
+		resetFffBridgeForTest();
+		mockInitialize.mockReset().mockResolvedValue(undefined);
+		mockShutdown.mockReset().mockResolvedValue(undefined);
+		mockFind.mockReset().mockReturnValue({ items: [] });
+		mockGrep.mockReset().mockReturnValue({ items: [] });
 	});
 
-	it("returns FffBridge when tff-fff_find is registered", () => {
-		const pi = makePi(["tff-fff_find", "tff-fff_grep"]);
-		const result = discoverFffService(pi as never);
-		expect(result).toBeInstanceOf(FffBridge);
-	});
-});
-
-describe("FffBridge", () => {
-	describe("find", () => {
-		it("invokes exec with tff-fff_find and parses results", async () => {
-			const items = [{ path: "src/foo.ts", score: 0.9 }];
-			const pi = makePi(["tff-fff_find"], {
-				code: 0,
-				stdout: JSON.stringify({ items }),
-				stderr: "",
-			});
-			const bridge = new FffBridge(pi as never);
-			const results = await bridge.find("foo");
-			expect(pi.exec).toHaveBeenCalledOnce();
-			const firstCall = pi.exec.mock.calls[0] as [string, string[]];
-			const [cmd, args] = firstCall;
-			expect(cmd).toBe("pi");
-			expect(args).toContain("tff-fff_find");
-			expect(args).toContain("foo");
-			expect(results).toEqual(items);
-		});
-
-		it("returns empty array on exec failure (non-zero code)", async () => {
-			const pi = makePi(["tff-fff_find"], { code: 1, stdout: "", stderr: "error" });
-			const bridge = new FffBridge(pi as never);
-			const results = await bridge.find("foo");
-			expect(results).toEqual([]);
-		});
-
-		it("returns empty array when exec throws", async () => {
-			const pi = {
-				getAllTools: vi.fn(() => [{ name: "tff-fff_find" }]),
-				exec: vi.fn().mockRejectedValue(new Error("exec failed")),
-			};
-			const bridge = new FffBridge(pi as never);
-			const results = await bridge.find("foo");
-			expect(results).toEqual([]);
-		});
+	it("initFffBridge returns a bridge and caches it", async () => {
+		const b1 = await initFffBridge("/tmp/proj");
+		const b2 = await initFffBridge("/tmp/proj");
+		expect(b1).not.toBeNull();
+		expect(b1).toBe(b2);
+		expect(mockInitialize).toHaveBeenCalledOnce();
 	});
 
-	describe("grep", () => {
-		it("invokes exec with tff-fff_grep and parses results", async () => {
-			const items = [{ path: "src/bar.ts", line: 42, text: "match text" }];
-			const pi = makePi(["tff-fff_grep"], {
-				code: 0,
-				stdout: JSON.stringify({ items }),
-				stderr: "",
-			});
-			const bridge = new FffBridge(pi as never);
-			const results = await bridge.grep(["pattern1", "pattern2"]);
-			expect(pi.exec).toHaveBeenCalledOnce();
-			const [grepCmd, grepArgs] = pi.exec.mock.calls[0] as [string, string[]];
-			expect(grepCmd).toBe("pi");
-			expect(grepArgs).toContain("tff-fff_grep");
-			expect(grepArgs).toContain("pattern1");
-			expect(results).toEqual(items);
-		});
+	it("initFffBridge returns null on init failure", async () => {
+		mockInitialize.mockRejectedValueOnce(new Error("nope"));
+		const b = await initFffBridge("/tmp/proj");
+		expect(b).toBeNull();
+	});
 
-		it("returns empty array on exec failure (non-zero code)", async () => {
-			const pi = makePi(["tff-fff_grep"], { code: 1, stdout: "", stderr: "error" });
-			const bridge = new FffBridge(pi as never);
-			const results = await bridge.grep(["pattern"]);
-			expect(results).toEqual([]);
-		});
+	it("find returns empty array when not initialized", async () => {
+		const bridge = new FffBridge();
+		expect(await bridge.find("x")).toEqual([]);
+		expect(mockFind).not.toHaveBeenCalled();
+	});
 
-		it("returns empty array when exec throws", async () => {
-			const pi = {
-				getAllTools: vi.fn(() => [{ name: "tff-fff_grep" }]),
-				exec: vi.fn().mockRejectedValue(new Error("exec failed")),
-			};
-			const bridge = new FffBridge(pi as never);
-			const results = await bridge.grep(["pattern"]);
-			expect(results).toEqual([]);
-		});
+	it("find forwards to service and unwraps items after initialize", async () => {
+		mockFind.mockReturnValueOnce({ items: [{ path: "a.ts", score: 0.5 }] });
+		const bridge = await initFffBridge("/tmp/proj");
+		if (!bridge) throw new Error("bridge should be non-null");
+		const results = await bridge.find("foo", { maxResults: 5 });
+		expect(results).toEqual([{ path: "a.ts", score: 0.5 }]);
+		expect(mockFind).toHaveBeenCalledWith("foo", { maxResults: 5 });
+	});
 
-		it("accepts opts object with maxResults", async () => {
-			const items = [{ path: "src/bar.ts" }];
-			const pi = makePi(["tff-fff_grep"], {
-				code: 0,
-				stdout: JSON.stringify({ items }),
-				stderr: "",
-			});
-			const bridge = new FffBridge(pi as never);
-			const results = await bridge.grep(["pattern"], { maxResults: 5 });
-			expect(results).toEqual(items);
-			const [, args] = pi.exec.mock.calls[0] as [string, string[]];
-			expect(args).toContain("5");
+	it("grep unwraps items and maps line fields", async () => {
+		mockGrep.mockReturnValueOnce({
+			items: [{ path: "b.ts", lineNumber: 7, lineContent: "hit" }],
 		});
+		const bridge = await initFffBridge("/tmp/proj");
+		if (!bridge) throw new Error("bridge should be non-null");
+		const results = await bridge.grep(["x"], { maxResults: 3 });
+		expect(results).toEqual([{ path: "b.ts", line: 7, text: "hit" }]);
+		expect(mockGrep).toHaveBeenCalledWith(["x"], { maxResults: 3 });
+	});
 
-		it("defaults maxResults to 10 when opts is omitted", async () => {
-			const pi = makePi(["tff-fff_grep"], {
-				code: 0,
-				stdout: JSON.stringify({ items: [] }),
-				stderr: "",
-			});
-			const bridge = new FffBridge(pi as never);
-			await bridge.grep(["pattern"]);
-			const [, args] = pi.exec.mock.calls[0] as [string, string[]];
-			expect(args).toContain("10");
+	it("grep returns empty on service error", async () => {
+		mockGrep.mockImplementationOnce(() => {
+			throw new Error("boom");
 		});
+		const bridge = await initFffBridge("/tmp/proj");
+		if (!bridge) throw new Error("bridge should be non-null");
+		const results = await bridge.grep(["x"]);
+		expect(results).toEqual([]);
+	});
+
+	it("shutdownFffBridge clears cached instance", async () => {
+		await initFffBridge("/tmp/proj");
+		expect(getFffBridge()).not.toBeNull();
+		await shutdownFffBridge();
+		expect(getFffBridge()).toBeNull();
+		expect(mockShutdown).toHaveBeenCalledOnce();
 	});
 });

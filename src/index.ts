@@ -38,7 +38,7 @@ import {
 } from "./common/db.js";
 import { DISCUSS_GATES, resetAllGates, unlockGate } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
-import { type FffBridge, discoverFffService } from "./common/fff-integration.js";
+import type { FffBridge } from "./common/fff-integration.js";
 import {
 	addRemote,
 	createGitignore,
@@ -255,8 +255,8 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					ctx.ui.notify("TFF ready", "info");
 				}
 
-				// Discover fff-pi
-				_fffBridge = discoverFffService(pi);
+				// fff-pi bridge: wired in Task 5 (initFffBridge/shutdownFffBridge)
+				_fffBridge = null;
 
 				// --- Crash recovery scan ---
 				try {
