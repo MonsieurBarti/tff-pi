@@ -51,10 +51,8 @@ import {
 	type PhaseContext,
 	type PhaseModule,
 	clearPendingMessage,
-	debugLog,
 	readPendingMessage,
 	runPhaseWithFreshContext,
-	setPendingMessageDelivery,
 } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import {
@@ -101,22 +99,8 @@ let tuiMonitor: TUIMonitor | null = null;
 let _fffBridge: FffBridge | null = null;
 let cmdCtx: ExtensionCommandContext | null = null;
 
-/**
- * Message queued for delivery into the next new session.
- *
- * Set by `runPhaseWithFreshContext` before calling `cmdCtx.newSession()`.
- * Delivered by the `session_start` handler (when `event.reason === "new"`)
- * because that's when the new session's runtime is fully bound and ready
- * to accept messages. Module-level state persists across extension reloads.
- */
-let pendingPhaseMessage: string | null = null;
-
 export function getCmdCtx() {
 	return cmdCtx;
-}
-
-export function setPendingPhaseMessage(message: string | null): void {
-	pendingPhaseMessage = message;
 }
 
 // ---------------------------------------------------------------------------
@@ -207,54 +191,25 @@ async function runHeavyPhase(
 // ---------------------------------------------------------------------------
 
 export default function tffExtension(pi: ExtensionAPI): void {
-	// Wire the phase runner's message-stash hook to our module-level state.
-	// This runs on every extension load including after newSession() reloads.
-	setPendingMessageDelivery(setPendingPhaseMessage);
-
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
 	pi.on("session_start", async (event, ctx) => {
-		const earlyRoot = getGitRoot();
-		if (earlyRoot) {
-			debugLog(earlyRoot, "session_start-fired", {
-				reason: event.reason,
-				hasMemoryMessage: pendingPhaseMessage !== null,
-				hasDiskMessage: readPendingMessage(earlyRoot) !== null,
-			});
-		}
-
-		// Deliver any phase message queued before newSession() was called.
-		// Runs here because the new session's runtime is fully bound by
-		// the time session_start fires — sendMessage before this is a no-op.
+		// Deliver any phase message queued on disk before newSession() was called.
+		// The new session's runtime is fully bound by the time session_start fires —
+		// sendMessage before this is a no-op.
 		if (event.reason === "new") {
-			const diskMessage = earlyRoot ? readPendingMessage(earlyRoot) : null;
-			const message = pendingPhaseMessage ?? diskMessage;
-			pendingPhaseMessage = null;
+			const earlyRoot = getGitRoot();
+			const message = earlyRoot ? readPendingMessage(earlyRoot) : null;
 			if (earlyRoot) clearPendingMessage(earlyRoot);
 
 			if (message) {
-				if (earlyRoot) {
-					debugLog(earlyRoot, "about-to-sendmessage", {
-						source: diskMessage ? "disk" : "memory",
-						bytes: message.length,
-					});
-				}
 				try {
 					pi.sendMessage(
 						{ customType: "tff-phase", content: message, display: true },
 						{ triggerTurn: true },
 					);
-					if (earlyRoot) debugLog(earlyRoot, "sendmessage-returned");
-					if (ctx.hasUI) {
-						ctx.ui.notify("Phase prompt delivered.", "info");
-					}
 				} catch (err) {
-					if (earlyRoot) {
-						debugLog(earlyRoot, "sendmessage-threw", {
-							error: err instanceof Error ? err.message : String(err),
-						});
-					}
 					if (ctx.hasUI) {
 						ctx.ui.notify(
 							`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
@@ -262,8 +217,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						);
 					}
 				}
-			} else if (earlyRoot) {
-				debugLog(earlyRoot, "no-pending-message-found");
 			}
 		}
 

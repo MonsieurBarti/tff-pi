@@ -1,11 +1,4 @@
-import {
-	appendFileSync,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	unlinkSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
@@ -13,17 +6,11 @@ import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
 import type { Phase, Slice } from "./types.js";
 
-function debugLog(root: string, event: string, details?: Record<string, unknown>): void {
-	try {
-		const dir = join(root, ".tff", "logs");
-		mkdirSync(dir, { recursive: true });
-		const entry = `${new Date().toISOString()} [${event}] ${JSON.stringify(details ?? {})}\n`;
-		appendFileSync(join(dir, "phase-handoff.log"), entry, "utf-8");
-	} catch {
-		// best effort
-	}
-}
-
+/**
+ * Phase messages are stashed on disk because module-level state is not
+ * guaranteed to survive the extension reload triggered by `newSession()`.
+ * The session_start handler reads from here when `event.reason === "new"`.
+ */
 const PENDING_MESSAGE_FILE = "pending-phase-message.txt";
 
 function pendingMessagePath(root: string): string {
@@ -31,18 +18,15 @@ function pendingMessagePath(root: string): string {
 }
 
 export function writePendingMessage(root: string, message: string): void {
-	const p = pendingMessagePath(root);
 	mkdirSync(join(root, ".tff"), { recursive: true });
-	writeFileSync(p, message, "utf-8");
-	debugLog(root, "pending-message-written", { bytes: message.length });
+	writeFileSync(pendingMessagePath(root), message, "utf-8");
 }
 
 export function readPendingMessage(root: string): string | null {
 	const p = pendingMessagePath(root);
 	if (!existsSync(p)) return null;
 	try {
-		const content = readFileSync(p, "utf-8");
-		return content;
+		return readFileSync(p, "utf-8");
 	} catch {
 		return null;
 	}
@@ -57,19 +41,6 @@ export function clearPendingMessage(root: string): void {
 			// best effort
 		}
 	}
-}
-
-export { debugLog };
-
-/**
- * Hook used by `runPhaseWithFreshContext` to stash the phase message for the
- * next fresh session. Injected by the extension entry point to avoid circular
- * imports between `phase.ts` and `index.ts`.
- */
-let setPendingMessageHook: ((message: string | null) => void) | null = null;
-
-export function setPendingMessageDelivery(fn: ((message: string | null) => void) | null): void {
-	setPendingMessageHook = fn;
 }
 
 export interface PhaseContext {
@@ -142,19 +113,11 @@ export async function runPhaseWithFreshContext(
 			return prepareResult;
 		}
 
-		// Stash the message on disk (module state may not survive extension reload)
-		// AND via in-memory hook (belt + suspenders). The session_start handler
-		// for the new session reads from disk first, then falls back to memory.
+		// Stash the message on disk (module-level state is not guaranteed to
+		// survive the extension reload triggered by newSession). The
+		// session_start handler for the new session reads it back.
 		const message = prepareResult.message;
 		writePendingMessage(phaseCtx.root, message);
-		if (setPendingMessageHook) {
-			setPendingMessageHook(message);
-		}
-		debugLog(phaseCtx.root, "about-to-newsession", {
-			phase,
-			sliceId: phaseCtx.slice.id,
-			messageBytes: message.length,
-		});
 
 		const sessionPromise = cmdCtx.newSession();
 		const timeoutPromise = new Promise<{ cancelled: true }>((resolve) => {
@@ -162,13 +125,9 @@ export async function runPhaseWithFreshContext(
 		});
 
 		const result = await Promise.race([sessionPromise, timeoutPromise]);
-		debugLog(phaseCtx.root, "newsession-returned", { cancelled: result.cancelled });
 
 		if (result.cancelled) {
 			clearPendingMessage(phaseCtx.root);
-			if (setPendingMessageHook) {
-				setPendingMessageHook(null);
-			}
 			return {
 				success: false,
 				retry: true,

@@ -35,16 +35,20 @@ describe("runPhaseWithFreshContext", () => {
 		expect(mockModule.prepare).not.toHaveBeenCalled();
 	});
 
-	it("calls prepare, stashes message via hook, then newSession", async () => {
-		const { setPendingMessageDelivery } = await import("../../../src/common/phase.js");
-		const pendingCalls: (string | null)[] = [];
-		setPendingMessageDelivery((msg) => pendingCalls.push(msg));
+	it("calls prepare, writes pending message to disk, then newSession", async () => {
+		const { readPendingMessage } = await import("../../../src/common/phase.js");
 
 		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
 		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
 			typeof runPhaseWithFreshContext
 		>[0]["cmdCtx"];
+		let messageAtNewSession: string | null = null;
+		newSessionMock.mockImplementation(async () => {
+			// Snapshot disk state at the moment newSession is called
+			messageAtNewSession = readPendingMessage(root);
+			return { cancelled: false };
+		});
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
 		};
@@ -58,17 +62,13 @@ describe("runPhaseWithFreshContext", () => {
 		});
 
 		expect(mockModule.prepare).toHaveBeenCalledOnce();
-		expect(pendingCalls).toEqual(["phase msg"]);
+		expect(messageAtNewSession).toBe("phase msg");
 		expect(newSessionMock).toHaveBeenCalledOnce();
 		expect(result.success).toBe(true);
-
-		setPendingMessageDelivery(null);
 	});
 
-	it("clears stashed message if newSession is cancelled", async () => {
-		const { setPendingMessageDelivery } = await import("../../../src/common/phase.js");
-		const pendingCalls: (string | null)[] = [];
-		setPendingMessageDelivery((msg) => pendingCalls.push(msg));
+	it("clears pending message on disk if newSession is cancelled", async () => {
+		const { readPendingMessage } = await import("../../../src/common/phase.js");
 
 		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: true }) as any;
@@ -87,8 +87,7 @@ describe("runPhaseWithFreshContext", () => {
 			phase: "plan",
 		});
 
-		expect(pendingCalls).toEqual(["phase msg", null]);
-		setPendingMessageDelivery(null);
+		expect(readPendingMessage(root)).toBeNull();
 	});
 
 	it("skips newSession when prepare returns no message", async () => {
