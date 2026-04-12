@@ -771,7 +771,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const action = (rest[0] ?? "resume") as RecoveryClassification | "dismiss";
+					const explicitAction = rest[0] as RecoveryClassification | "dismiss" | undefined;
 
 					const stuck = scanForStuckSlices(database);
 					if (stuck.length === 0) {
@@ -786,6 +786,16 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					if (!milestone) {
 						pi.sendUserMessage("Cannot find milestone for stuck slice.");
 						break;
+					}
+
+					// Use explicit action if provided, otherwise fall back to diagnosed classification
+					const diagnosis = diagnoseRecovery(root, database, stuckSlice.id, milestone.number);
+					const action = explicitAction ?? diagnosis.classification;
+
+					if (stuck.length > 1) {
+						pi.sendUserMessage(
+							`Note: ${stuck.length} stuck slices found. Recovering first (${diagnosis.sliceLabel}) only.`,
+						);
 					}
 
 					const result = executeRecovery(database, root, {
