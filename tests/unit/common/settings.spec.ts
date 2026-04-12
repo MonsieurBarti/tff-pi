@@ -140,6 +140,40 @@ describe("settings", () => {
 		});
 	});
 
+	describe("compress.apply_to", () => {
+		it("parses apply_to array with valid scopes", () => {
+			const s = parseSettings("compress:\n  apply_to: [artifacts, context_injection]\n");
+			expect(s.compress.apply_to).toEqual(["artifacts", "context_injection"]);
+		});
+
+		it("filters invalid scopes from apply_to", () => {
+			const s = parseSettings("compress:\n  apply_to: [artifacts, bogus, phase_prompts]\n");
+			expect(s.compress.apply_to).toEqual(["artifacts", "phase_prompts"]);
+		});
+
+		it("legacy user_artifacts=true maps to apply_to=[artifacts]", () => {
+			const s = parseSettings("compress:\n  user_artifacts: true\n");
+			expect(s.compress.apply_to).toEqual(["artifacts"]);
+		});
+
+		it("explicit apply_to wins over legacy user_artifacts", () => {
+			const s = parseSettings(
+				"compress:\n  user_artifacts: true\n  apply_to: [context_injection]\n",
+			);
+			expect(s.compress.apply_to).toEqual(["context_injection"]);
+		});
+
+		it("apply_to is undefined when neither apply_to nor user_artifacts is set", () => {
+			const s = parseSettings("model_profile: balanced");
+			expect(s.compress.apply_to).toBeUndefined();
+		});
+
+		it("accepts empty apply_to array", () => {
+			const s = parseSettings("compress:\n  apply_to: []\n");
+			expect(s.compress.apply_to).toEqual([]);
+		});
+	});
+
 	describe("serializeSettings", () => {
 		it("serializes settings to YAML string", () => {
 			const yaml = serializeSettings(DEFAULT_SETTINGS);
@@ -156,12 +190,27 @@ describe("settings", () => {
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);
-			expect(parsed).toEqual(original);
+			// After parsing, user_artifacts=true triggers legacy mapping to apply_to: ["artifacts"]
+			expect(parsed.model_profile).toBe(original.model_profile);
+			expect(parsed.compress.user_artifacts).toBe(original.compress.user_artifacts);
+			expect(parsed.compress.apply_to).toEqual(["artifacts"]);
+			expect(parsed.ship).toEqual(original.ship);
 		});
 
 		it("serializes compress.user_artifacts", () => {
 			const yaml = serializeSettings(DEFAULT_SETTINGS);
 			expect(yaml).toContain("user_artifacts");
+		});
+
+		it("round-trips apply_to through serialize/parse", () => {
+			const original: Settings = {
+				model_profile: "balanced",
+				compress: { user_artifacts: false, apply_to: ["artifacts", "phase_prompts"] },
+				ship: { auto_merge: false },
+			};
+			const yaml = serializeSettings(original);
+			const parsed = parseSettings(yaml);
+			expect(parsed.compress.apply_to).toEqual(["artifacts", "phase_prompts"]);
 		});
 	});
 });

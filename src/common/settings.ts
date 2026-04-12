@@ -4,6 +4,7 @@ export interface Settings {
 	model_profile: "quality" | "balanced" | "budget";
 	compress: {
 		user_artifacts: boolean;
+		apply_to?: ("artifacts" | "context_injection" | "phase_prompts")[];
 	};
 	ship: {
 		auto_merge: boolean;
@@ -41,6 +42,10 @@ export function parseSettings(yamlString: string): Settings {
 				ship: { ...DEFAULT_SETTINGS.ship },
 			};
 		}
+
+		const validScopes = ["artifacts", "context_injection", "phase_prompts"] as const;
+		type Scope = (typeof validScopes)[number];
+
 		const settings: Settings = {
 			model_profile:
 				parsed.model_profile === "quality" ||
@@ -61,6 +66,17 @@ export function parseSettings(yamlString: string): Settings {
 						: DEFAULT_SETTINGS.ship.auto_merge,
 			},
 		};
+
+		// Handle compress.apply_to: explicit array wins, legacy user_artifacts=true maps to ["artifacts"]
+		if (Array.isArray(parsed.compress?.apply_to)) {
+			settings.compress.apply_to = parsed.compress.apply_to.filter(
+				(s: unknown): s is Scope =>
+					typeof s === "string" && (validScopes as readonly string[]).includes(s),
+			);
+		} else if (settings.compress.user_artifacts === true) {
+			settings.compress.apply_to = ["artifacts"];
+		}
+
 		if (typeof parsed.test_command === "string") {
 			settings.test_command = parsed.test_command;
 		}
