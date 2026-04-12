@@ -46,6 +46,10 @@ tasks = structured array for DB:
 ]
 ```
 
+After the tool returns successfully, STOP. Do not call any other tools. The system handles plan review automatically — do NOT call `plannotator_submit_plan`, `plannotator_annotate`, or any plannotator_* tool. TFF emits the review request on an event bus; plannotator opens its UI modal; the tool return only resolves after the user approves in the UI.
+
+If the tool returns an error with `feedback`, the user rejected the plan in plannotator. Read the feedback, revise, and call `tff_write_plan` again with the updated content.
+
 ## Output
 PLAN.md artifact written. Tasks + dependencies inserted in DB. Waves auto-computed.
-Status transitions to `planning`.
+Phase transitions to `executing` when the user runs `/tff next`.

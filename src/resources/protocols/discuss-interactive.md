@@ -71,5 +71,7 @@ Write REQUIREMENTS.md via `tff_write_requirements` call:
 - Concrete acceptance conditions with examples
 - Verification instructions
 
+After each `tff_write_*` call returns successfully, STOP. Do NOT call `plannotator_submit_plan`, `plannotator_annotate`, or any plannotator_* tool. TFF handles plannotator review automatically via its event bus; you never call plannotator tools directly. If the tool returns an error with `feedback`, the user rejected the artifact in plannotator — read the feedback, revise, and call the `tff_write_*` tool again.
+
 ## 8. COMPLETION
 Confirm artifacts written. User can request changes in conversation.

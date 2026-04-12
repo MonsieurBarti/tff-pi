@@ -1309,12 +1309,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_spec",
 			label: "TFF Write Spec",
 			description:
-				"Write the SPEC.md artifact for a slice. During interactive discuss, requires depth verification gate to be unlocked first via tff_confirm_gate.",
+				"Write the SPEC.md artifact for a slice. During interactive discuss, requires depth verification gate to be unlocked first via tff_confirm_gate. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles spec review automatically. If this tool returns an error with feedback, the user rejected the spec; revise and call this tool again.",
 			promptSnippet:
-				"Call tff_confirm_gate('depth_verified') before calling tff_write_spec. The system enforces this.",
+				"Call tff_confirm_gate('depth_verified') before calling tff_write_spec. The system enforces this. After tff_write_spec succeeds, STOP — do not call plannotator tools. TFF handles review automatically.",
 			promptGuidelines: [
 				"Requires depth_verified gate — call tff_confirm_gate('depth_verified') first",
 				"Used during the discuss phase to write the spec after user confirms readiness",
+				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
+				"If tool returns error with feedback, user rejected spec; revise and retry.",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1392,10 +1394,12 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_requirements",
 			label: "TFF Write Requirements",
 			description:
-				"Write the REQUIREMENTS.md artifact for a slice. Used during the discuss phase alongside SPEC.md.",
+				"Write the REQUIREMENTS.md artifact for a slice. Used during the discuss phase alongside SPEC.md. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles requirements review automatically. If this tool returns an error with feedback, the user rejected the requirements; revise and call this tool again.",
 			promptGuidelines: [
 				"Write REQUIREMENTS.md with R-IDs, classes, acceptance conditions, and verification instructions",
 				"Used during the discuss phase after writing SPEC.md",
+				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
+				"If tool returns error with feedback, user rejected requirements; revise and retry.",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
@@ -1535,10 +1539,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Triggers plannotator review after writing.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles plan review automatically via event bus. If this tool returns an error with feedback, the user rejected the plan; revise and call this tool again.",
 			promptGuidelines: [
 				"Write PLAN.md with tasks, dependencies, and implementation details",
-				"Plannotator review opens automatically after writing",
+				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
+				"If tool returns error with feedback, user rejected plan; revise and retry.",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({
