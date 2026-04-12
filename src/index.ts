@@ -4,20 +4,15 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
-import { handleDoctor } from "./commands/doctor.js";
 import { validateExecute } from "./commands/execute.js";
-import { handleHealth } from "./commands/health.js";
-import { handleLogs } from "./commands/logs.js";
 import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
 import { validatePlan } from "./commands/plan.js";
-import { handleProgress } from "./commands/progress.js";
 import { executeRecovery } from "./commands/recover.js";
 import { validateResearch } from "./commands/research.js";
 import { handleShipChanges } from "./commands/ship-changes.js";
 import { handleShipMerged } from "./commands/ship-merged.js";
 import { validateShip } from "./commands/ship.js";
-import { handleStatus } from "./commands/status.js";
 import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, tffPath } from "./common/artifacts.js";
 import { createCheckpoint } from "./common/checkpoint.js";
@@ -210,107 +205,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						: "\n\nIMPORTANT: No git remote is configured. Ask the user for their GitHub repository URL and call the tff_add_remote tool with it. This is required for the ship phase to create PRs.";
 					pi.sendUserMessage(
 						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n\nOnce agreed, call the tff_create_project tool with the project name and vision. After creating the project, suggest the user run /tff new-milestone.${remoteInstruction}`,
-					);
-					break;
-				}
-
-				case "help": {
-					pi.sendUserMessage(
-						"Here are the available TFF commands:\n\n" +
-							"**Project setup:**\n" +
-							"- `/tff new [name]` — Start a new project (AI-assisted brainstorm)\n" +
-							"- `/tff new-milestone [name]` — Create a new milestone\n\n" +
-							"**Slice workflow:**\n" +
-							"- `/tff discuss [sliceId]` — Run the discuss phase on a slice\n" +
-							"- `/tff research [sliceId]` — Run the research phase on a slice\n" +
-							"- `/tff plan [sliceId]` — Run the plan phase on a slice\n" +
-							"- `/tff next` — Advance the active slice to its next phase\n" +
-							"**Monitoring:**\n" +
-							"- `/tff status` — Show current project status\n" +
-							"- `/tff progress` — Show detailed progress table\n" +
-							"- `/tff logs [M01-S01] [--json]` — Show event timeline for a slice\n" +
-							"- `/tff health` — Quick database health check\n" +
-							"- `/tff settings` — Show current settings\n" +
-							"- `/tff help` — Show this help\n\n" +
-							"**Execution:**\n" +
-							"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
-							"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
-							"- `/tff ship [sliceId]` — Open the slice PR and run CI\n" +
-							"- `/tff ship-merged [sliceId]` — You merged the PR: cleanup worktree + close slice\n" +
-							"- `/tff ship-changes [sliceId] <feedback>` — Reviewer requested changes: reopen for fixes\n\n" +
-							"- `/tff complete-milestone [M01]` — Create milestone PR after all slices ship",
-					);
-					break;
-				}
-
-				case "status": {
-					const result = handleStatus(getDb(ctx));
-					pi.sendUserMessage(result);
-					break;
-				}
-
-				case "progress": {
-					const result = handleProgress(getDb(ctx));
-					pi.sendUserMessage(result);
-					break;
-				}
-
-				case "logs": {
-					const db = getDb(ctx);
-					const rawArgs = rest.join(" ").trim();
-					const jsonFlag = rawArgs.includes("--json");
-					const label = rawArgs.replace("--json", "").trim();
-					const slice = label ? findSliceByLabel(db, label) : null;
-					const activeSlice = findActiveSlice(db);
-					const targetSlice = slice ?? activeSlice;
-					if (!targetSlice) {
-						pi.sendUserMessage("No slice found. Usage: `/tff logs [M01-S01] [--json]`");
-						break;
-					}
-					const result = handleLogs(db, targetSlice.id, { json: jsonFlag });
-					pi.sendUserMessage(result);
-					break;
-				}
-
-				case "health": {
-					let msg: string;
-					try {
-						const database = getDb(ctx);
-						msg = handleHealth(database);
-					} catch (err) {
-						msg = `TFF health: NOT OK — ${err instanceof Error ? err.message : String(err)}`;
-					}
-					if (ctx.initError) {
-						msg += `\n- Init warning: ${ctx.initError}`;
-					}
-					if (uiCtx.hasUI) {
-						uiCtx.ui.notify(msg, "info");
-					}
-					pi.sendUserMessage(msg);
-					break;
-				}
-
-				case "doctor": {
-					let msg: string;
-					try {
-						const database = getDb(ctx);
-						const recover = rest.includes("--recover");
-						const report = handleDoctor(database, { recover });
-						msg = report.message;
-					} catch (err) {
-						msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
-					}
-					if (uiCtx.hasUI) {
-						uiCtx.ui.notify(msg, "info");
-					}
-					pi.sendUserMessage(msg);
-					break;
-				}
-
-				case "settings": {
-					const current = ctx.settings ?? DEFAULT_SETTINGS;
-					pi.sendUserMessage(
-						`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n- ship.auto_merge: ${current.ship.auto_merge}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
 					);
 					break;
 				}

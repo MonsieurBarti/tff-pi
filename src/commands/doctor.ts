@@ -1,4 +1,6 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import type { TffContext } from "../common/context.js";
 import {
 	type PhaseRun,
 	getMilestones,
@@ -122,4 +124,27 @@ function formatStalledReport(stalled: StalledPhase[], opts: { recovered?: number
 		lines.push("Run `/tff doctor --recover` to mark these as abandoned.");
 	}
 	return lines.join("\n");
+}
+
+export async function runDoctor(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	uiCtx: ExtensionCommandContext | null,
+	args: string[],
+): Promise<void> {
+	let msg: string;
+	try {
+		if (!ctx.db) {
+			throw new Error("TFF database not initialized. Run `/tff new` to set up the project.");
+		}
+		const recover = args.includes("--recover");
+		const report = handleDoctor(ctx.db, { recover });
+		msg = report.message;
+	} catch (err) {
+		msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
+	}
+	if (uiCtx?.hasUI) {
+		uiCtx.ui.notify(msg, "info");
+	}
+	pi.sendUserMessage(msg);
 }

@@ -2,6 +2,13 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { TffContext } from "../common/context.js";
 import type { Subcommand } from "../common/router.js";
+import { runDoctor } from "./doctor.js";
+import { runHealth } from "./health.js";
+import { runHelp } from "./help.js";
+import { runLogs } from "./logs.js";
+import { runProgress } from "./progress.js";
+import { runSettings } from "./settings.js";
+import { runStatus } from "./status.js";
 
 export type CommandHandler = (
 	pi: ExtensionAPI,
@@ -19,3 +26,11 @@ export type CommandHandler = (
  *   - Task 14 will add the strong direction: every Subcommand has an entry.
  */
 export const COMMANDS: Map<Subcommand, CommandHandler> = new Map();
+
+COMMANDS.set("status", runStatus);
+COMMANDS.set("progress", runProgress);
+COMMANDS.set("logs", runLogs);
+COMMANDS.set("health", runHealth);
+COMMANDS.set("doctor", runDoctor);
+COMMANDS.set("settings", runSettings);
+COMMANDS.set("help", runHelp);
