@@ -50,6 +50,9 @@ import {
 import {
 	type PhaseContext,
 	type PhaseModule,
+	clearPendingMessage,
+	debugLog,
+	readPendingMessage,
 	runPhaseWithFreshContext,
 	setPendingMessageDelivery,
 } from "./common/phase.js";
@@ -212,24 +215,55 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
 	pi.on("session_start", async (event, ctx) => {
+		const earlyRoot = getGitRoot();
+		if (earlyRoot) {
+			debugLog(earlyRoot, "session_start-fired", {
+				reason: event.reason,
+				hasMemoryMessage: pendingPhaseMessage !== null,
+				hasDiskMessage: readPendingMessage(earlyRoot) !== null,
+			});
+		}
+
 		// Deliver any phase message queued before newSession() was called.
 		// Runs here because the new session's runtime is fully bound by
 		// the time session_start fires — sendMessage before this is a no-op.
-		if (event.reason === "new" && pendingPhaseMessage) {
-			const message = pendingPhaseMessage;
+		if (event.reason === "new") {
+			const diskMessage = earlyRoot ? readPendingMessage(earlyRoot) : null;
+			const message = pendingPhaseMessage ?? diskMessage;
 			pendingPhaseMessage = null;
-			try {
-				pi.sendMessage(
-					{ customType: "tff-phase", content: message, display: true },
-					{ triggerTurn: true },
-				);
-			} catch (err) {
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
-						"error",
-					);
+			if (earlyRoot) clearPendingMessage(earlyRoot);
+
+			if (message) {
+				if (earlyRoot) {
+					debugLog(earlyRoot, "about-to-sendmessage", {
+						source: diskMessage ? "disk" : "memory",
+						bytes: message.length,
+					});
 				}
+				try {
+					pi.sendMessage(
+						{ customType: "tff-phase", content: message, display: true },
+						{ triggerTurn: true },
+					);
+					if (earlyRoot) debugLog(earlyRoot, "sendmessage-returned");
+					if (ctx.hasUI) {
+						ctx.ui.notify("Phase prompt delivered.", "info");
+					}
+				} catch (err) {
+					if (earlyRoot) {
+						debugLog(earlyRoot, "sendmessage-threw", {
+							error: err instanceof Error ? err.message : String(err),
+						});
+					}
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
+							"error",
+						);
+					}
+				}
+			} else if (earlyRoot) {
+				debugLog(earlyRoot, "no-pending-message-found");
 			}
 		}
 
