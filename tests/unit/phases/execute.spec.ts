@@ -71,7 +71,7 @@ describe("executePhase", () => {
 	});
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof executePhase.run).toBe("function");
+		expect(typeof executePhase.prepare).toBe("function");
 	});
 
 	it("sends message with task list via sendUserMessage", async () => {
@@ -92,12 +92,12 @@ describe("executePhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await executePhase.run(ctx);
+		const result = await executePhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
-		expect(msg).toContain("Wave 1");
-		expect(msg).toContain("Wave 2");
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
+		expect(result.message).toContain("Wave 1");
+		expect(result.message).toContain("Wave 2");
 	});
 
 	it("returns success with no tasks (emits phase_complete)", async () => {
@@ -114,7 +114,7 @@ describe("executePhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await executePhase.run(ctx);
+		const result = await executePhase.prepare(ctx);
 		expect(result.success).toBe(true);
 		const completeCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete",

@@ -111,7 +111,7 @@ describe("shipPhase", () => {
 	}
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof shipPhase.run).toBe("function");
+		expect(typeof shipPhase.prepare).toBe("function");
 	});
 
 	it("stores pr_url on slice after PR creation", async () => {
@@ -124,7 +124,7 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
-		const result = await shipPhase.run(ctx);
+		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.prUrl).toContain("github.com");
@@ -140,7 +140,7 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
-		await shipPhase.run(ctx);
+		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
 		expect(prMd).not.toBeNull();
 		expect(prMd).toContain("github.com");
@@ -156,7 +156,7 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: true } }),
 		};
-		await shipPhase.run(ctx);
+		await shipPhase.prepare(ctx);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.status).toBe("closed");
 	});
@@ -172,7 +172,7 @@ describe("shipPhase", () => {
 			milestoneNumber: 1,
 			settings: makeSettings({ ship: { auto_merge: false } }),
 		};
-		const result = await shipPhase.run(ctx);
+		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 
 		// gh pr merge should NOT have been called

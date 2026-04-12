@@ -1,11 +1,9 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runPhaseWithFreshContext } from "../../../src/common/phase.js";
 import type { PhaseContext, PhaseModule } from "../../../src/common/phase.js";
-import type { SessionLock } from "../../../src/common/session-lock.js";
+import { runPhaseWithFreshContext } from "../../../src/common/phase.js";
 
 describe("runPhaseWithFreshContext", () => {
 	let root: string;
@@ -21,7 +19,7 @@ describe("runPhaseWithFreshContext", () => {
 
 	it("returns error when cmdCtx is null", async () => {
 		const mockModule: PhaseModule = {
-			run: vi.fn().mockResolvedValue({ success: true, retry: false }),
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
 		};
 		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
 
@@ -34,15 +32,17 @@ describe("runPhaseWithFreshContext", () => {
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("no command context");
-		expect(mockModule.run).not.toHaveBeenCalled();
+		expect(mockModule.prepare).not.toHaveBeenCalled();
 	});
 
-	it("calls newSession then runs the phase module", async () => {
-		const mockCmdCtx = {
-			newSession: vi.fn().mockResolvedValue({ cancelled: false }),
-		} as unknown as ExtensionCommandContext;
+	it("calls prepare, then newSession with setup callback when message returned", async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
 		const mockModule: PhaseModule = {
-			run: vi.fn().mockResolvedValue({ success: true, retry: false }),
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
 		};
 		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
 
@@ -53,16 +53,81 @@ describe("runPhaseWithFreshContext", () => {
 			phase: "execute",
 		});
 
-		expect(mockCmdCtx.newSession).toHaveBeenCalledOnce();
-		expect(mockModule.run).toHaveBeenCalledWith(mockCtx);
+		expect(mockModule.prepare).toHaveBeenCalledOnce();
+		expect(newSessionMock).toHaveBeenCalledOnce();
+		const sessionArgs = newSessionMock.mock.calls[0][0];
+		expect(typeof sessionArgs.setup).toBe("function");
+		const appendMessage = vi.fn();
+		await sessionArgs.setup({ appendMessage });
+		expect(appendMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				role: "user",
+				content: [{ type: "text", text: "phase msg" }],
+			}),
+		);
 		expect(result.success).toBe(true);
 	});
 
+	it("skips newSession when prepare returns no message", async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false }),
+		};
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
+
+		const result = await runPhaseWithFreshContext({
+			phaseModule: mockModule,
+			phaseCtx: mockCtx,
+			cmdCtx: mockCmdCtx,
+			phase: "ship",
+		});
+
+		expect(mockModule.prepare).toHaveBeenCalledOnce();
+		expect(newSessionMock).not.toHaveBeenCalled();
+		expect(result.success).toBe(true);
+	});
+
+	it("skips newSession when prepare fails", async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({
+				success: false,
+				retry: true,
+				error: "bad validation",
+				message: "should be ignored",
+			}),
+		};
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
+
+		const result = await runPhaseWithFreshContext({
+			phaseModule: mockModule,
+			phaseCtx: mockCtx,
+			cmdCtx: mockCmdCtx,
+			phase: "discuss",
+		});
+
+		expect(newSessionMock).not.toHaveBeenCalled();
+		expect(result.success).toBe(false);
+		expect(result.error).toBe("bad validation");
+	});
+
 	it("returns error when newSession is cancelled", async () => {
-		const mockCmdCtx = {
-			newSession: vi.fn().mockResolvedValue({ cancelled: true }),
-		} as unknown as ExtensionCommandContext;
-		const mockModule: PhaseModule = { run: vi.fn() };
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: true }) as any;
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
+		};
 		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
 
 		const result = await runPhaseWithFreshContext({
@@ -74,18 +139,20 @@ describe("runPhaseWithFreshContext", () => {
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("cancelled");
-		expect(mockModule.run).not.toHaveBeenCalled();
 	});
 
 	it("returns error on newSession timeout", async () => {
-		const mockCmdCtx = {
-			newSession: vi
-				.fn()
-				.mockImplementation(
-					() => new Promise((resolve) => setTimeout(() => resolve({ cancelled: true }), 200)),
-				),
-		} as unknown as ExtensionCommandContext;
-		const mockModule: PhaseModule = { run: vi.fn() };
+		const newSessionMock = vi
+			.fn()
+			.mockImplementation(
+				() => new Promise((resolve) => setTimeout(() => resolve({ cancelled: true }), 200)),
+			);
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
+		};
 		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
 
 		const result = await runPhaseWithFreshContext({
@@ -100,39 +167,15 @@ describe("runPhaseWithFreshContext", () => {
 		expect(result.error).toContain("timed out");
 	});
 
-	it("acquires and releases lock around phase execution", async () => {
+	it("releases lock even when prepare throws", async () => {
 		const { readLock } = await import("../../../src/common/session-lock.js");
-		const mockCmdCtx = {
-			newSession: vi.fn().mockResolvedValue({ cancelled: false }),
-		} as unknown as ExtensionCommandContext;
-		const captured: { lock: SessionLock | null } = { lock: null };
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
 		const mockModule: PhaseModule = {
-			run: vi.fn().mockImplementation(() => {
-				captured.lock = readLock(root);
-				return { success: true, retry: false };
-			}),
-		};
-		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
-
-		await runPhaseWithFreshContext({
-			phaseModule: mockModule,
-			phaseCtx: mockCtx,
-			cmdCtx: mockCmdCtx,
-			phase: "execute",
-		});
-
-		expect(captured.lock).not.toBeNull();
-		expect(captured.lock?.phase).toBe("execute");
-		expect(readLock(root)).toBeNull();
-	});
-
-	it("releases lock even when phase throws", async () => {
-		const { readLock } = await import("../../../src/common/session-lock.js");
-		const mockCmdCtx = {
-			newSession: vi.fn().mockResolvedValue({ cancelled: false }),
-		} as unknown as ExtensionCommandContext;
-		const mockModule: PhaseModule = {
-			run: vi.fn().mockRejectedValue(new Error("boom")),
+			prepare: vi.fn().mockRejectedValue(new Error("boom")),
 		};
 		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
 

@@ -5,7 +5,7 @@ import { cleanupCheckpoints } from "../common/checkpoint.js";
 import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { gitEnv } from "../common/git.js";
-import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
+import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import type { Slice } from "../common/types.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath, removeWorktree } from "../common/worktree.js";
@@ -82,7 +82,7 @@ function suggestNextAction(db: Database.Database, milestoneId: string): string {
 }
 
 export const shipPhase: PhaseModule = {
-	async run(ctx: PhaseContext): Promise<PhaseResult> {
+	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
 
 		const mLabel = milestoneLabel(milestoneNumber);

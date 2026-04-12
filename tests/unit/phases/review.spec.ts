@@ -85,9 +85,10 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await reviewPhase.run(ctx);
+		const result = await reviewPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
 	});
 
 	it("message includes spec, plan, verification, and diff", async () => {
@@ -104,8 +105,8 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await reviewPhase.run(ctx);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		const result = await reviewPhase.prepare(ctx);
+		const msg = result.message ?? "";
 		expect(msg).toContain("SPEC.md");
 		expect(msg).toContain("PLAN.md");
 		expect(msg).toContain("VERIFICATION.md");
@@ -126,8 +127,8 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await reviewPhase.run(ctx);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		const result = await reviewPhase.prepare(ctx);
+		const msg = result.message ?? "";
 		expect(msg).toContain("Security Review");
 		expect(msg).toContain("OWASP checks");
 	});
@@ -146,7 +147,7 @@ describe("reviewPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await reviewPhase.run(ctx);
+		await reviewPhase.prepare(ctx);
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "review",
 		);

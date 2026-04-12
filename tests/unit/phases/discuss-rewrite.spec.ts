@@ -53,22 +53,21 @@ describe("discuss phase rewrite", () => {
 		resetGates("s1");
 	});
 
-	it("sends protocol message via pi.sendUserMessage", async () => {
+	it("returns protocol message for delivery into fresh session", async () => {
 		const ctx = makeCtx();
-		const result = await discussPhase.run(ctx);
+		const result = await discussPhase.prepare(ctx);
 
-		expect(ctx.pi.sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(ctx.pi.sendUserMessage).not.toHaveBeenCalled();
 		expect(result.success).toBe(true);
+		expect(result.message).toBeDefined();
 	});
 
-	it("includes slice context in the message", async () => {
+	it("includes slice context in the returned message", async () => {
 		const ctx = makeCtx();
-		await discussPhase.run(ctx);
+		const result = await discussPhase.prepare(ctx);
 
-		const calls = (ctx.pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls;
-		const msg = calls[0]?.[0] as string;
-		expect(msg).toContain("Test Slice");
-		expect(msg).toContain("s1");
+		expect(result.message).toContain("Test Slice");
+		expect(result.message).toContain("s1");
 	});
 
 	it("resets gates for the slice", async () => {
@@ -76,7 +75,7 @@ describe("discuss phase rewrite", () => {
 		unlockGate("s1", "tier_confirmed");
 
 		const ctx = makeCtx();
-		await discussPhase.run(ctx);
+		await discussPhase.prepare(ctx);
 
 		expect(isGateUnlocked("s1", "depth_verified")).toBe(false);
 		expect(isGateUnlocked("s1", "tier_confirmed")).toBe(false);
@@ -84,7 +83,7 @@ describe("discuss phase rewrite", () => {
 
 	it("emits phase_start but NOT phase_complete (completion tracked on /tff next)", async () => {
 		const ctx = makeCtx();
-		await discussPhase.run(ctx);
+		await discussPhase.prepare(ctx);
 
 		const emitCalls = (ctx.pi.events.emit as ReturnType<typeof vi.fn>).mock.calls;
 		const phaseEvents = emitCalls.filter((call: unknown[]) => call[0] === "tff:phase");
@@ -94,16 +93,16 @@ describe("discuss phase rewrite", () => {
 
 	it("does NOT dispatch a sub-agent", async () => {
 		const ctx = makeCtx();
-		await discussPhase.run(ctx);
+		const result = await discussPhase.prepare(ctx);
 
-		// sendUserMessage should be called, but no sub-agent
-		expect(ctx.pi.sendUserMessage).toHaveBeenCalled();
+		// message returned for delivery, but no sub-agent
+		expect(result.message).toBeDefined();
 	});
 
 	it("always runs interactive mode", async () => {
 		const ctx = makeCtx();
-		await discussPhase.run(ctx);
+		const result = await discussPhase.prepare(ctx);
 
-		expect(ctx.pi.sendUserMessage).toHaveBeenCalled();
+		expect(result.message).toBeDefined();
 	});
 });

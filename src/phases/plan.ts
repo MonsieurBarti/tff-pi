@@ -1,11 +1,11 @@
 import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
+import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { sliceLabel } from "../common/types.js";
 import { collectPhaseContext, loadPhaseResources } from "../orchestrator.js";
 
 export const planPhase: PhaseModule = {
-	async run(ctx: PhaseContext): Promise<PhaseResult> {
+	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, slice, milestoneNumber, root, settings } = ctx;
 		updateSliceStatus(db, slice.id, "planning");
 
@@ -43,7 +43,6 @@ export const planPhase: PhaseModule = {
 			compressHint,
 		].join("\n");
 
-		pi.sendUserMessage(message);
-		return { success: true, retry: false };
+		return { success: true, retry: false, message };
 	},
 };

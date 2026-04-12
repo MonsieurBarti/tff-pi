@@ -178,10 +178,10 @@ describe("E2E critical path", () => {
 			updateSliceTier(db, sliceId, "SS");
 			updateSliceStatus(db, sliceId, "discussing");
 
-			// Step 5: researchPhase.run → verify sendUserMessage called
+			// Step 5: researchPhase.prepare → verify sendUserMessage called
 			const researchPi = makePi();
 			const researchSlice = must(getSlice(db, sliceId));
-			const researchResult = await researchPhase.run({
+			const researchResult = await researchPhase.prepare({
 				pi: researchPi,
 				db,
 				root,
@@ -190,7 +190,8 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(researchResult.success).toBe(true);
-			expect(researchPi.sendUserMessage).toHaveBeenCalledTimes(1);
+			expect(researchResult.message).toBeDefined();
+			expect(researchPi.sendUserMessage).not.toHaveBeenCalled();
 			// Simulate RESEARCH.md output
 			writeArtifact(
 				root,
@@ -198,10 +199,10 @@ describe("E2E critical path", () => {
 				"# Research\nJWT best practices: use RS256",
 			);
 
-			// Step 6: planPhase.run → verify sendUserMessage called
+			// Step 6: planPhase.prepare → verify sendUserMessage called
 			const planPi = makePi();
 			const planSlice = must(getSlice(db, sliceId));
-			const planResult = await planPhase.run({
+			const planResult = await planPhase.prepare({
 				pi: planPi,
 				db,
 				root,
@@ -210,7 +211,8 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(planResult.success).toBe(true);
-			expect(planPi.sendUserMessage).toHaveBeenCalledTimes(1);
+			expect(planResult.message).toBeDefined();
+			expect(planPi.sendUserMessage).not.toHaveBeenCalled();
 			// Simulate PLAN.md output
 			writeArtifact(
 				root,
@@ -218,10 +220,10 @@ describe("E2E critical path", () => {
 				"# Plan\nStep 1: implement JWT\nStep 2: add middleware",
 			);
 
-			// Step 7: executePhase.run → verify sendUserMessage called
+			// Step 7: executePhase.prepare → verify sendUserMessage called
 			const executePi = makePi();
 			const executeSlice = must(getSlice(db, sliceId));
-			const executeResult = await executePhase.run({
+			const executeResult = await executePhase.prepare({
 				pi: executePi,
 				db,
 				root,
@@ -233,10 +235,10 @@ describe("E2E critical path", () => {
 			// execute phase may or may not call sendUserMessage depending on tasks
 			// (no tasks = early return with success, which is fine)
 
-			// Step 8: verifyPhase.run → verify sendUserMessage called
+			// Step 8: verifyPhase.prepare → verify sendUserMessage called
 			const verifyPi = makePi();
 			const verifySlice = must(getSlice(db, sliceId));
-			const verifyResult = await verifyPhase.run({
+			const verifyResult = await verifyPhase.prepare({
 				pi: verifyPi,
 				db,
 				root,
@@ -245,7 +247,8 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(verifyResult.success).toBe(true);
-			expect(verifyPi.sendUserMessage).toHaveBeenCalledTimes(1);
+			expect(verifyResult.message).toBeDefined();
+			expect(verifyPi.sendUserMessage).not.toHaveBeenCalled();
 			// Simulate VERIFICATION.md
 			writeArtifact(
 				root,
@@ -253,10 +256,10 @@ describe("E2E critical path", () => {
 				"# Verification\n- [x] AC-1 passes\n- [x] AC-2 passes",
 			);
 
-			// Step 9: reviewPhase.run → verify message includes "Security Review"
+			// Step 9: reviewPhase.prepare → verify message includes "Security Review"
 			const reviewPi = makePi();
 			const reviewSlice = must(getSlice(db, sliceId));
-			const reviewResult = await reviewPhase.run({
+			const reviewResult = await reviewPhase.prepare({
 				pi: reviewPi,
 				db,
 				root,
@@ -265,9 +268,9 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(reviewResult.success).toBe(true);
-			expect(reviewPi.sendUserMessage).toHaveBeenCalledTimes(1);
-			const reviewMsg = (reviewPi.sendUserMessage as ReturnType<typeof vi.fn>).mock
-				.calls[0]?.[0] as string;
+			expect(reviewResult.message).toBeDefined();
+			expect(reviewPi.sendUserMessage).not.toHaveBeenCalled();
+			const reviewMsg = reviewResult.message ?? "";
 			expect(reviewMsg).toContain("Security Review");
 
 			// Step 10: Simulate REVIEW.md, set status to "reviewing"
@@ -278,10 +281,10 @@ describe("E2E critical path", () => {
 			);
 			updateSliceStatus(db, sliceId, "reviewing");
 
-			// Step 11: shipPhase.run with auto_merge: true
+			// Step 11: shipPhase.prepare with auto_merge: true
 			const shipPi = makePi();
 			const shipSlice = must(getSlice(db, sliceId));
-			const shipResult = await shipPhase.run({
+			const shipResult = await shipPhase.prepare({
 				pi: shipPi,
 				db,
 				root,
@@ -338,7 +341,7 @@ describe("E2E critical path", () => {
 
 			const pi = makePi();
 			const slice = must(getSlice(db, sliceId));
-			const result = await shipPhase.run({
+			const result = await shipPhase.prepare({
 				pi,
 				db,
 				root,
@@ -401,7 +404,7 @@ describe("E2E critical path", () => {
 			// mockExec already returns { state: "MERGED", comments: [] } for gh pr view
 			const pi = makePi();
 			const slice = must(getSlice(db, sliceId));
-			const result = await shipPhase.run({
+			const result = await shipPhase.prepare({
 				pi,
 				db,
 				root,
@@ -462,7 +465,7 @@ describe("E2E critical path", () => {
 
 			const pi = makePi();
 			const slice = must(getSlice(db, sliceId));
-			const result = await shipPhase.run({
+			const result = await shipPhase.prepare({
 				pi,
 				db,
 				root,

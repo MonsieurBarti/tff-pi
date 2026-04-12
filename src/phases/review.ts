@@ -2,13 +2,13 @@ import { readArtifact } from "../common/artifacts.js";
 import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
-import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
+import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
 import { loadAgentResource, loadPhaseResources } from "../orchestrator.js";
 
 export const reviewPhase: PhaseModule = {
-	async run(ctx: PhaseContext): Promise<PhaseResult> {
+	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
 		updateSliceStatus(db, slice.id, "reviewing");
 
@@ -67,7 +67,6 @@ export const reviewPhase: PhaseModule = {
 			compressHint,
 		].join("\n");
 
-		pi.sendUserMessage(message);
-		return { success: true, retry: false };
+		return { success: true, retry: false, message };
 	},
 };

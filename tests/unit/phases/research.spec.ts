@@ -50,7 +50,7 @@ describe("researchPhase", () => {
 	});
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof researchPhase.run).toBe("function");
+		expect(typeof researchPhase.prepare).toBe("function");
 	});
 
 	it("returns success and sends message via pi.sendUserMessage", async () => {
@@ -67,9 +67,10 @@ describe("researchPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await researchPhase.run(ctx);
+		const result = await researchPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
 	});
 
 	it("emits phase_start event", async () => {
@@ -86,7 +87,7 @@ describe("researchPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await researchPhase.run(ctx);
+		await researchPhase.prepare(ctx);
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "research",
 		);
@@ -107,7 +108,7 @@ describe("researchPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await researchPhase.run(ctx);
+		await researchPhase.prepare(ctx);
 		const completeCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "research",
 		);
@@ -127,7 +128,7 @@ describe("researchPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await researchPhase.run(ctx);
+		await researchPhase.prepare(ctx);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.status).toBe("researching");
 	});

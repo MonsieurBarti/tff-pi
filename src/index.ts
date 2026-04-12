@@ -172,7 +172,11 @@ async function runHeavyPhase(
 		phase,
 	});
 	if (!result.success && result.error) {
-		phaseCtx.pi.sendUserMessage(`Phase ${phase} failed: ${result.error}`);
+		if (cmdCtx?.hasUI) {
+			cmdCtx.ui.notify(`Phase ${phase} failed: ${result.error}`, "error");
+		} else {
+			phaseCtx.pi.sendUserMessage(`Phase ${phase} failed: ${result.error}`);
+		}
 	}
 }
 

@@ -94,7 +94,7 @@ describe("reviewPhase event emission", () => {
 	it("emits phase_start on entry", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await reviewPhase.run(ctx);
+		await reviewPhase.prepare(ctx);
 
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "review",
@@ -105,7 +105,7 @@ describe("reviewPhase event emission", () => {
 	it("does NOT emit phase_complete (interactive mode, tracked on /tff next)", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		const result = await reviewPhase.run(ctx);
+		const result = await reviewPhase.prepare(ctx);
 
 		expect(result.success).toBe(true);
 		const completeCalls = mockEmit.mock.calls.filter(
@@ -117,7 +117,7 @@ describe("reviewPhase event emission", () => {
 	it("includes base event fields on phase_start", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await reviewPhase.run(ctx);
+		await reviewPhase.prepare(ctx);
 
 		const startCall = mockEmit.mock.calls.find(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start",

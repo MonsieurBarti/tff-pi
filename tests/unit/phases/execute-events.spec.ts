@@ -94,7 +94,7 @@ describe("executePhase event emission", () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
+		await executePhase.prepare(ctx);
 
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "execute",
@@ -105,7 +105,7 @@ describe("executePhase event emission", () => {
 	it("emits phase_complete when no tasks (immediate completion)", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		const result = await executePhase.run(ctx);
+		const result = await executePhase.prepare(ctx);
 
 		expect(result.success).toBe(true);
 		const completeCalls = mockEmit.mock.calls.filter(
@@ -119,7 +119,7 @@ describe("executePhase event emission", () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		const result = await executePhase.run(ctx);
+		const result = await executePhase.prepare(ctx);
 
 		expect(result.success).toBe(true);
 		const completeCalls = mockEmit.mock.calls.filter(
@@ -132,7 +132,7 @@ describe("executePhase event emission", () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
-		await executePhase.run(ctx);
+		await executePhase.prepare(ctx);
 
 		const startCall = mockEmit.mock.calls.find(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start",

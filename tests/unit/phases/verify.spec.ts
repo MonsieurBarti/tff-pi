@@ -86,7 +86,7 @@ describe("verifyPhase", () => {
 	});
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof verifyPhase.run).toBe("function");
+		expect(typeof verifyPhase.prepare).toBe("function");
 	});
 
 	it("returns success and sends message via sendUserMessage", async () => {
@@ -103,9 +103,10 @@ describe("verifyPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await verifyPhase.run(ctx);
+		const result = await verifyPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.message).toBeDefined();
 	});
 
 	it("message includes spec and diff", async () => {
@@ -122,8 +123,8 @@ describe("verifyPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await verifyPhase.run(ctx);
-		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		const result = await verifyPhase.prepare(ctx);
+		const msg = result.message ?? "";
 		expect(msg).toContain("SPEC.md");
 		expect(msg).toContain("diff content");
 	});
@@ -142,7 +143,7 @@ describe("verifyPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		await verifyPhase.run(ctx);
+		await verifyPhase.prepare(ctx);
 		const startCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "verify",
 		);

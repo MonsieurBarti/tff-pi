@@ -7,14 +7,14 @@ import {
 	formatMechanicalReport,
 	runMechanicalVerification,
 } from "../common/mechanical-verifier.js";
-import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
+import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { detectVerifyCommands } from "../common/verify-commands.js";
 import { getWorktreePath } from "../common/worktree.js";
 import { loadPhaseResources } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
-	async run(ctx: PhaseContext): Promise<PhaseResult> {
+	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
 		updateSliceStatus(db, slice.id, "verifying");
 
@@ -73,8 +73,6 @@ export const verifyPhase: PhaseModule = {
 			compressHint,
 		].join("\n");
 
-		pi.sendUserMessage(message);
-
 		// --- Mechanical verification (runs independently of AI) ---
 		const verifyCommands = detectVerifyCommands(root, settings);
 		if (verifyCommands.length > 0) {
@@ -113,6 +111,6 @@ export const verifyPhase: PhaseModule = {
 		// Post-verify checkpoint
 		createCheckpoint(wtPath, sLabel, "post-verify");
 
-		return { success: true, retry: false };
+		return { success: true, retry: false, message };
 	},
 };

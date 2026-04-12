@@ -2,13 +2,13 @@ import { readArtifact } from "../common/artifacts.js";
 import { createCheckpoint } from "../common/checkpoint.js";
 import { getTasksByWave, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
+import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { milestoneLabel, sanitizeForPrompt, sliceLabel, taskLabel } from "../common/types.js";
 import { createWorktree } from "../common/worktree.js";
 import { loadPhaseResources } from "../orchestrator.js";
 
 export const executePhase: PhaseModule = {
-	async run(ctx: PhaseContext): Promise<PhaseResult> {
+	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
 		updateSliceStatus(db, slice.id, "executing");
 
@@ -79,7 +79,6 @@ export const executePhase: PhaseModule = {
 			retryContext,
 		].join("\n");
 
-		pi.sendUserMessage(message);
-		return { success: true, retry: false };
+		return { success: true, retry: false, message };
 	},
 };
