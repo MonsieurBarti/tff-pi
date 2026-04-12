@@ -75,4 +75,25 @@ describe("session-lock", () => {
 		};
 		expect(isLockStale(lock)).toBe(true);
 	});
+
+	it("acquireLock fails atomically when a fresh lock exists", () => {
+		acquireLock(root, { phase: "execute", sliceId: "slice-1" });
+		expect(() => acquireLock(root, { phase: "verify", sliceId: "slice-2" })).toThrow(
+			/Cannot acquire lock/,
+		);
+	});
+
+	it("acquireLock replaces stale lock atomically", () => {
+		const staleLock = {
+			phase: "execute",
+			sliceId: "old-slice",
+			pid: process.pid,
+			timestamp: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+		};
+		writeFileSync(join(root, ".tff", "session.lock"), JSON.stringify(staleLock), "utf-8");
+
+		acquireLock(root, { phase: "plan", sliceId: "new-slice" });
+		const current = readLock(root);
+		expect(current?.sliceId).toBe("new-slice");
+	});
 });

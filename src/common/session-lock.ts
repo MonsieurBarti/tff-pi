@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	constants,
+	closeSync,
+	existsSync,
+	openSync,
+	readFileSync,
+	unlinkSync,
+	writeSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { Phase } from "./types.js";
 
@@ -23,7 +31,41 @@ export function acquireLock(root: string, opts: { phase: Phase; sliceId: string 
 		pid: process.pid,
 		timestamp: new Date().toISOString(),
 	};
-	writeFileSync(lockPath(root), JSON.stringify(lock, null, 2), "utf-8");
+	const json = JSON.stringify(lock, null, 2);
+	const p = lockPath(root);
+
+	// Atomic create — fails if file exists (O_EXCL) or is a symlink (O_NOFOLLOW).
+	// Prevents TOCTOU races and symlink attacks that could redirect writes.
+	const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+	let fd: number;
+	try {
+		fd = openSync(p, flags, 0o600);
+	} catch (err) {
+		if (
+			err &&
+			typeof err === "object" &&
+			"code" in err &&
+			(err as { code: string }).code === "EEXIST"
+		) {
+			const existing = readLock(root);
+			if (existing && isLockStale(existing)) {
+				// Dead process — safe to overwrite.
+				unlinkSync(p);
+				fd = openSync(p, flags, 0o600);
+			} else {
+				throw new Error(
+					`Cannot acquire lock: existing lock is held by PID ${existing?.pid ?? "unknown"}. Run \`/tff recover dismiss\` to clear it manually if the process has exited.`,
+				);
+			}
+		} else {
+			throw err;
+		}
+	}
+	try {
+		writeSync(fd, json);
+	} finally {
+		closeSync(fd);
+	}
 }
 
 export function releaseLock(root: string): void {
