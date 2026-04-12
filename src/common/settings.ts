@@ -11,6 +11,7 @@ export interface Settings {
 	test_command?: string;
 	milestone_target_branch?: string;
 	verify_commands?: { name: string; command: string }[];
+	verify_auto_detect?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -74,6 +75,9 @@ export function parseSettings(yamlString: string): Settings {
 					typeof (v as { name?: unknown }).name === "string" &&
 					typeof (v as { command?: unknown }).command === "string",
 			) as { name: string; command: string }[];
+		}
+		if (typeof parsed.verify_auto_detect === "boolean") {
+			settings.verify_auto_detect = parsed.verify_auto_detect;
 		}
 		return settings;
 	} catch {

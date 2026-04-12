@@ -118,6 +118,28 @@ describe("settings", () => {
 		});
 	});
 
+	describe("verify_auto_detect setting", () => {
+		it("defaults to undefined when absent", () => {
+			const s = parseSettings("model_profile: balanced");
+			expect(s.verify_auto_detect).toBeUndefined();
+		});
+
+		it("parses verify_auto_detect: true", () => {
+			const s = parseSettings("verify_auto_detect: true");
+			expect(s.verify_auto_detect).toBe(true);
+		});
+
+		it("parses verify_auto_detect: false", () => {
+			const s = parseSettings("verify_auto_detect: false");
+			expect(s.verify_auto_detect).toBe(false);
+		});
+
+		it("ignores non-boolean verify_auto_detect values", () => {
+			const s = parseSettings("verify_auto_detect: yes");
+			expect(s.verify_auto_detect).toBeUndefined();
+		});
+	});
+
 	describe("serializeSettings", () => {
 		it("serializes settings to YAML string", () => {
 			const yaml = serializeSettings(DEFAULT_SETTINGS);

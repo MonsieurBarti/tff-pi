@@ -19,6 +19,13 @@ export function detectVerifyCommands(root: string, settings: Settings): VerifyCo
 		}));
 	}
 
+	// Auto-detection is opt-in only. Without explicit opt-in, do not
+	// shell-execute commands sourced from CI YAML / hooks / package.json —
+	// that would let a malicious PR achieve RCE via crafted workflow files.
+	if (settings.verify_auto_detect !== true) {
+		return [];
+	}
+
 	const commands: VerifyCommand[] = [];
 	const seen = new Set<string>();
 
