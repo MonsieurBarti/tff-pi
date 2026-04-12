@@ -12,6 +12,7 @@ import {
 	insertMilestone,
 	insertProject,
 	insertSlice,
+	insertTask,
 	openDatabase,
 	updateMilestoneStatus,
 	updateSliceStatus,
@@ -106,7 +107,7 @@ describe("determineNextPhase", () => {
 	it("verifying + SS -> review", () => {
 		expect(determineNextPhase("verifying", "SS")).toBe("review");
 	});
-	it("verifying + S -> review (review required for all tiers)", () => {
+	it("verifying + S -> review (S only skips research; review required for all tiers)", () => {
 		expect(determineNextPhase("verifying", "S")).toBe("review");
 	});
 	it("reviewing -> ship", () => {
@@ -352,8 +353,9 @@ describe("verifyPhaseArtifacts", () => {
 		expect(result.missing).toContain("PLAN.md");
 	});
 
-	it("passes plan phase when PLAN.md exists", () => {
+	it("passes plan phase when PLAN.md exists and tasks persisted", () => {
 		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan");
+		insertTask(db, { sliceId, number: 1, title: "Foo", wave: 1 });
 		const slice = {
 			id: sliceId,
 			milestoneId: "m1",
@@ -366,5 +368,22 @@ describe("verifyPhaseArtifacts", () => {
 		};
 		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");
 		expect(result.ok).toBe(true);
+	});
+
+	it("fails plan phase when PLAN.md exists but no tasks persisted", () => {
+		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan");
+		const slice = {
+			id: sliceId,
+			milestoneId: "m1",
+			number: 1,
+			title: "Auth",
+			status: "planning" as const,
+			tier: "SS" as const,
+			prUrl: null,
+			createdAt: "",
+		};
+		const result = verifyPhaseArtifacts(db, root, slice, 1, "plan");
+		expect(result.ok).toBe(false);
+		expect(result.missing.some((m) => m.includes("tasks"))).toBe(true);
 	});
 });

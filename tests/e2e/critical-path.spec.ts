@@ -16,6 +16,7 @@ import {
 	insertMilestone,
 	insertProject,
 	insertSlice,
+	insertTask,
 	openDatabase,
 	updateSlicePrUrl,
 	updateSliceStatus,
@@ -258,7 +259,10 @@ describe("E2E critical path", () => {
 				"# Plan\nStep 1: implement JWT\nStep 2: add middleware",
 			);
 
-			// Step 7: executePhase.prepare → verify sendUserMessage called
+			// Step 7: executePhase.prepare → verify sendUserMessage called.
+			// Simulate tasks persisted by plan phase (required after Fix #1).
+			insertTask(db, { sliceId, number: 1, title: "Implement JWT", wave: 1 });
+			insertTask(db, { sliceId, number: 2, title: "Add middleware", wave: 2 });
 			const executePi = makePi();
 			const executeSlice = must(getSlice(db, sliceId));
 			const executeResult = await executePhase.prepare({
@@ -270,8 +274,8 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(executeResult.success).toBe(true);
-			// execute phase may or may not call sendUserMessage depending on tasks
-			// (no tasks = early return with success, which is fine)
+			expect(executeResult.message).toBeDefined();
+			expect(executePi.sendUserMessage).not.toHaveBeenCalled();
 
 			// Step 8: verifyPhase.prepare → verify sendUserMessage called
 			const verifyPi = makePi();

@@ -10,6 +10,7 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
+import { handleDoctor } from "./commands/doctor.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
 import { handleLogs } from "./commands/logs.js";
@@ -49,6 +50,7 @@ import {
 	initialCommitAndPush,
 } from "./common/git.js";
 import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
+import { emitPhaseCompleteIfArtifactsReady } from "./common/phase-completion.js";
 import {
 	type PhaseContext,
 	type PhaseModule,
@@ -76,8 +78,9 @@ import {
 	sliceLabel,
 } from "./common/types.js";
 import { getWorktreePath } from "./common/worktree.js";
-import { findActiveSlice } from "./orchestrator.js";
+import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
+import { type AskUserQuestion, handleAskUser } from "./tools/ask-user.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
@@ -85,7 +88,9 @@ import { queryState } from "./tools/query-state.js";
 import { handleTransition } from "./tools/transition.js";
 import { handleWritePlan } from "./tools/write-plan.js";
 import { handleWriteResearch } from "./tools/write-research.js";
+import { type ReviewVerdict, handleWriteReview } from "./tools/write-review.js";
 import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
+import { handleWriteVerification } from "./tools/write-verification.js";
 import { checkForUpdates } from "./update-check.js";
 
 // ---------------------------------------------------------------------------
@@ -482,6 +487,23 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					break;
 				}
 
+				case "doctor": {
+					let msg: string;
+					try {
+						const database = getDb();
+						const recover = rest.includes("--recover");
+						const report = handleDoctor(database, { recover });
+						msg = report.message;
+					} catch (err) {
+						msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
+					}
+					if (ctx.hasUI) {
+						ctx.ui.notify(msg, "info");
+					}
+					pi.sendUserMessage(msg);
+					break;
+				}
+
 				case "settings": {
 					const current = settings ?? DEFAULT_SETTINGS;
 					pi.sendUserMessage(
@@ -529,7 +551,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateDiscuss(database, slice.id);
+					const validation = validateDiscuss(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -569,7 +591,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateResearch(database, slice.id);
+					const validation = validateResearch(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -609,7 +631,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validatePlan(database, slice.id);
+					const validation = validatePlan(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -640,7 +662,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const validation = validateNext(database);
+					const validation = validateNext(database, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -680,7 +702,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateExecute(database, slice.id);
+					const validation = validateExecute(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -720,7 +742,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateVerify(database, slice.id);
+					const validation = validateVerify(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -760,7 +782,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateShip(database, slice.id);
+					const validation = validateShip(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -1067,7 +1089,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleClassify(database, slice.id, tier);
+					const result = handleClassify(database, slice.id, tier);
+					if (!result.isError && projectRoot) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							projectRoot,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
+					}
+					return result;
 				} catch (err) {
 					return {
 						content: [
@@ -1364,13 +1397,25 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								content: [
 									{
 										type: "text",
-										text: `Plannotator review requested changes. Revise the spec and retry.${review.feedback ? `\n\nFeedback:\n${review.feedback}` : ""}`,
+										text: `SPEC.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_spec again.`,
 									},
 								],
-								details: { rejected: true, feedback: review.feedback },
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
 								isError: true,
 							};
 						}
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1447,13 +1492,25 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								content: [
 									{
 										type: "text",
-										text: `Plannotator review requested changes. Revise the requirements and retry.${review.feedback ? `\n\nFeedback:\n${review.feedback}` : ""}`,
+										text: `REQUIREMENTS.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_requirements again.`,
 									},
 								],
-								details: { rejected: true, feedback: review.feedback },
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
 								isError: true,
 							};
 						}
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1511,13 +1568,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteResearch(
+					const writeResult = handleWriteResearch(
 						database,
 						root,
 						slice.id,
 						params.content,
 						settings ?? DEFAULT_SETTINGS,
 					);
+					if (!writeResult.isError) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"research",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
 				} catch (err) {
 					return {
 						content: [
@@ -1539,9 +1607,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles plan review automatically via event bus. If this tool returns an error with feedback, the user rejected the plan; revise and call this tool again.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. THIS IS THE ONLY TOOL THAT MARKS THE PLAN PHASE COMPLETE — phase_complete fires here. After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles plan review automatically via event bus. If this tool returns an error with feedback, the user rejected the plan; revise and call this tool again.",
+			promptSnippet:
+				"The plan phase is not complete until tff_write_plan returns successfully. Writing PLAN.md via Write/Edit will NOT persist tasks — the database needs structured task entries via this tool.",
 			promptGuidelines: [
-				"Write PLAN.md with tasks, dependencies, and implementation details",
+				"Call this tool to persist PLAN.md AND structured tasks — not Write/Edit",
+				"A successful call is the sole phase_complete signal for plan",
+				"tasks array must not be empty — if you cannot decompose, ask the user via tff_ask_user",
+				"Plannotator review opens automatically after writing",
 				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
 				"If tool returns error with feedback, user rejected plan; revise and retry.",
 			],
@@ -1610,13 +1683,236 @@ export default function tffExtension(pi: ExtensionAPI): void {
 								content: [
 									{
 										type: "text",
-										text: `Plannotator review requested changes. Revise the plan and retry.${review.feedback ? `\n\nFeedback:\n${review.feedback}` : ""}`,
+										text: `PLAN.md review rejected in plannotator.\nFeedback: ${review.feedback ?? "(none)"}\nAddress the feedback and call tff_write_plan again with an updated tasks array.`,
 									},
 								],
-								details: { rejected: true, feedback: review.feedback },
+								details: {
+									...writeResult.details,
+									reviewRejected: true,
+									feedback: review.feedback,
+								},
 								isError: true,
 							};
 						}
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"plan",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_ask_user — curated multiple-choice questions for the user
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_ask_user",
+			label: "TFF Ask User",
+			description:
+				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-3 bounded options (single-select) or 2+ (multi-select). Use this INSTEAD of free-form questions to prevent agent-invented options.",
+			promptGuidelines: [
+				"Use for any user decision that has a discrete set of valid answers",
+				"Single-select questions: 2-3 options; 'None of the above' is auto-injected",
+				"Multi-select: set allowMultiple=true; any number of options",
+				"Headers must be ≤12 characters (TUI label)",
+				"Do not paraphrase user input into your own options — if the user gave a free-form answer, reflect it back literally",
+			],
+			parameters: Type.Object({
+				questions: Type.Array(
+					Type.Object({
+						id: Type.String({
+							description: "Stable snake_case id for mapping the user's answer back",
+						}),
+						header: Type.String({
+							description: "Short header shown in the UI (≤12 chars)",
+						}),
+						question: Type.String({
+							description: "Single-sentence prompt shown to the user",
+						}),
+						options: Type.Array(
+							Type.Object({
+								label: Type.String({ description: "1-5 word user-facing label" }),
+								description: Type.String({
+									description: "One short sentence explaining the impact/tradeoff",
+								}),
+							}),
+							{
+								description:
+									"2-3 mutually-exclusive options for single-select, or 2+ for multi-select",
+							},
+						),
+						allowMultiple: Type.Optional(
+							Type.Boolean({
+								description: "Allow the user to select multiple options. Default false.",
+							}),
+						),
+					}),
+					{ description: "One or more questions to ask the user" },
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					return handleAskUser(params.questions as AskUserQuestion[]);
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: {},
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_verification — persists VERIFICATION.md and marks verify complete
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_verification",
+			label: "TFF Write Verification",
+			description:
+				"Write VERIFICATION.md for a slice. THIS IS THE ONLY TOOL THAT MARKS THE VERIFY PHASE COMPLETE — phase_complete fires here. Use it to persist AC PASS/FAIL results and test output after the verify phase.",
+			promptSnippet:
+				"The verify phase is not complete until tff_write_verification returns successfully. Writing the file via Write/Edit will not mark the phase complete.",
+			promptGuidelines: [
+				"Include an AC checklist with [x]/[ ] markers so the ship pre-flight check can scan it",
+				"Include the test command run and its output summary (pass/fail counts)",
+				"On failures: mark the AC [ ] and describe what broke + which task(s) to re-execute",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "Markdown content of VERIFICATION.md",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
+					if (!writeResult.isError) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"verify",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_review — persists REVIEW.md and marks review complete
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_review",
+			label: "TFF Write Review",
+			description:
+				"Write REVIEW.md for a slice AND submit the verdict. THIS IS THE ONLY TOOL THAT MARKS THE REVIEW PHASE COMPLETE — phase_complete fires here. On verdict='denied' the slice is routed back to execute with tasks reset to open.",
+			promptSnippet:
+				"The review phase is not complete until tff_write_review returns successfully. Pass verdict='approved' to unlock ship, or verdict='denied' to loop back to execute.",
+			promptGuidelines: [
+				"content must include findings list with file:line references",
+				"Use verdict='approved' only when there are no blocking issues",
+				"Use verdict='denied' when any finding blocks shipping; describe what task(s) need rework",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "Markdown content of REVIEW.md (summary + findings + tasksToRework)",
+				}),
+				verdict: StringEnum(["approved", "denied"] as const, {
+					description:
+						"approved = no blocking issues, unlocks ship. denied = loop back to execute with tasks reset.",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const writeResult = handleWriteReview(
+						database,
+						root,
+						slice.id,
+						params.content,
+						params.verdict as ReviewVerdict,
+					);
+					if (!writeResult.isError && params.verdict === "approved") {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"review",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {

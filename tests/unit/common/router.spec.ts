@@ -28,6 +28,7 @@ describe("router", () => {
 				"health",
 				"help",
 				"logs",
+				"doctor",
 			]);
 		});
 	});

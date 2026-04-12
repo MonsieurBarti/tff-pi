@@ -42,6 +42,8 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	determineNextPhase: vi.fn(),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
+	predecessorPhase: vi.fn().mockReturnValue(null),
+	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";
@@ -102,17 +104,17 @@ describe("executePhase event emission", () => {
 		expect(startCalls).toHaveLength(1);
 	});
 
-	it("emits phase_complete when no tasks (immediate completion)", async () => {
+	it("emits phase_failed when no tasks exist", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		const result = await executePhase.prepare(ctx);
 
-		expect(result.success).toBe(true);
-		const completeCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "execute",
+		expect(result.success).toBe(false);
+		const failedCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "execute",
 		);
-		expect(completeCalls).toHaveLength(1);
-		expect(completeCalls[0]?.[1]).toHaveProperty("durationMs");
+		expect(failedCalls).toHaveLength(1);
+		expect(failedCalls[0]?.[1]).toHaveProperty("error");
 	});
 
 	it("does NOT emit phase_complete when tasks exist (interactive)", async () => {

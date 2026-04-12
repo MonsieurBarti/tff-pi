@@ -181,4 +181,24 @@ describe("requestReview", () => {
 		expect(result.approved).toBe(true);
 		expect(result.feedback).toBe("lgtm");
 	});
+
+	it("ignores review-result events before plannotator has assigned an id", async () => {
+		vi.useFakeTimers();
+		try {
+			const { pi, fire } = createFakePi();
+			const pending = requestReview(pi, "/SPEC.md", "content", "spec");
+
+			// Event arrives BEFORE plannotator responds with a reviewId — could be
+			// leftover from a prior concurrent request. Must be ignored (not matching
+			// any known id).
+			fire("plannotator:review-result", { reviewId: "some-other-id", approved: false });
+
+			// Advance past the 10min auto-approve timeout since no handshake completed.
+			await vi.advanceTimersByTimeAsync(600_001);
+			const result = await pending;
+			expect(result.feedback).toContain("timed out");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });

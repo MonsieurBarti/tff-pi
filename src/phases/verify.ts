@@ -8,11 +8,12 @@ import {
 	formatMechanicalReport,
 	runMechanicalVerification,
 } from "../common/mechanical-verifier.js";
+import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { detectVerifyCommands } from "../common/verify-commands.js";
 import { getWorktreePath } from "../common/worktree.js";
-import { loadPhaseResources } from "../orchestrator.js";
+import { loadPhaseResources, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
 export const verifyPhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
@@ -26,6 +27,8 @@ export const verifyPhase: PhaseModule = {
 			type: "phase_start",
 			phase: "verify",
 		});
+
+		closePredecessorIfReady(pi, db, root, slice, "verify", predecessorPhase, verifyPhaseArtifacts);
 
 		const wtPath = getWorktreePath(root, sLabel);
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
@@ -54,6 +57,17 @@ export const verifyPhase: PhaseModule = {
 			diffLines.length > MAX_DIFF_LINES
 				? `${diffLines.slice(0, MAX_DIFF_LINES).join("\n")}\n\n[... ${diffLines.length - MAX_DIFF_LINES} more lines truncated; inspect the worktree directly for full diff ...]`
 				: rawDiff;
+
+		if (diff.trim() === "") {
+			const error = `No diff between ${milestoneBranch} and the slice worktree. The execute phase produced no changes — re-run execute before verifying.`;
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "verify",
+				error,
+			});
+			return { success: false, retry: false };
+		}
 
 		const message = [
 			agentPrompt,

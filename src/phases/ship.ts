@@ -8,10 +8,12 @@ import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
 import { gitEnv } from "../common/git.js";
+import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import type { Slice } from "../common/types.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath, removeWorktree } from "../common/worktree.js";
+import { predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface PreflightResult {
 	ok: boolean;
@@ -101,6 +103,8 @@ export const shipPhase: PhaseModule = {
 			type: "phase_start",
 			phase: "ship",
 		});
+
+		closePredecessorIfReady(pi, db, root, slice, "ship", predecessorPhase, verifyPhaseArtifacts);
 
 		try {
 			// --- Re-entry: PR already exists ---

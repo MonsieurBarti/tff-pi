@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
 import { compressIfEnabled } from "../common/compress.js";
 import {
+	clearSliceTasks,
 	getMilestone,
 	getSlice,
 	insertDependency,
@@ -53,6 +54,8 @@ export function handleWritePlan(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/PLAN.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
+
+	clearSliceTasks(db, sliceId);
 
 	const taskIds: Map<number, string> = new Map();
 	for (let i = 0; i < tasks.length; i++) {
