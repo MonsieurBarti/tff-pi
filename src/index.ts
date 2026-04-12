@@ -47,7 +47,12 @@ import {
 	initRepo,
 	initialCommitAndPush,
 } from "./common/git.js";
-import { type PhaseContext, type PhaseModule, runPhaseWithFreshContext } from "./common/phase.js";
+import {
+	type PhaseContext,
+	type PhaseModule,
+	runPhaseWithFreshContext,
+	setPendingMessageDelivery,
+} from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import {
 	type RecoveryClassification,
@@ -93,8 +98,22 @@ let tuiMonitor: TUIMonitor | null = null;
 let _fffBridge: FffBridge | null = null;
 let cmdCtx: ExtensionCommandContext | null = null;
 
+/**
+ * Message queued for delivery into the next new session.
+ *
+ * Set by `runPhaseWithFreshContext` before calling `cmdCtx.newSession()`.
+ * Delivered by the `session_start` handler (when `event.reason === "new"`)
+ * because that's when the new session's runtime is fully bound and ready
+ * to accept messages. Module-level state persists across extension reloads.
+ */
+let pendingPhaseMessage: string | null = null;
+
 export function getCmdCtx() {
 	return cmdCtx;
+}
+
+export function setPendingPhaseMessage(message: string | null): void {
+	pendingPhaseMessage = message;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,10 +204,35 @@ async function runHeavyPhase(
 // ---------------------------------------------------------------------------
 
 export default function tffExtension(pi: ExtensionAPI): void {
+	// Wire the phase runner's message-stash hook to our module-level state.
+	// This runs on every extension load including after newSession() reloads.
+	setPendingMessageDelivery(setPendingPhaseMessage);
+
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
+		// Deliver any phase message queued before newSession() was called.
+		// Runs here because the new session's runtime is fully bound by
+		// the time session_start fires — sendMessage before this is a no-op.
+		if (event.reason === "new" && pendingPhaseMessage) {
+			const message = pendingPhaseMessage;
+			pendingPhaseMessage = null;
+			try {
+				pi.sendMessage(
+					{ customType: "tff-phase", content: message, display: true },
+					{ triggerTurn: true },
+				);
+			} catch (err) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
+						"error",
+					);
+				}
+			}
+		}
+
 		const root = getGitRoot();
 		if (!root) {
 			return;

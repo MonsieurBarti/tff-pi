@@ -35,19 +35,20 @@ describe("runPhaseWithFreshContext", () => {
 		expect(mockModule.prepare).not.toHaveBeenCalled();
 	});
 
-	it("calls prepare, then newSession, then sendMessage with triggerTurn", async () => {
+	it("calls prepare, stashes message via hook, then newSession", async () => {
+		const { setPendingMessageDelivery } = await import("../../../src/common/phase.js");
+		const pendingCalls: (string | null)[] = [];
+		setPendingMessageDelivery((msg) => pendingCalls.push(msg));
+
 		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
 		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
 			typeof runPhaseWithFreshContext
 		>[0]["cmdCtx"];
-		const sendMessageMock = vi.fn();
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
-		const mockPi: any = { sendMessage: sendMessageMock };
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
 		};
-		const mockCtx = { root, slice: { id: "s1" }, pi: mockPi } as unknown as PhaseContext;
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
 
 		const result = await runPhaseWithFreshContext({
 			phaseModule: mockModule,
@@ -57,15 +58,37 @@ describe("runPhaseWithFreshContext", () => {
 		});
 
 		expect(mockModule.prepare).toHaveBeenCalledOnce();
+		expect(pendingCalls).toEqual(["phase msg"]);
 		expect(newSessionMock).toHaveBeenCalledOnce();
-		expect(sendMessageMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				customType: "tff-phase",
-				content: "phase msg",
-			}),
-			expect.objectContaining({ triggerTurn: true }),
-		);
 		expect(result.success).toBe(true);
+
+		setPendingMessageDelivery(null);
+	});
+
+	it("clears stashed message if newSession is cancelled", async () => {
+		const { setPendingMessageDelivery } = await import("../../../src/common/phase.js");
+		const pendingCalls: (string | null)[] = [];
+		setPendingMessageDelivery((msg) => pendingCalls.push(msg));
+
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: true }) as any;
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
+		};
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
+
+		await runPhaseWithFreshContext({
+			phaseModule: mockModule,
+			phaseCtx: mockCtx,
+			cmdCtx: mockCmdCtx,
+			phase: "plan",
+		});
+
+		expect(pendingCalls).toEqual(["phase msg", null]);
+		setPendingMessageDelivery(null);
 	});
 
 	it("skips newSession when prepare returns no message", async () => {

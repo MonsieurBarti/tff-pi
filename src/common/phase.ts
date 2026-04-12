@@ -4,6 +4,17 @@ import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
 import type { Phase, Slice } from "./types.js";
 
+/**
+ * Hook used by `runPhaseWithFreshContext` to stash the phase message for the
+ * next fresh session. Injected by the extension entry point to avoid circular
+ * imports between `phase.ts` and `index.ts`.
+ */
+let setPendingMessageHook: ((message: string | null) => void) | null = null;
+
+export function setPendingMessageDelivery(fn: ((message: string | null) => void) | null): void {
+	setPendingMessageHook = fn;
+}
+
 export interface PhaseContext {
 	pi: ExtensionAPI;
 	db: Database.Database;
@@ -74,11 +85,14 @@ export async function runPhaseWithFreshContext(
 			return prepareResult;
 		}
 
-		// Create fresh session — no setup callback. After newSession() resolves,
-		// the shared ExtensionRuntime has been rebound to the new session's actions,
-		// so pi.sendMessage() on the old facade routes to the new session.
-		// This mirrors GSD-2's exact pattern (auto/run-unit.ts).
+		// Stash the message so it's delivered by the session_start handler
+		// after the new session's runtime is bound. Calling sendMessage on
+		// the old pi before session_start fires goes to a non-existent queue.
 		const message = prepareResult.message;
+		if (setPendingMessageHook) {
+			setPendingMessageHook(message);
+		}
+
 		const sessionPromise = cmdCtx.newSession();
 		const timeoutPromise = new Promise<{ cancelled: true }>((resolve) => {
 			setTimeout(() => resolve({ cancelled: true }), timeoutMs);
@@ -87,6 +101,10 @@ export async function runPhaseWithFreshContext(
 		const result = await Promise.race([sessionPromise, timeoutPromise]);
 
 		if (result.cancelled) {
+			// Clear stashed message — no session to deliver it to.
+			if (setPendingMessageHook) {
+				setPendingMessageHook(null);
+			}
 			return {
 				success: false,
 				retry: true,
@@ -94,17 +112,7 @@ export async function runPhaseWithFreshContext(
 			};
 		}
 
-		// Send the phase prompt as a custom message with triggerTurn:true to
-		// kick off the agent loop immediately in the fresh session.
-		phaseCtx.pi.sendMessage(
-			{
-				customType: "tff-phase",
-				content: message,
-				display: true,
-			},
-			{ triggerTurn: true },
-		);
-
+		// Message delivery happens in the session_start handler.
 		return { success: true, retry: false };
 	} finally {
 		releaseLock(phaseCtx.root);
