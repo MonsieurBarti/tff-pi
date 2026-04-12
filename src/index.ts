@@ -57,7 +57,9 @@ import { queryState } from "./tools/query-state.js";
 import { handleTransition } from "./tools/transition.js";
 import { handleWritePlan } from "./tools/write-plan.js";
 import { handleWriteResearch } from "./tools/write-research.js";
+import { type ReviewVerdict, handleWriteReview } from "./tools/write-review.js";
 import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
+import { handleWriteVerification } from "./tools/write-verification.js";
 import { checkForUpdates } from "./update-check.js";
 
 // ---------------------------------------------------------------------------
@@ -1497,6 +1499,152 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
 						],
 						details: {},
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_verification — persists VERIFICATION.md and marks verify complete
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_verification",
+			label: "TFF Write Verification",
+			description:
+				"Write VERIFICATION.md for a slice. THIS IS THE ONLY TOOL THAT MARKS THE VERIFY PHASE COMPLETE — phase_complete fires here. Use it to persist AC PASS/FAIL results and test output after the verify phase.",
+			promptSnippet:
+				"The verify phase is not complete until tff_write_verification returns successfully. Writing the file via Write/Edit will not mark the phase complete.",
+			promptGuidelines: [
+				"Include an AC checklist with [x]/[ ] markers so the ship pre-flight check can scan it",
+				"Include the test command run and its output summary (pass/fail counts)",
+				"On failures: mark the AC [ ] and describe what broke + which task(s) to re-execute",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "Markdown content of VERIFICATION.md",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
+					if (!writeResult.isError) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"verify",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_write_review — persists REVIEW.md and marks review complete
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_write_review",
+			label: "TFF Write Review",
+			description:
+				"Write REVIEW.md for a slice AND submit the verdict. THIS IS THE ONLY TOOL THAT MARKS THE REVIEW PHASE COMPLETE — phase_complete fires here. On verdict='denied' the slice is routed back to execute with tasks reset to open.",
+			promptSnippet:
+				"The review phase is not complete until tff_write_review returns successfully. Pass verdict='approved' to unlock ship, or verdict='denied' to loop back to execute.",
+			promptGuidelines: [
+				"content must include findings list with file:line references",
+				"Use verdict='approved' only when there are no blocking issues",
+				"Use verdict='denied' when any finding blocks shipping; describe what task(s) need rework",
+			],
+			parameters: Type.Object({
+				sliceId: Type.String({
+					description: "Slice ID (UUID) or label (e.g., M01-S01)",
+				}),
+				content: Type.String({
+					description: "Markdown content of REVIEW.md (summary + findings + tasksToRework)",
+				}),
+				verdict: StringEnum(["approved", "denied"] as const, {
+					description:
+						"approved = no blocking issues, unlocks ship. denied = loop back to execute with tasks reset.",
+				}),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					const database = getDb();
+					const root = projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const slice = resolveSlice(database, params.sliceId);
+					if (!slice) {
+						return {
+							content: [{ type: "text", text: `Slice not found: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					const writeResult = handleWriteReview(
+						database,
+						root,
+						slice.id,
+						params.content,
+						params.verdict as ReviewVerdict,
+					);
+					if (!writeResult.isError && params.verdict === "approved") {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"review",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: { sliceId: params.sliceId },
 						isError: true,
 					};
 				}

@@ -1,5 +1,12 @@
 # Review Protocol
 
+<HARD-GATE>
+The review phase is NOT COMPLETE until `tff_write_review` returns
+successfully. This is the only tool that emits phase_complete for review.
+- verdict='approved' → unlocks ship
+- verdict='denied'  → resets tasks to open, routes slice back to execute
+</HARD-GATE>
+
 ## Input
 - SPEC.md, PLAN.md, VERIFICATION.md (inlined)
 - Diff: NOT inlined. Run `git diff <milestoneBranch>...<sliceBranch>` yourself in the worktree. The phase message gives you the exact commands.
@@ -11,8 +18,10 @@
 3. Diff files in priority order (largest/riskiest first); use `-- <path>` to scope
 4. Record findings with file:line references
 
-## Verdict
-Return JSON: `{ verdict: "approved"|"denied", summary, findings: [{file,line,severity,message}], tasksToRework: ["T01"] }`
+## Output
+Call `tff_write_review(sliceId, content, verdict)`:
+- content = markdown with: Summary, Findings table (file, line, severity, message), Tasks to rework
+- verdict = "approved" | "denied"
 
 ## Rules
 - approved=no blocking issues | denied=changes required
