@@ -24,6 +24,7 @@ import { handleStatus } from "./commands/status.js";
 import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import { createCheckpoint } from "./common/checkpoint.js";
+import { refreshCompressionLevel } from "./common/compress.js";
 import { buildContextBlock } from "./common/context-injection.js";
 import {
 	applyMigrations,
@@ -238,6 +239,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 
 		// Initialize hippo-memory (best-effort; null if not installed)
 		await initMemory(root);
+
+		// Refresh ultra-compress active level from user's state store
+		await refreshCompressionLevel(root);
 
 		const dbPath = tffPath(root, "state.db");
 		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
