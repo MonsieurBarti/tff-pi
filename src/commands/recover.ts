@@ -47,19 +47,47 @@ export function executeRecovery(
 				? getLastCheckpoint(wtPath, sLabel)
 				: getLastCheckpoint(root, sLabel);
 			if (!last) {
+				releaseLock(root);
 				return { success: false, message: "No checkpoint found to roll back to." };
 			}
+
+			let safetyTag: string | null = null;
 			if (worktreeExists(root, sLabel)) {
+				// Create safety tag at current HEAD before destructive reset
+				const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+				safetyTag = `pre-rollback/${sLabel}/${timestamp}`;
+				try {
+					execFileSync("git", ["tag", safetyTag], {
+						cwd: wtPath,
+						encoding: "utf-8",
+						env: gitEnv(),
+					});
+				} catch (err) {
+					releaseLock(root);
+					return {
+						success: false,
+						message: `Failed to create safety tag before rollback: ${
+							err instanceof Error ? err.message : String(err)
+						}. Rollback aborted.`,
+					};
+				}
+
 				execFileSync("git", ["reset", "--hard", last], {
 					cwd: wtPath,
 					encoding: "utf-8",
 					env: gitEnv(),
 				});
 			}
+
 			releaseLock(root);
+
+			const undoHint = safetyTag
+				? `\n\nTo undo: \`git reset --hard ${safetyTag}\` (run in the worktree)`
+				: "";
+
 			return {
 				success: true,
-				message: `Rolled back to ${last}. Re-run the phase with \`/tff next\`.`,
+				message: `Rolled back to ${last}. Re-run the phase with \`/tff next\`.${undoHint}`,
 			};
 		}
 

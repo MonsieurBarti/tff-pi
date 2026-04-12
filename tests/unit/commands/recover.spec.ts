@@ -119,4 +119,27 @@ describe("recover command", () => {
 		expect(after?.status).toBe("verifying");
 		expect(readLock(root)).toBeNull();
 	});
+
+	it("rollback without worktree returns error gracefully", () => {
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, {
+			projectId: pId,
+			number: 1,
+			name: "M",
+			branch: "milestone/M01",
+		});
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+		updateSliceStatus(db, sId, "executing");
+		acquireLock(root, { phase: "execute", sliceId: sId });
+
+		const result = executeRecovery(db, root, {
+			action: "rollback",
+			sliceId: sId,
+			milestoneNumber: 1,
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.message).toContain("No checkpoint");
+		expect(readLock(root)).toBeNull();
+	});
 });
