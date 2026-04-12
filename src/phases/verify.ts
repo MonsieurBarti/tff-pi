@@ -1,6 +1,6 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { createCheckpoint } from "../common/checkpoint.js";
-import { updateSliceStatus } from "../common/db.js";
+import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
 import {
@@ -46,7 +46,13 @@ export const verifyPhase: PhaseModule = {
 
 		const { agentPrompt, protocol } = loadPhaseResources("verify");
 		const milestoneBranch = `milestone/${mLabel}`;
-		const diff = getDiff(milestoneBranch, wtPath) ?? "";
+		const rawDiff = getDiff(milestoneBranch, wtPath) ?? "";
+		const diffLines = rawDiff.split("\n");
+		const MAX_DIFF_LINES = 800;
+		const diff =
+			diffLines.length > MAX_DIFF_LINES
+				? `${diffLines.slice(0, MAX_DIFF_LINES).join("\n")}\n\n[... ${diffLines.length - MAX_DIFF_LINES} more lines truncated; inspect the worktree directly for full diff ...]`
+				: rawDiff;
 
 		const message = [
 			agentPrompt,
@@ -93,6 +99,10 @@ export const verifyPhase: PhaseModule = {
 					)
 					.join("\n");
 
+				// Roll back status so /tff next routes back to execute for retry
+				updateSliceStatus(db, slice.id, "executing");
+				resetTasksToOpen(db, slice.id);
+
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 					type: "phase_failed",
@@ -103,7 +113,7 @@ export const verifyPhase: PhaseModule = {
 				return {
 					success: false,
 					retry: true,
-					feedback: `Mechanical verification found failures:\n${failures}\n\nFull report written to VERIFICATION-MECHANICAL.md. Fix the issues and retry.`,
+					feedback: `Mechanical verification found failures:\n${failures}\n\nFull report written to VERIFICATION-MECHANICAL.md. Run \`/tff next\` to route back to execute and fix.`,
 				};
 			}
 		}

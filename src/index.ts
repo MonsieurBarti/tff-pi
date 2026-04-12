@@ -195,6 +195,15 @@ export default function tffExtension(pi: ExtensionAPI): void {
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
 	pi.on("session_start", async (event, ctx) => {
+		// On startup (fresh PI launch), proactively clear any leftover pending
+		// phase message — it's from a crashed session, not useful anymore.
+		if (event.reason === "startup") {
+			const startupRoot = getGitRoot();
+			if (startupRoot) {
+				clearPendingMessage(startupRoot);
+			}
+		}
+
 		// Deliver any phase message queued on disk before newSession() was called.
 		// The new session's runtime is fully bound by the time session_start fires —
 		// sendMessage before this is a no-op.

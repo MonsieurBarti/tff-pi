@@ -25,14 +25,13 @@ export function preflightCheck(
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
 	const base = `milestones/${mLabel}/slices/${sLabel}`;
 
-	// Check required artifacts exist and are non-empty
-	const requiredArtifacts = [
-		"SPEC.md",
-		"PLAN.md",
-		"REQUIREMENTS.md",
-		"VERIFICATION.md",
-		"REVIEW.md",
-	];
+	// Required artifacts vary by tier:
+	// - All tiers need SPEC.md, PLAN.md, REQUIREMENTS.md, VERIFICATION.md
+	// - SS/SSS tiers also need REVIEW.md (S-tier skips review phase)
+	const requiredArtifacts: string[] = ["SPEC.md", "PLAN.md", "REQUIREMENTS.md", "VERIFICATION.md"];
+	if (slice.tier !== "S") {
+		requiredArtifacts.push("REVIEW.md");
+	}
 	for (const artifact of requiredArtifacts) {
 		const content = readArtifact(root, `${base}/${artifact}`);
 		if (!content || content.trim().length === 0) {
@@ -57,8 +56,9 @@ function buildPrBody(root: string, mLabel: string, sLabel: string, sliceTitle: s
 	const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
 	const verifyMd =
 		readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`) ?? "";
-	const reviewMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REVIEW.md`) ?? "";
-	return [
+	const reviewMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REVIEW.md`);
+
+	const parts = [
 		`## ${sLabel}: ${sliceTitle}`,
 		"",
 		"### Acceptance Criteria",
@@ -66,10 +66,13 @@ function buildPrBody(root: string, mLabel: string, sLabel: string, sliceTitle: s
 		"",
 		"### Verification",
 		verifyMd,
-		"",
-		"### Review Findings",
-		reviewMd,
-	].join("\n");
+	];
+
+	if (reviewMd && reviewMd.trim().length > 0) {
+		parts.push("", "### Review Findings", reviewMd);
+	}
+
+	return parts.join("\n");
 }
 
 function suggestNextAction(db: Database.Database, milestoneId: string): string {
