@@ -14,6 +14,7 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
+	updateSlicePrUrl,
 	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
@@ -24,6 +25,21 @@ import { must } from "../../helpers.js";
 const mockExec = vi.fn().mockReturnValue("");
 vi.mock("node:child_process", () => ({
 	execFileSync: (...args: unknown[]) => mockExec(...args),
+}));
+
+const mockView = vi.fn();
+const mockCreate = vi.fn();
+const mockChecks = vi.fn();
+const mockMerge = vi.fn();
+
+vi.mock("@the-forge-flow/gh-pi", () => ({
+	createGHClient: vi.fn(() => ({})),
+	createPRTools: vi.fn(() => ({
+		view: mockView,
+		create: mockCreate,
+		checks: mockChecks,
+		merge: mockMerge,
+	})),
 }));
 
 vi.mock("../../../src/common/checkpoint.js", () => ({
@@ -58,14 +74,24 @@ describe("shipPhase", () => {
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
 			const cmdArgs = args[1] as string[];
-			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "create") {
-				return "https://github.com/org/repo/pull/42\n";
-			}
-			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "checks") {
-				return "All checks passed\n";
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
 			}
 			return "";
 		});
+
+		mockView.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({ state: "OPEN", comments: [] }),
+			stderr: "",
+		});
+		mockCreate.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: "https://github.com/org/repo/pull/42",
+			stderr: "",
+		});
+		mockChecks.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+		mockMerge.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
 
 		db = openDatabase(":memory:");
 		applyMigrations(db);
@@ -175,18 +201,132 @@ describe("shipPhase", () => {
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 
-		// gh pr merge should NOT have been called
-		const mergeCalls = mockExec.mock.calls.filter(
-			(call: unknown[]) =>
-				call[0] === "gh" &&
-				(call[1] as string[])?.[0] === "pr" &&
-				(call[1] as string[])?.[1] === "merge",
-		);
-		expect(mergeCalls).toHaveLength(0);
+		// pr merge should NOT have been called
+		expect(mockMerge).not.toHaveBeenCalled();
 
 		// sendUserMessage should mention "ready for review"
 		expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
 		const msg = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
 		expect(msg).toContain("ready for review");
+	});
+
+	it("creates PR via prTools.create with correct parameters", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		await shipPhase.prepare(ctx);
+		expect(mockCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repo: "org/repo",
+				title: expect.stringContaining("M01-S01"),
+				head: "slice/M01-S01",
+				base: "milestone/M01",
+			}),
+		);
+	});
+
+	it("re-entry: merged PR closes slice", async () => {
+		mockView.mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({ state: "MERGED", comments: [] }),
+			stderr: "",
+		});
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(true);
+		const updated = must(getSlice(db, sliceId));
+		expect(updated.status).toBe("closed");
+	});
+
+	it("re-entry: PR with comments returns to executing", async () => {
+		mockView.mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({
+				state: "OPEN",
+				comments: [{ body: "please fix", author: { login: "reviewer" } }],
+			}),
+			stderr: "",
+		});
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(true);
+		expect(result.feedback).toContain("please fix");
+		const updated = must(getSlice(db, sliceId));
+		expect(updated.status).toBe("executing");
+	});
+
+	it("re-entry: open PR with no comments returns waiting", async () => {
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(true);
+		expect(mockMerge).not.toHaveBeenCalled();
+	});
+
+	it("CI failure triggers retry path", async () => {
+		mockChecks.mockResolvedValue({ code: 1, stdout: "", stderr: "checks failed" });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(true);
+		const updated = must(getSlice(db, sliceId));
+		expect(updated.status).toBe("executing");
+	});
+
+	it("returns error for invalid PR URL", async () => {
+		updateSlicePrUrl(db, sliceId, "not a url");
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: makePi(),
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings({ ship: { auto_merge: true } }),
+		};
+		const result = await shipPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("Invalid PR URL");
 	});
 });

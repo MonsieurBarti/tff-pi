@@ -4,6 +4,8 @@ import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { cleanupCheckpoints } from "../common/checkpoint.js";
 import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
+import { getPrTools } from "../common/gh-client.js";
+import { parsePrUrl } from "../common/gh-helpers.js";
 import { gitEnv } from "../common/git.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import type { Slice } from "../common/types.js";
@@ -102,12 +104,20 @@ export const shipPhase: PhaseModule = {
 		try {
 			// --- Re-entry: PR already exists ---
 			if (slice.prUrl) {
-				const prJson = execFileSync("gh", ["pr", "view", slice.prUrl, "--json", "state,comments"], {
-					cwd: root,
-					encoding: "utf-8",
-					env,
-				}).trim();
-				const pr = JSON.parse(prJson) as {
+				const parsed = parsePrUrl(slice.prUrl);
+				if (!parsed) {
+					return { success: false, retry: false, error: `Invalid PR URL: ${slice.prUrl}` };
+				}
+				const prTools = getPrTools();
+				const viewResult = await prTools.view({ repo: parsed.repo, number: parsed.number });
+				if (viewResult.code !== 0) {
+					return {
+						success: false,
+						retry: false,
+						error: `gh pr view failed: ${viewResult.stderr}`,
+					};
+				}
+				const pr = JSON.parse(viewResult.stdout) as {
 					state: string;
 					comments: { body: string; author: { login: string } }[];
 				};
@@ -192,29 +202,45 @@ export const shipPhase: PhaseModule = {
 			// Build PR body
 			const prBody = buildPrBody(root, mLabel, sLabel, slice.title);
 
+			// Derive repo slug from origin remote (gh-pi requires explicit repo)
+			const remoteUrl = execFileSync("git", ["remote", "get-url", "origin"], {
+				cwd: wtPath,
+				encoding: "utf-8",
+				env,
+			}).trim();
+			const repoMatch = remoteUrl.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
+			if (!repoMatch || !repoMatch[1]) {
+				return {
+					success: false,
+					retry: false,
+					error: `Cannot parse repo from remote: ${remoteUrl}`,
+				};
+			}
+			const repo = repoMatch[1];
+
 			// Create PR
-			const prUrl = execFileSync(
-				"gh",
-				[
-					"pr",
-					"create",
-					"--base",
-					milestoneBranch,
-					"--head",
-					sliceBranch,
-					"--title",
-					`feat(${sLabel}): ${slice.title}`,
-					"--body",
-					prBody,
-				],
-				{ cwd: wtPath, encoding: "utf-8", env },
-			).trim();
+			const prTools = getPrTools();
+			const createResult = await prTools.create({
+				repo,
+				title: `feat(${sLabel}): ${slice.title}`,
+				body: prBody,
+				head: sliceBranch,
+				base: milestoneBranch,
+			});
+			if (createResult.code !== 0) {
+				return {
+					success: false,
+					retry: false,
+					error: `gh pr create failed: ${createResult.stderr}`,
+				};
+			}
+			const prUrl = createResult.stdout.trim();
 
 			// Store PR URL
 			updateSlicePrUrl(db, slice.id, prUrl);
 
 			// Extract PR number from URL
-			const prNumber = prUrl.split("/").pop() ?? "";
+			const prNumber = Number.parseInt(prUrl.split("/").pop() ?? "0", 10);
 
 			// Write PR.md — respect user_artifacts compression
 			const compressed = settings.compress.user_artifacts;
@@ -236,12 +262,12 @@ export const shipPhase: PhaseModule = {
 
 			// Wait for CI
 			try {
-				execFileSync("gh", ["pr", "checks", prNumber, "--watch"], {
-					cwd: wtPath,
-					encoding: "utf-8",
-					env,
-					timeout: 600_000,
-				});
+				const checksResult = await prTools.checks({ repo, number: prNumber, watch: true });
+				if (checksResult.code !== 0) {
+					throw new Error(
+						`CI checks failed (exit ${checksResult.code}): ${checksResult.stderr || checksResult.stdout}`,
+					);
+				}
 			} catch {
 				// CI failed — loop back to executing for fixes
 				updateSliceStatus(db, slice.id, "executing");
@@ -269,11 +295,14 @@ export const shipPhase: PhaseModule = {
 			}
 
 			// Squash merge
-			execFileSync("gh", ["pr", "merge", prNumber, "--squash"], {
-				cwd: wtPath,
-				encoding: "utf-8",
-				env,
-			});
+			const mergeResult = await prTools.merge({ repo, number: prNumber, method: "squash" });
+			if (mergeResult.code !== 0) {
+				return {
+					success: false,
+					retry: false,
+					error: `gh pr merge failed: ${mergeResult.stderr}`,
+				};
+			}
 
 			// Cleanup checkpoints and worktree
 			cleanupCheckpoints(root, sLabel);

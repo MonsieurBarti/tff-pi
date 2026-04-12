@@ -40,6 +40,21 @@ vi.mock("node:child_process", async (importOriginal) => {
 	};
 });
 
+const mockView = vi.fn();
+const mockCreate = vi.fn();
+const mockChecks = vi.fn();
+const mockMerge = vi.fn();
+
+vi.mock("@the-forge-flow/gh-pi", () => ({
+	createGHClient: vi.fn(() => ({})),
+	createPRTools: vi.fn(() => ({
+		view: mockView,
+		create: mockCreate,
+		checks: mockChecks,
+		merge: mockMerge,
+	})),
+}));
+
 vi.mock("../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	removeWorktree: vi.fn(),
@@ -109,6 +124,9 @@ describe("E2E critical path", () => {
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
 			const cmdArgs = args[1] as string[];
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
+			}
 			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "create") {
 				return "https://github.com/org/repo/pull/1\n";
 			}
@@ -120,6 +138,19 @@ describe("E2E critical path", () => {
 			}
 			return "";
 		});
+
+		mockView.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({ state: "MERGED", comments: [] }),
+			stderr: "",
+		});
+		mockCreate.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: "https://github.com/org/repo/pull/1",
+			stderr: "",
+		});
+		mockChecks.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+		mockMerge.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
 
 		db = openDatabase(":memory:");
 		applyMigrations(db);
@@ -357,14 +388,8 @@ describe("E2E critical path", () => {
 			expect(updated.status).toBe("shipping");
 			expect(updated.prUrl).toContain("github.com");
 
-			// gh pr merge should NOT have been called
-			const mergeCalls = mockExec.mock.calls.filter(
-				(call: unknown[]) =>
-					call[0] === "gh" &&
-					(call[1] as string[])?.[0] === "pr" &&
-					(call[1] as string[])?.[1] === "merge",
-			);
-			expect(mergeCalls).toHaveLength(0);
+			// pr merge should NOT have been called
+			expect(mockMerge).not.toHaveBeenCalled();
 
 			// sendUserMessage should mention "ready for review"
 			expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
@@ -450,17 +475,14 @@ describe("E2E critical path", () => {
 			updateSliceTier(db, sliceId, "SS");
 			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
 
-			// Mock gh pr view to return OPEN with comments
-			mockExec.mockImplementation((...args: unknown[]) => {
-				const cmd = args[0] as string;
-				const cmdArgs = args[1] as string[];
-				if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "view") {
-					return JSON.stringify({
-						state: "OPEN",
-						comments: [{ body: "Fix the error handling", author: { login: "reviewer" } }],
-					});
-				}
-				return "";
+			// Mock prTools.view to return OPEN with comments
+			mockView.mockResolvedValue({
+				code: 0,
+				stdout: JSON.stringify({
+					state: "OPEN",
+					comments: [{ body: "Fix the error handling", author: { login: "reviewer" } }],
+				}),
+				stderr: "",
 			});
 
 			const pi = makePi();
