@@ -47,6 +47,7 @@ import {
 	initRepo,
 	initialCommitAndPush,
 } from "./common/git.js";
+import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
 import {
 	type PhaseContext,
 	type PhaseModule,
@@ -235,6 +236,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 		}
 		projectRoot = root;
 
+		// Initialize hippo-memory (best-effort; null if not installed)
+		await initMemory(root);
+
 		const dbPath = tffPath(root, "state.db");
 		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
 			try {
@@ -273,6 +277,20 @@ export default function tffExtension(pi: ExtensionAPI): void {
 									const diagnosis = diagnoseRecovery(root, db, stuckSlice.id, milestone.number);
 									const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
 									pi.sendUserMessage(briefing);
+
+									// Log crash to hippo-memory (best-effort)
+									const memory = getMemory();
+									if (memory) {
+										try {
+											await memory.remember({
+												content: `Crash during ${diagnosis.status} phase on ${diagnosis.sliceLabel}. Classification: ${diagnosis.classification}. Lock timestamp: ${lock?.timestamp ?? "unknown"}.`,
+												tags: ["tff-crash", "recovery", diagnosis.status],
+												kind: "observed",
+											});
+										} catch {
+											// best-effort
+										}
+									}
 								}
 							}
 						}
@@ -303,6 +321,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 		tuiMonitor = null;
 		await shutdownFffBridge();
 		fffBridge = null;
+		await shutdownMemory();
 		if (db) {
 			db.close();
 			db = null;
