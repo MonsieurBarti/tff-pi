@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
@@ -23,13 +21,10 @@ import { handleStatus } from "./commands/status.js";
 import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, readArtifact, tffPath } from "./common/artifacts.js";
 import { createCheckpoint } from "./common/checkpoint.js";
-import { refreshCompressionLevel } from "./common/compress.js";
-import { buildContextBlock } from "./common/context-injection.js";
 import { type TffContext, createTffContext } from "./common/context.js";
 import {
 	applyMigrations,
 	getActiveMilestone,
-	getActiveSlice,
 	getMilestone,
 	getMilestones,
 	getProject,
@@ -37,9 +32,7 @@ import {
 	getSlices,
 	openDatabase,
 } from "./common/db.js";
-import { DISCUSS_GATES, resetAllGates, unlockGate } from "./common/discuss-gates.js";
-import { EventLogger } from "./common/event-logger.js";
-import { initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
+import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import {
 	addRemote,
 	createGitignore,
@@ -48,26 +41,17 @@ import {
 	initRepo,
 	initialCommitAndPush,
 } from "./common/git.js";
-import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
 import { emitPhaseCompleteIfArtifactsReady } from "./common/phase-completion.js";
-import {
-	type PhaseContext,
-	type PhaseModule,
-	clearPendingMessage,
-	readPendingMessage,
-	runPhaseWithFreshContext,
-} from "./common/phase.js";
+import { type PhaseContext, type PhaseModule, runPhaseWithFreshContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import {
 	type RecoveryClassification,
 	diagnoseRecovery,
-	formatRecoveryBriefing,
 	scanForStuckSlices,
 } from "./common/recovery.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
-import { isLockStale, readLock, releaseLock } from "./common/session-lock.js";
+import { releaseLock } from "./common/session-lock.js";
 import { DEFAULT_SETTINGS, parseSettings } from "./common/settings.js";
-import { TUIMonitor } from "./common/tui-monitor.js";
 import {
 	type Phase,
 	SLICE_STATUSES,
@@ -77,6 +61,7 @@ import {
 	sliceLabel,
 } from "./common/types.js";
 import { getWorktreePath } from "./common/worktree.js";
+import { registerLifecycleHooks } from "./lifecycle.js";
 import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
 import { type AskUserQuestion, handleAskUser } from "./tools/ask-user.js";
@@ -90,7 +75,6 @@ import { handleWriteResearch } from "./tools/write-research.js";
 import { type ReviewVerdict, handleWriteReview } from "./tools/write-review.js";
 import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
 import { handleWriteVerification } from "./tools/write-verification.js";
-import { checkForUpdates } from "./update-check.js";
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -183,182 +167,7 @@ async function runHeavyPhase(
 export default function tffExtension(pi: ExtensionAPI): void {
 	const ctx = createTffContext(pi);
 
-	// -------------------------------------------------------------------------
-	// Lifecycle: session_start
-	// -------------------------------------------------------------------------
-	pi.on("session_start", async (event, uiCtx) => {
-		// On startup (fresh PI launch), proactively clear any leftover pending
-		// phase message — it's from a crashed session, not useful anymore.
-		if (event.reason === "startup") {
-			const startupRoot = getGitRoot();
-			if (startupRoot) {
-				clearPendingMessage(startupRoot);
-			}
-		}
-
-		// Deliver any phase message queued on disk before newSession() was called.
-		// The new session's runtime is fully bound by the time session_start fires —
-		// sendMessage before this is a no-op.
-		if (event.reason === "new") {
-			const earlyRoot = getGitRoot();
-			const message = earlyRoot ? readPendingMessage(earlyRoot) : null;
-			if (earlyRoot) clearPendingMessage(earlyRoot);
-
-			if (message) {
-				try {
-					// deliverAs "steer" queues if the new session's agent is already
-					// processing a startup turn (observed: "Agent is already
-					// processing" on phase switch). When idle, triggerTurn fires it
-					// immediately. Covers both races from one call.
-					pi.sendMessage(
-						{ customType: "tff-phase", content: message, display: true },
-						{ triggerTurn: true, deliverAs: "steer" },
-					);
-				} catch (err) {
-					if (uiCtx.hasUI) {
-						uiCtx.ui.notify(
-							`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
-							"error",
-						);
-					}
-				}
-			}
-		}
-
-		const root = getGitRoot();
-		if (!root) {
-			return;
-		}
-		ctx.projectRoot = root;
-
-		// Initialize hippo-memory (best-effort; null if not installed)
-		await initMemory(root);
-
-		// Refresh ultra-compress active level from user's state store
-		await refreshCompressionLevel(root);
-
-		const dbPath = tffPath(root, "state.db");
-		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
-			try {
-				ctx.db = openDatabase(dbPath);
-				applyMigrations(ctx.db);
-				loadSettings(ctx, root);
-				ctx.initError = null;
-				resetAllGates();
-
-				// Initialize monitoring
-				const logsDir = tffPath(root, "logs");
-				ctx.eventLogger = new EventLogger(ctx.db, logsDir);
-				ctx.eventLogger.subscribe(pi.events);
-
-				if (uiCtx.hasUI) {
-					ctx.tuiMonitor = new TUIMonitor(uiCtx.ui);
-					ctx.tuiMonitor.subscribe(pi.events);
-					uiCtx.ui.notify("TFF ready", "info");
-				}
-
-				// fff-pi bridge: enriches plan/execute phase prompts with related files.
-				ctx.fffBridge = await initFffBridge(root);
-
-				// --- Crash recovery scan (cold startup only) ---
-				// Phase transitions fire session_start with reason="new" while a
-				// slice is legitimately mid-flow (status=planning/executing/etc.)
-				// and the lock was just released. Running the scan here would
-				// flag the in-flight slice as stuck AND call sendUserMessage
-				// after we just triggered a turn via sendMessage — the agent is
-				// now streaming, sendUserMessage has no deliverAs, and PI
-				// reports "Extension <runtime> error: Agent is already processing".
-				try {
-					const lock = readLock(root);
-					const lockIsStale = lock && isLockStale(lock);
-					const needsScan = event.reason === "startup" && (lockIsStale || !lock);
-					if (needsScan && ctx.db) {
-						const stuck = scanForStuckSlices(ctx.db);
-						if (stuck.length > 0) {
-							const stuckSlice = stuck[0];
-							if (stuckSlice) {
-								const milestone = getMilestone(ctx.db, stuckSlice.milestoneId);
-								if (milestone) {
-									const diagnosis = diagnoseRecovery(root, ctx.db, stuckSlice.id, milestone.number);
-									const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
-									pi.sendUserMessage(briefing, { deliverAs: "steer" });
-
-									// Log crash to hippo-memory (best-effort)
-									const memory = getMemory();
-									if (memory) {
-										try {
-											await memory.remember({
-												content: `Crash during ${diagnosis.status} phase on ${diagnosis.sliceLabel}. Classification: ${diagnosis.classification}. Lock timestamp: ${lock?.timestamp ?? "unknown"}.`,
-												tags: ["tff-crash", "recovery", diagnosis.status],
-												kind: "observed",
-											});
-										} catch {
-											// best-effort
-										}
-									}
-								}
-							}
-						}
-					}
-				} catch {
-					// Best-effort — don't crash on recovery scan failure
-				}
-			} catch (err) {
-				ctx.initError = err instanceof Error ? err.message : String(err);
-			}
-		}
-
-		// Check for extension updates
-		const updateInfo = await checkForUpdates(pi);
-		if (updateInfo?.updateAvailable && uiCtx.hasUI) {
-			uiCtx.ui.notify(
-				`📦 Update available: ${updateInfo.latestVersion} (you have ${updateInfo.currentVersion}). Run: pi install npm:@the-forge-flow/tff-pi`,
-				"info",
-			);
-		}
-	});
-
-	// -------------------------------------------------------------------------
-	// Lifecycle: session_shutdown
-	// -------------------------------------------------------------------------
-	pi.on("session_shutdown", async () => {
-		ctx.eventLogger = null;
-		ctx.tuiMonitor = null;
-		await shutdownFffBridge();
-		ctx.fffBridge = null;
-		await shutdownMemory();
-		if (ctx.db) {
-			ctx.db.close();
-			ctx.db = null;
-		}
-	});
-
-	// -------------------------------------------------------------------------
-	// Lifecycle: before_agent_start — inject TFF context into system prompt
-	// -------------------------------------------------------------------------
-	pi.on("before_agent_start", async (event, _uiCtx) => {
-		if (!ctx.db || !ctx.projectRoot) return undefined;
-
-		const project = getProject(ctx.db);
-		if (!project) return undefined;
-
-		const milestone = getActiveMilestone(ctx.db, project.id);
-		const slice = milestone ? getActiveSlice(ctx.db, milestone.id) : null;
-
-		const contextBlock = buildContextBlock({
-			root: ctx.projectRoot,
-			project,
-			milestone,
-			slice,
-			settings: ctx.settings ?? undefined,
-		});
-
-		if (!contextBlock) return undefined;
-
-		return {
-			systemPrompt: `${event.systemPrompt}\n\n${contextBlock}`,
-		};
-	});
+	registerLifecycleHooks(pi, ctx);
 
 	// -------------------------------------------------------------------------
 	// /tff command
