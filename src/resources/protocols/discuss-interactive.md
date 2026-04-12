@@ -34,9 +34,13 @@ Red Flags — thoughts that mean STOP:
 <HARD-GATE>
 You MUST present 2-3 approaches with trade-offs and get user
 selection BEFORE proceeding. No exceptions.
+
+Present approaches via `tff_ask_user` — NEVER as free-form prose.
+The tool enforces 2-3 mutually exclusive options per question
+so you cannot invent alternatives on the fly.
 </HARD-GATE>
 
-Lead with recommendation (C6). Explain trade-offs for each.
+Lead with recommendation (C6). Explain trade-offs for each option's `description`.
 
 ## 5. DEPTH VERIFICATION
 Present structured summary using user's exact terminology.
@@ -44,14 +48,13 @@ Ask: "Ready to write the spec?"
 After user confirms → call `tff_confirm_gate(sliceId, "depth_verified")`.
 
 ## 6. TIER CLASSIFICATION
-Propose tier with justification:
-- S: trivial, no unknowns, skip research
+Propose tier via `tff_ask_user` with a single question (id: `tier_choice`):
+- S: trivial, no unknowns, skip research (still goes through review)
 - SS: standard work, some investigation
 - SSS: complex, multi-system, significant unknowns
 
-Ask user to confirm or override.
-After confirmation → call `tff_confirm_gate(sliceId, "tier_confirmed")`.
-Then call `tff_classify(sliceId, tier)`.
+Include your recommended tier as the first option. After the user selects →
+call `tff_confirm_gate(sliceId, "tier_confirmed")` then `tff_classify(sliceId, tier)`.
 
 ## 7. SPEC WRITING
 Self-review before writing (4-point check):

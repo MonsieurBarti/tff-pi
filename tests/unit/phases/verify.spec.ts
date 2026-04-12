@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type Mock, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initTffDirectory, writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
@@ -44,6 +44,7 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	collectPhaseContext: vi.fn().mockReturnValue({}),
 }));
 
+import { getDiff } from "../../../src/common/git.js";
 import { verifyPhase } from "../../../src/phases/verify.js";
 
 describe("verifyPhase", () => {
@@ -113,6 +114,33 @@ describe("verifyPhase", () => {
 		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
 		expect(msg).toContain("SPEC.md");
 		expect(msg).toContain("diff content");
+	});
+
+	it("fails with phase_failed when diff is empty (no execute output)", async () => {
+		(getDiff as unknown as Mock).mockReturnValueOnce("");
+		const sendUserMessage = vi.fn();
+		const mockEmit = vi.fn();
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage,
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await verifyPhase.run(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(false);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		const failedCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "verify",
+		);
+		expect(failedCalls).toHaveLength(1);
+		expect(failedCalls[0]?.[1]).toHaveProperty("error");
 	});
 
 	it("emits phase_start event", async () => {

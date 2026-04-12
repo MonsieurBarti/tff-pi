@@ -108,6 +108,29 @@ describe("handleWritePlan", () => {
 		expect(must(result.content[0]).text).toContain("Slice not found");
 	});
 
+	it("replaces prior tasks+deps when called twice for the same slice", () => {
+		const first = [
+			{ title: "First A", description: "" },
+			{ title: "First B", description: "", dependsOn: [1] },
+			{ title: "First C", description: "", dependsOn: [2] },
+		];
+		const second = [
+			{ title: "Second A", description: "" },
+			{ title: "Second B", description: "", dependsOn: [1] },
+		];
+
+		handleWritePlan(db, root, sliceId, "# Plan v1\n", first);
+		expect(getTasks(db, sliceId)).toHaveLength(3);
+		expect(getDependencies(db, sliceId)).toHaveLength(2);
+
+		handleWritePlan(db, root, sliceId, "# Plan v2\n", second);
+
+		const tasksAfter = getTasks(db, sliceId);
+		expect(tasksAfter).toHaveLength(2);
+		expect(tasksAfter.map((t) => t.title)).toEqual(["Second A", "Second B"]);
+		expect(getDependencies(db, sliceId)).toHaveLength(1);
+	});
+
 	it("handles tasks with no dependencies", () => {
 		const tasks = [
 			{ title: "Task A", description: "Independent" },

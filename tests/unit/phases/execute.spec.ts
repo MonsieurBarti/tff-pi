@@ -93,12 +93,13 @@ describe("executePhase", () => {
 		expect(msg).toContain("Wave 2");
 	});
 
-	it("returns success with no tasks (emits phase_complete)", async () => {
+	it("fails with phase_failed when no tasks exist in DB", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const mockEmit = vi.fn();
+		const sendUserMessage = vi.fn();
 		const ctx: PhaseContext = {
 			pi: {
-				sendUserMessage: vi.fn(),
+				sendUserMessage,
 				events: { emit: mockEmit, on: vi.fn() },
 			} as unknown as PhaseContext["pi"],
 			db,
@@ -108,10 +109,18 @@ describe("executePhase", () => {
 			settings: DEFAULT_SETTINGS,
 		};
 		const result = await executePhase.run(ctx);
-		expect(result.success).toBe(true);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(false);
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		const failedCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed",
+		);
+		expect(failedCalls).toHaveLength(1);
+		const failedEvent = failedCalls[0]?.[1] as { error?: string };
+		expect(failedEvent.error).toMatch(/no tasks/i);
 		const completeCalls = mockEmit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete",
 		);
-		expect(completeCalls).toHaveLength(1);
+		expect(completeCalls).toHaveLength(0);
 	});
 });

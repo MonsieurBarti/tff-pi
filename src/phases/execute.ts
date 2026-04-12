@@ -34,13 +34,15 @@ export const executePhase: PhaseModule = {
 
 		const waveMap = getTasksByWave(db, slice.id);
 		if (waveMap.size === 0) {
+			const error =
+				"No tasks persisted in DB for this slice. The plan phase did not call tff_write_plan successfully. Re-run plan.";
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-				type: "phase_complete",
+				type: "phase_failed",
 				phase: "execute",
-				durationMs: 0,
+				error,
 			});
-			return { success: true, retry: false };
+			return { success: false, retry: false };
 		}
 
 		// Build task list for the message

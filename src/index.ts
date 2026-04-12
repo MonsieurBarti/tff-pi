@@ -6,6 +6,7 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
+import { handleDoctor } from "./commands/doctor.js";
 import { validateExecute } from "./commands/execute.js";
 import { handleHealth } from "./commands/health.js";
 import { handleLogs } from "./commands/logs.js";
@@ -39,14 +40,16 @@ import {
 	initRepo,
 	initialCommitAndPush,
 } from "./common/git.js";
+import { emitPhaseCompleteIfArtifactsReady } from "./common/phase-completion.js";
 import type { PhaseContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS, type Settings, parseSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import { SLICE_STATUSES, type Slice, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
-import { findActiveSlice } from "./orchestrator.js";
+import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
 import { phaseModules } from "./phases/index.js";
+import { type AskUserQuestion, handleAskUser } from "./tools/ask-user.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
 import { handleCreateSlice } from "./tools/create-slice.js";
@@ -318,6 +321,23 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					break;
 				}
 
+				case "doctor": {
+					let msg: string;
+					try {
+						const database = getDb();
+						const recover = rest.includes("--recover");
+						const report = handleDoctor(database, { recover });
+						msg = report.message;
+					} catch (err) {
+						msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
+					}
+					if (ctx.hasUI) {
+						ctx.ui.notify(msg, "info");
+					}
+					pi.sendUserMessage(msg);
+					break;
+				}
+
 				case "settings": {
 					const current = settings ?? DEFAULT_SETTINGS;
 					pi.sendUserMessage(
@@ -359,7 +379,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateDiscuss(database, slice.id);
+					const validation = validateDiscuss(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -398,7 +418,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateResearch(database, slice.id);
+					const validation = validateResearch(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -437,7 +457,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validatePlan(database, slice.id);
+					const validation = validatePlan(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -467,7 +487,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const database = getDb();
 					const root = projectRoot;
 					if (!root) return;
-					const validation = validateNext(database);
+					const validation = validateNext(database, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -506,7 +526,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateExecute(database, slice.id);
+					const validation = validateExecute(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -545,7 +565,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateVerify(database, slice.id);
+					const validation = validateVerify(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -584,7 +604,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						if (ctx.hasUI) ctx.ui.notify(msg, "error");
 						return;
 					}
-					const validation = validateShip(database, slice.id);
+					const validation = validateShip(database, slice.id, projectRoot);
 					if (!validation.valid) {
 						if (ctx.hasUI) ctx.ui.notify(validation.error ?? "Unknown error", "error");
 						return;
@@ -821,7 +841,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleClassify(database, slice.id, tier);
+					const result = handleClassify(database, slice.id, tier);
+					if (!result.isError && projectRoot) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							projectRoot,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
+					}
+					return result;
 				} catch (err) {
 					return {
 						content: [
@@ -1095,6 +1126,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const writeResult = handleWriteSpec(database, root, slice.id, params.content);
 					if (!writeResult.isError) {
 						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1153,6 +1192,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					const writeResult = handleWriteRequirements(database, root, slice.id, params.content);
 					if (!writeResult.isError) {
 						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"discuss",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1210,7 +1257,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							isError: true,
 						};
 					}
-					return handleWriteResearch(database, root, slice.id, params.content);
+					const writeResult = handleWriteResearch(database, root, slice.id, params.content);
+					if (!writeResult.isError) {
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"research",
+							verifyPhaseArtifacts,
+						);
+					}
+					return writeResult;
 				} catch (err) {
 					return {
 						content: [
@@ -1232,9 +1290,13 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			name: "tff_write_plan",
 			label: "TFF Write Plan",
 			description:
-				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. Triggers plannotator review after writing.",
+				"Write the PLAN.md artifact for a slice and register tasks with dependency graph. THIS IS THE ONLY TOOL THAT MARKS THE PLAN PHASE COMPLETE — phase_complete fires here. Triggers plannotator review after writing.",
+			promptSnippet:
+				"The plan phase is not complete until tff_write_plan returns successfully. Writing PLAN.md via Write/Edit will NOT persist tasks — the database needs structured task entries via this tool.",
 			promptGuidelines: [
-				"Write PLAN.md with tasks, dependencies, and implementation details",
+				"Call this tool to persist PLAN.md AND structured tasks — not Write/Edit",
+				"A successful call is the sole phase_complete signal for plan",
+				"tasks array must not be empty — if you cannot decompose, ask the user via tff_ask_user",
 				"Plannotator review opens automatically after writing",
 			],
 			parameters: Type.Object({
@@ -1291,6 +1353,14 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					);
 					if (!writeResult.isError) {
 						requestReview(pi, String(writeResult.details.path), params.content, "plan");
+						emitPhaseCompleteIfArtifactsReady(
+							pi,
+							database,
+							root,
+							slice,
+							"plan",
+							verifyPhaseArtifacts,
+						);
 					}
 					return writeResult;
 				} catch (err) {
@@ -1299,6 +1369,71 @@ export default function tffExtension(pi: ExtensionAPI): void {
 							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
 						],
 						details: { sliceId: params.sliceId },
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+
+	// -------------------------------------------------------------------------
+	// AI Tool: tff_ask_user — curated multiple-choice questions for the user
+	// -------------------------------------------------------------------------
+	pi.registerTool(
+		defineTool({
+			name: "tff_ask_user",
+			label: "TFF Ask User",
+			description:
+				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-3 bounded options (single-select) or 2+ (multi-select). Use this INSTEAD of free-form questions to prevent agent-invented options.",
+			promptGuidelines: [
+				"Use for any user decision that has a discrete set of valid answers",
+				"Single-select questions: 2-3 options; 'None of the above' is auto-injected",
+				"Multi-select: set allowMultiple=true; any number of options",
+				"Headers must be ≤12 characters (TUI label)",
+				"Do not paraphrase user input into your own options — if the user gave a free-form answer, reflect it back literally",
+			],
+			parameters: Type.Object({
+				questions: Type.Array(
+					Type.Object({
+						id: Type.String({
+							description: "Stable snake_case id for mapping the user's answer back",
+						}),
+						header: Type.String({
+							description: "Short header shown in the UI (≤12 chars)",
+						}),
+						question: Type.String({
+							description: "Single-sentence prompt shown to the user",
+						}),
+						options: Type.Array(
+							Type.Object({
+								label: Type.String({ description: "1-5 word user-facing label" }),
+								description: Type.String({
+									description: "One short sentence explaining the impact/tradeoff",
+								}),
+							}),
+							{
+								description:
+									"2-3 mutually-exclusive options for single-select, or 2+ for multi-select",
+							},
+						),
+						allowMultiple: Type.Optional(
+							Type.Boolean({
+								description: "Allow the user to select multiple options. Default false.",
+							}),
+						),
+					}),
+					{ description: "One or more questions to ask the user" },
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					return handleAskUser(params.questions as AskUserQuestion[]);
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: {},
 						isError: true,
 					};
 				}

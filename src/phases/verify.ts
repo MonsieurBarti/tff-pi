@@ -42,6 +42,17 @@ export const verifyPhase: PhaseModule = {
 		const milestoneBranch = `milestone/${mLabel}`;
 		const diff = getDiff(milestoneBranch, wtPath) ?? "";
 
+		if (diff.trim() === "") {
+			const error = `No diff between ${milestoneBranch} and the slice worktree. The execute phase produced no changes — re-run execute before verifying.`;
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_failed",
+				phase: "verify",
+				error,
+			});
+			return { success: false, retry: false };
+		}
+
 		const message = [
 			agentPrompt,
 			protocol,

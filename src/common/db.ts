@@ -384,6 +384,15 @@ export function updateSlicePrUrl(db: Database.Database, id: string, prUrl: strin
 	db.prepare("UPDATE slice SET pr_url = ? WHERE id = ?").run(prUrl, id);
 }
 
+export function clearSliceTasks(db: Database.Database, sliceId: string): void {
+	db.transaction(() => {
+		db.prepare(
+			"DELETE FROM dependency WHERE from_task_id IN (SELECT id FROM task WHERE slice_id = ?) OR to_task_id IN (SELECT id FROM task WHERE slice_id = ?)",
+		).run(sliceId, sliceId);
+		db.prepare("DELETE FROM task WHERE slice_id = ?").run(sliceId);
+	})();
+}
+
 export function getTasksByWave(db: Database.Database, sliceId: string): Map<number, Task[]> {
 	const tasks = getTasks(db, sliceId);
 	const grouped = new Map<number, Task[]>();
