@@ -40,7 +40,7 @@ export function determineNextPhase(status: SliceStatus, tier?: Tier | null): Pha
 		case "executing":
 			return "verify";
 		case "verifying":
-			return tier === "S" ? "ship" : "review";
+			return "review";
 		case "reviewing":
 			return "ship";
 		default:

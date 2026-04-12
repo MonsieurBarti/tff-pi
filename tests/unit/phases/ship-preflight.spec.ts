@@ -92,25 +92,13 @@ describe("preflightCheck", () => {
 		expect(result.errors.length).toBeGreaterThanOrEqual(5);
 	});
 
-	it("S-tier preflight does not require REVIEW.md", () => {
+	it("S-tier preflight still requires REVIEW.md (review required for all tiers)", () => {
 		const sTierSlice: Slice = { ...fakeSlice, tier: "S" };
-		// Write all artifacts except REVIEW.md
-		writeArtifact(root, `${base}/SPEC.md`, "# Spec\nAC-1: works");
-		writeArtifact(root, `${base}/PLAN.md`, "# Plan\nStep 1: do it");
-		writeArtifact(root, `${base}/REQUIREMENTS.md`, "# Requirements\nR1: must work");
-		writeArtifact(root, `${base}/VERIFICATION.md`, "# Verification\n- [x] All checks pass");
-		const result = preflightCheck(root, sTierSlice, 1);
-		expect(result.ok).toBe(true);
-		expect(result.errors).toHaveLength(0);
-	});
-
-	it("SS-tier preflight still requires REVIEW.md", () => {
-		// Write all artifacts except REVIEW.md
 		writeArtifact(root, `${base}/SPEC.md`, "# Spec");
 		writeArtifact(root, `${base}/PLAN.md`, "# Plan");
 		writeArtifact(root, `${base}/REQUIREMENTS.md`, "# Requirements");
 		writeArtifact(root, `${base}/VERIFICATION.md`, "# Verification\n- [x] ok");
-		const result = preflightCheck(root, fakeSlice, 1);
+		const result = preflightCheck(root, sTierSlice, 1);
 		expect(result.ok).toBe(false);
 		expect(result.errors).toEqual(
 			expect.arrayContaining([expect.stringContaining("REVIEW.md missing")]),

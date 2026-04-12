@@ -106,8 +106,8 @@ describe("determineNextPhase", () => {
 	it("verifying + SS -> review", () => {
 		expect(determineNextPhase("verifying", "SS")).toBe("review");
 	});
-	it("verifying + S -> ship (skip review)", () => {
-		expect(determineNextPhase("verifying", "S")).toBe("ship");
+	it("verifying + S -> review (review required for all tiers)", () => {
+		expect(determineNextPhase("verifying", "S")).toBe("review");
 	});
 	it("reviewing -> ship", () => {
 		expect(determineNextPhase("reviewing")).toBe("ship");
