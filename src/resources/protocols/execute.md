@@ -1,5 +1,18 @@
 # Execute Protocol
 
+<HARD-GATE>
+The execute phase runs against a GIT WORKTREE, not the project root.
+The slice's WORKTREE path is given in the message. ALL file writes,
+edits, and git commands MUST target that path:
+
+- Bash tool: `cd <worktree>` first, or pass `cwd` to each call
+- Write/Edit tool: use absolute paths under the worktree
+- Never touch files outside the worktree (including the TFF repo itself)
+
+If you write to the project root, the verify phase sees an empty
+worktree diff and the work is effectively lost.
+</HARD-GATE>
+
 ## Input
 - Task record (title, description, files, wave)
 - SPEC.md ACs mapped to this task

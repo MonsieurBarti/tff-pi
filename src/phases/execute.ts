@@ -61,14 +61,33 @@ export const executePhase: PhaseModule = {
 			taskLines.push("");
 		}
 
+		const worktreeGate = [
+			"<HARD-GATE>",
+			"All file writes and git operations MUST target the worktree path below.",
+			"Do NOT write to the project root. The worktree is a separate git branch.",
+			"",
+			`  WORKTREE: ${wtPath}`,
+			"",
+			"Required discipline:",
+			`  - Before any bash command: \`cd ${wtPath}\` (or pass cwd to the tool).`,
+			`  - For Write/Edit: use ABSOLUTE paths under ${wtPath}/...`,
+			"  - `git commit` must run inside the worktree so commits land on the slice branch.",
+			"  - Never modify files outside this directory (including the TFF parent repo).",
+			"",
+			"If you write to the wrong directory, the verify phase will see an empty",
+			"diff and refuse to advance — you will have to redo everything.",
+			"</HARD-GATE>",
+		].join("\n");
+
 		const message = [
 			agentPrompt,
 			protocol,
 			"",
 			"---",
 			"",
+			worktreeGate,
+			"",
 			`## Slice: ${sLabel} — "${slice.title}"`,
-			`Working directory: ${wtPath}`,
 			"",
 			"## SPEC.md (Acceptance Criteria)",
 			specMd,

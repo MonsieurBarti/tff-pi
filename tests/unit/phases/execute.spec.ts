@@ -95,6 +95,33 @@ describe("executePhase", () => {
 		expect(msg).toContain("Wave 2");
 	});
 
+	it("message contains a HARD-GATE block binding the agent to the worktree path", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const sendUserMessage = vi.fn();
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage,
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.run(ctx);
+		const msg = sendUserMessage.mock.calls[0]?.[0] as string;
+		// The worktree gate is a critical invariant — regressing it causes
+		// agents to write to the project root and the verify phase sees an
+		// empty diff. Guard it structurally.
+		expect(msg).toContain("<HARD-GATE>");
+		expect(msg).toContain("WORKTREE:");
+		expect(msg).toContain("/tmp/fake-worktree"); // the mocked createWorktree path
+		expect(msg).toMatch(/cd\s+\/tmp\/fake-worktree/);
+		expect(msg).toMatch(/Do NOT write to the project root/i);
+	});
+
 	it("fails with phase_failed when no tasks exist in DB", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const mockEmit = vi.fn();
