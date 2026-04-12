@@ -1351,7 +1351,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"spec",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `Plannotator review requested changes. Revise the spec and retry.${review.feedback ? `\n\nFeedback:\n${review.feedback}` : ""}`,
+									},
+								],
+								details: { rejected: true, feedback: review.feedback },
+								isError: true,
+							};
+						}
 					}
 					return writeResult;
 				} catch (err) {
@@ -1415,7 +1432,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "spec");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"spec",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `Plannotator review requested changes. Revise the requirements and retry.${review.feedback ? `\n\nFeedback:\n${review.feedback}` : ""}`,
+									},
+								],
+								details: { rejected: true, feedback: review.feedback },
+								isError: true,
+							};
+						}
 					}
 					return writeResult;
 				} catch (err) {
@@ -1560,7 +1594,24 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
-						requestReview(pi, String(writeResult.details.path), params.content, "plan");
+						const review = await requestReview(
+							pi,
+							String(writeResult.details.path),
+							params.content,
+							"plan",
+						);
+						if (!review.approved) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `Plannotator review requested changes. Revise the plan and retry.${review.feedback ? `\n\nFeedback:\n${review.feedback}` : ""}`,
+									},
+								],
+								details: { rejected: true, feedback: review.feedback },
+								isError: true,
+							};
+						}
 					}
 					return writeResult;
 				} catch (err) {
