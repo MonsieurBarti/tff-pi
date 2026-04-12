@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
+import { cleanupCheckpoints } from "../common/checkpoint.js";
 import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { gitEnv } from "../common/git.js";
@@ -112,6 +113,7 @@ export const shipPhase: PhaseModule = {
 				};
 
 				if (pr.state === "MERGED") {
+					cleanupCheckpoints(root, sLabel);
 					removeWorktree(root, sLabel);
 					execFileSync("git", ["checkout", milestoneBranch], {
 						cwd: root,
@@ -273,7 +275,8 @@ export const shipPhase: PhaseModule = {
 				env,
 			});
 
-			// Cleanup worktree
+			// Cleanup checkpoints and worktree
+			cleanupCheckpoints(root, sLabel);
 			removeWorktree(root, sLabel);
 
 			// Pull milestone branch — stash any uncommitted work first

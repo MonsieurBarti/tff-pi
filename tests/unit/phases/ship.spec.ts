@@ -22,13 +22,13 @@ import { DEFAULT_SETTINGS, type Settings } from "../../../src/common/settings.js
 import { must } from "../../helpers.js";
 
 const mockExec = vi.fn().mockReturnValue("");
-vi.mock("node:child_process", async (importOriginal) => {
-	const original = await importOriginal<typeof import("node:child_process")>();
-	return {
-		...original,
-		execFileSync: (...args: unknown[]) => mockExec(...args),
-	};
-});
+vi.mock("node:child_process", () => ({
+	execFileSync: (...args: unknown[]) => mockExec(...args),
+}));
+
+vi.mock("../../../src/common/checkpoint.js", () => ({
+	cleanupCheckpoints: vi.fn(),
+}));
 
 vi.mock("../../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
