@@ -40,7 +40,7 @@ vi.mock("../../../src/common/checkpoint.js", () => ({
 }));
 
 vi.mock("../../../src/common/verify-commands.js", () => ({
-	detectVerifyCommands: vi.fn().mockReturnValue([]),
+	detectVerifyCommands: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../../src/common/mechanical-verifier.js", () => ({

@@ -80,7 +80,7 @@ export const verifyPhase: PhaseModule = {
 		].join("\n");
 
 		// --- Mechanical verification (runs independently of AI) ---
-		const verifyCommands = detectVerifyCommands(root, settings);
+		const verifyCommands = await detectVerifyCommands(root, settings);
 		if (verifyCommands.length > 0) {
 			const report = await runMechanicalVerification(verifyCommands, wtPath);
 			const reportMd = formatMechanicalReport(report);
