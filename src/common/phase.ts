@@ -38,12 +38,14 @@ interface FreshContextOpts {
 	cmdCtx: ExtensionCommandContext | null;
 	phase: Phase;
 	timeoutMs?: number;
+	/** Getter for the current pi reference, used to send the message to the new session after newSession() resolves. */
+	getPi?: () => ExtensionAPI | null;
 }
 
 export async function runPhaseWithFreshContext(
 	opts: FreshContextOpts,
 ): Promise<PhasePrepareResult> {
-	const { phaseModule, phaseCtx, cmdCtx, phase, timeoutMs = NEW_SESSION_TIMEOUT_MS } = opts;
+	const { phaseModule, phaseCtx, cmdCtx, phase, timeoutMs = NEW_SESSION_TIMEOUT_MS, getPi } = opts;
 
 	if (!cmdCtx) {
 		return {
@@ -74,17 +76,9 @@ export async function runPhaseWithFreshContext(
 			return prepareResult;
 		}
 
-		// Deliver the message via newSession's setup callback.
+		// Create fresh session (no setup — we trigger the turn ourselves).
 		const message = prepareResult.message;
-		const sessionPromise = cmdCtx.newSession({
-			setup: async (sm) => {
-				sm.appendMessage({
-					role: "user",
-					content: [{ type: "text", text: message }],
-					timestamp: Date.now(),
-				});
-			},
-		});
+		const sessionPromise = cmdCtx.newSession();
 		const timeoutPromise = new Promise<{ cancelled: true }>((resolve) => {
 			setTimeout(() => resolve({ cancelled: true }), timeoutMs);
 		});
@@ -99,7 +93,17 @@ export async function runPhaseWithFreshContext(
 			};
 		}
 
-		// Session created, message delivered via setup.
+		// Session is now fresh. Use the NEW pi (post-reload) to send the message and trigger a turn.
+		const newPi = getPi?.();
+		if (!newPi) {
+			return {
+				success: false,
+				retry: true,
+				error: "New session pi reference unavailable — cannot deliver phase prompt.",
+			};
+		}
+		newPi.sendUserMessage(message);
+
 		return { success: true, retry: false };
 	} finally {
 		releaseLock(phaseCtx.root);

@@ -92,9 +92,14 @@ let eventLogger: EventLogger | null = null;
 let tuiMonitor: TUIMonitor | null = null;
 let _fffBridge: FffBridge | null = null;
 let cmdCtx: ExtensionCommandContext | null = null;
+let currentPi: ExtensionAPI | null = null;
 
 export function getCmdCtx() {
 	return cmdCtx;
+}
+
+export function getCurrentPi(): ExtensionAPI | null {
+	return currentPi;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +175,7 @@ async function runHeavyPhase(
 		phaseCtx,
 		cmdCtx,
 		phase,
+		getPi: () => currentPi,
 	});
 	if (!result.success && result.error) {
 		if (cmdCtx?.hasUI) {
@@ -185,6 +191,10 @@ async function runHeavyPhase(
 // ---------------------------------------------------------------------------
 
 export default function tffExtension(pi: ExtensionAPI): void {
+	// Stash pi so it's accessible after session reloads — each newSession()
+	// re-invokes this function with a fresh pi, so currentPi stays current.
+	currentPi = pi;
+
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
@@ -710,6 +720,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 						phaseCtx,
 						cmdCtx,
 						phase: "ship",
+						getPi: () => currentPi,
 					});
 					if (result.success) {
 						if (ctx.hasUI) ctx.ui.notify("Ship phase complete.", "info");

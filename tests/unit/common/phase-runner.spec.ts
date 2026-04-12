@@ -35,12 +35,16 @@ describe("runPhaseWithFreshContext", () => {
 		expect(mockModule.prepare).not.toHaveBeenCalled();
 	});
 
-	it("calls prepare, then newSession with setup callback when message returned", async () => {
+	it("calls prepare, then newSession, then sendUserMessage on new pi", async () => {
 		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
 		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
 			typeof runPhaseWithFreshContext
 		>[0]["cmdCtx"];
+		const sendUserMessageMock = vi.fn();
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newPi: any = { sendUserMessage: sendUserMessageMock };
+		const getPi = vi.fn().mockReturnValue(newPi);
 		const mockModule: PhaseModule = {
 			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
 		};
@@ -51,21 +55,37 @@ describe("runPhaseWithFreshContext", () => {
 			phaseCtx: mockCtx,
 			cmdCtx: mockCmdCtx,
 			phase: "execute",
+			getPi,
 		});
 
 		expect(mockModule.prepare).toHaveBeenCalledOnce();
 		expect(newSessionMock).toHaveBeenCalledOnce();
-		const sessionArgs = newSessionMock.mock.calls[0][0];
-		expect(typeof sessionArgs.setup).toBe("function");
-		const appendMessage = vi.fn();
-		await sessionArgs.setup({ appendMessage });
-		expect(appendMessage).toHaveBeenCalledWith(
-			expect.objectContaining({
-				role: "user",
-				content: [{ type: "text", text: "phase msg" }],
-			}),
-		);
+		expect(getPi).toHaveBeenCalledOnce();
+		expect(sendUserMessageMock).toHaveBeenCalledWith("phase msg");
 		expect(result.success).toBe(true);
+	});
+
+	it("returns error when new pi is unavailable after newSession", async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: test mock
+		const newSessionMock = vi.fn().mockResolvedValue({ cancelled: false }) as any;
+		const mockCmdCtx = { newSession: newSessionMock } as unknown as Parameters<
+			typeof runPhaseWithFreshContext
+		>[0]["cmdCtx"];
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "msg" }),
+		};
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
+
+		const result = await runPhaseWithFreshContext({
+			phaseModule: mockModule,
+			phaseCtx: mockCtx,
+			cmdCtx: mockCmdCtx,
+			phase: "execute",
+			getPi: () => null,
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("pi reference unavailable");
 	});
 
 	it("skips newSession when prepare returns no message", async () => {
