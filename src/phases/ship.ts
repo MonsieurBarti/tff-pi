@@ -129,21 +129,24 @@ export function preflightCheck(
 
 function buildPrBody(root: string, mLabel: string, sLabel: string, sliceTitle: string): string {
 	const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
-	const verifyMd =
-		readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`) ?? "";
-	const reviewMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REVIEW.md`) ?? "";
-	return [
-		`## ${sLabel}: ${sliceTitle}`,
-		"",
-		"### Acceptance Criteria",
-		specMd,
-		"",
-		"### Verification",
-		verifyMd,
-		"",
-		"### Review Findings",
-		reviewMd,
-	].join("\n");
+	// Pull only AC checklist lines from SPEC ("- [x]" / "- [ ]").
+	const acLines = specMd
+		.split("\n")
+		.filter((l) => /^\s*- \[[x ]\]/i.test(l))
+		.slice(0, 10);
+	const base = `milestones/${mLabel}/slices/${sLabel}`;
+	const sections: string[] = [`**${sLabel}**: ${sliceTitle}`, ""];
+	if (acLines.length > 0) {
+		sections.push("## Acceptance Criteria", ...acLines, "");
+	}
+	sections.push(
+		"## Artifacts",
+		`- [SPEC](${base}/SPEC.md)`,
+		`- [PLAN](${base}/PLAN.md)`,
+		`- [VERIFICATION](${base}/VERIFICATION.md)`,
+		`- [REVIEW](${base}/REVIEW.md)`,
+	);
+	return sections.join("\n");
 }
 
 export function suggestNextAction(db: Database.Database, milestoneId: string): string {
@@ -323,12 +326,9 @@ export const shipPhase: PhaseModule = {
 						"# Pull Request",
 						"",
 						`**URL:** ${prUrl}`,
-						"",
+						`**Base:** ${milestoneBranch}`,
 						`**Title:** feat(${sLabel}): ${slice.title}`,
 						"",
-						`**Base:** ${milestoneBranch}`,
-						"",
-						"## Description",
 						prBody,
 					].join("\n");
 			writeArtifact(
