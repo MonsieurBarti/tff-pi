@@ -83,6 +83,23 @@ async function maybeRunCrashRecoveryScan(
  * Moved out of the entry point to keep index.ts thin; no behavior change.
  */
 export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void {
+	// Subscribe ToolCallLogger ONCE at extension init.
+	// PI's api.on is extension-scoped and append-only (handlers never cleared
+	// across sessions), so subscribing inside session_start would duplicate
+	// handlers on every phase transition — each tool call would fire N+1
+	// handlers after N newSession cycles. The instance must live for the
+	// extension's full lifetime because its closures are pinned in PI's
+	// handler list; disposing per-session would break the next session's
+	// receipt of tool_call events.
+	const piAdapter: ToolCallLoggerPi = {
+		on: (event, handler) => {
+			pi.on(event as Parameters<typeof pi.on>[0], handler as never);
+			return () => {};
+		},
+	};
+	ctx.toolCallLogger = new ToolCallLogger(piAdapter, pi.events);
+	ctx.toolCallLogger.subscribe();
+
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
@@ -148,17 +165,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				ctx.eventLogger = new EventLogger(ctx.db, logsDir);
 				ctx.eventLogger.subscribe(pi.events);
 
-				// ExtensionAPI.on returns void, but ToolCallLoggerPi expects a disposer.
-				// Extension handlers are cleared on session_shutdown, so a no-op unsubscribe is safe.
-				const piAdapter: ToolCallLoggerPi = {
-					on: (event, handler) => {
-						pi.on(event as Parameters<typeof pi.on>[0], handler as never);
-						return () => {};
-					},
-				};
-				ctx.toolCallLogger = new ToolCallLogger(piAdapter, pi.events);
-				ctx.toolCallLogger.subscribe();
-
 				if (uiCtx.hasUI) {
 					ctx.tuiMonitor = new TUIMonitor(uiCtx.ui);
 					ctx.tuiMonitor.subscribe(pi.events);
@@ -196,8 +202,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	// Lifecycle: session_shutdown
 	// -------------------------------------------------------------------------
 	pi.on("session_shutdown", async () => {
-		ctx.toolCallLogger?.dispose();
-		ctx.toolCallLogger = null;
 		ctx.eventLogger = null;
 		ctx.tuiMonitor = null;
 		await shutdownFffBridge();
