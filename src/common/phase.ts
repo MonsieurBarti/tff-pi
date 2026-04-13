@@ -18,6 +18,11 @@ function pendingMessagePath(root: string): string {
 	return join(root, ".tff", PENDING_MESSAGE_FILE);
 }
 
+/**
+ * Synchronous on purpose — the disk write must complete before we `await
+ * cmdCtx.newSession()` below, since the new session's `session_start`
+ * handler reads this file and any async race would leave it empty.
+ */
 export function writePendingMessage(root: string, message: string): void {
 	mkdirSync(join(root, ".tff"), { recursive: true });
 	writeFileSync(pendingMessagePath(root), message, "utf-8");

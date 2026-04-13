@@ -1,7 +1,6 @@
 /**
- * Shared interview round UI widget.
- *
- * Used by /interview-me and /gsd-new-project.
+ * Interview round UI widget — backs the blocking `tff_ask_user` tool.
+ * Ported from gsd-pi's `shared/interview-ui.ts`.
  *
  * Renders a paged, keyboard-driven question UI with:
  * - Single-select (radio) questions
