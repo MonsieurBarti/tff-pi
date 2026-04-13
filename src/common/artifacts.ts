@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_SETTINGS, serializeSettings } from "./settings.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
@@ -44,6 +44,13 @@ export function writeArtifact(root: string, relativePath: string, content: strin
 	const fullPath = safeTffPath(root, relativePath);
 	mkdirSync(dirname(fullPath), { recursive: true });
 	writeFileSync(fullPath, content, "utf-8");
+}
+
+export function deleteArtifact(root: string, relativePath: string): void {
+	const fullPath = safeTffPath(root, relativePath);
+	if (existsSync(fullPath)) {
+		rmSync(fullPath, { force: true });
+	}
 }
 
 export function readArtifact(root: string, relativePath: string): string | null {

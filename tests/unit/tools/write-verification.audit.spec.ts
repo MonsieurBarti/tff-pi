@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { deleteArtifact, writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getSlice,
@@ -101,5 +102,13 @@ describe("write-verification audit integration", () => {
 		const report = auditVerification(db, slice.id, md);
 		expect(report.findings).toHaveLength(0);
 		expect(report.hasMismatches).toBe(false);
+	});
+
+	it("deleteArtifact removes stale VERIFICATION-AUDIT.md on passing retry", () => {
+		const auditPath = "milestones/M01/slices/M01-S01/VERIFICATION-AUDIT.md";
+		writeArtifact(tmp, auditPath, "# stale");
+		expect(existsSync(join(tmp, ".tff", auditPath))).toBe(true);
+		deleteArtifact(tmp, auditPath);
+		expect(existsSync(join(tmp, ".tff", auditPath))).toBe(false);
 	});
 });

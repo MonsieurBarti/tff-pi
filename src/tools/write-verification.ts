@@ -1,7 +1,7 @@
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
-import { writeArtifact } from "../common/artifacts.js";
+import { deleteArtifact, writeArtifact } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
@@ -110,6 +110,10 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 
 					if (auditReport.findings.length > 0) {
 						writeArtifact(root, auditPath, formatAuditReport(auditReport));
+					} else {
+						// No findings this run — remove any stale artifact from a prior
+						// mismatching run so readers don't see outdated claims.
+						deleteArtifact(root, auditPath);
 					}
 
 					if (auditReport.hasMismatches) {
