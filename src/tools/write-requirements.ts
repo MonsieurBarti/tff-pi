@@ -1,6 +1,7 @@
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { type TffContext, getDb, resolveSlice } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { resolveSlice } from "../common/db-resolvers.js";
 import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
 import { DEFAULT_SETTINGS } from "../common/settings.js";

@@ -3,7 +3,8 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { type TffContext, getDb, resolveSlice } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { resolveSlice } from "../common/db-resolvers.js";
 import {
 	clearSliceTasks,
 	getMilestone,

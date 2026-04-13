@@ -1,11 +1,9 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { getMilestone, getMilestones, getProject, getSlice, getSlices } from "./db.js";
 import type { EventLogger } from "./event-logger.js";
 import type { FffBridge } from "./fff-integration.js";
-import type { Settings } from "./settings.js";
+import { DEFAULT_SETTINGS, type Settings } from "./settings.js";
 import type { TUIMonitor } from "./tui-monitor.js";
-import type { Milestone, Slice } from "./types.js";
 
 /**
  * Session-scoped mutable state for the TFF extension. Populated by the
@@ -13,7 +11,7 @@ import type { Milestone, Slice } from "./types.js";
  * reads from `ctx.*` at call time so stale references never capture.
  *
  * Fields default to `null` until `session_start` runs — handlers must guard
- * against that case (typically by emitting a "no project" error).
+ * against that case (typically by calling `requireProject`).
  */
 export interface TffContext {
 	db: Database.Database | null;
@@ -24,6 +22,16 @@ export interface TffContext {
 	tuiMonitor: TUIMonitor | null;
 	cmdCtx: ExtensionCommandContext | null;
 	initError: string | null;
+}
+
+/**
+ * Non-null project bundle returned by `requireProject`. Handlers receive all
+ * three fields together so they don't each re-reach into `ctx` and drift.
+ */
+export interface ProjectContext {
+	db: Database.Database;
+	root: string;
+	settings: Settings;
 }
 
 export function createTffContext(): TffContext {
@@ -52,50 +60,23 @@ export function getDb(ctx: TffContext): Database.Database {
 }
 
 /**
- * Look up a slice by its human-readable `M<nn>-S<nn>` label by traversing
- * project → milestones → slices. Returns null if the label is malformed or
- * no matching slice exists.
+ * Returns the db/root/settings bundle if the extension has been initialized
+ * (`/tff new` has run in this git repo). Otherwise notifies the user via the
+ * command context and returns null — callers should `return;` on null.
  */
-export function findSliceByLabel(db: Database.Database, label: string): Slice | null {
-	const match = label.match(/^M(\d+)-S(\d+)$/i);
-	if (!match || !match[1] || !match[2]) return null;
-	const mNum = Number.parseInt(match[1], 10);
-	const sNum = Number.parseInt(match[2], 10);
-	const project = getProject(db);
-	if (!project) return null;
-	const milestones = getMilestones(db, project.id);
-	const milestone = milestones.find((m) => m.number === mNum);
-	if (!milestone) return null;
-	const slices = getSlices(db, milestone.id);
-	return slices.find((s) => s.number === sNum) ?? null;
-}
-
-/**
- * Look up a milestone by its human-readable `M<nn>` label. Returns null if
- * the label is malformed or no matching milestone exists.
- */
-export function findMilestoneByLabel(db: Database.Database, label: string): Milestone | null {
-	const match = label.match(/^M(\d+)$/i);
-	if (!match || !match[1]) return null;
-	const mNum = Number.parseInt(match[1], 10);
-	const project = getProject(db);
-	if (!project) return null;
-	const milestones = getMilestones(db, project.id);
-	return milestones.find((m) => m.number === mNum) ?? null;
-}
-
-/**
- * Resolve a slice by user-supplied reference: tries label lookup first, then
- * falls back to treating the ref as a raw slice id.
- */
-export function resolveSlice(db: Database.Database, ref: string): Slice | null {
-	return findSliceByLabel(db, ref) ?? getSlice(db, ref);
-}
-
-/**
- * Resolve a milestone by user-supplied reference: tries label lookup first,
- * then falls back to treating the ref as a raw milestone id.
- */
-export function resolveMilestone(db: Database.Database, ref: string): Milestone | null {
-	return findMilestoneByLabel(db, ref) ?? getMilestone(db, ref);
+export function requireProject(
+	ctx: TffContext,
+	uiCtx: ExtensionCommandContext | null,
+): ProjectContext | null {
+	if (!ctx.db || !ctx.projectRoot) {
+		if (uiCtx?.hasUI) {
+			uiCtx.ui.notify("TFF not initialized. Run /tff new first.", "error");
+		}
+		return null;
+	}
+	return {
+		db: ctx.db,
+		root: ctx.projectRoot,
+		settings: ctx.settings ?? DEFAULT_SETTINGS,
+	};
 }

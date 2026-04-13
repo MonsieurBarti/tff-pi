@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { readArtifact } from "../common/artifacts.js";
-import { type TffContext, getDb, resolveMilestone } from "../common/context.js";
+import { type TffContext, requireProject } from "../common/context.js";
+import { resolveMilestone } from "../common/db-resolvers.js";
 import {
 	getActiveMilestone,
 	getMilestone,
@@ -14,7 +15,7 @@ import {
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
 import { getDefaultBranch, gitEnv } from "../common/git.js";
-import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
+import type { Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface CompleteMilestoneResult {
@@ -152,12 +153,9 @@ export async function runCompleteMilestone(
 	uiCtx: ExtensionCommandContext | null,
 	args: string[],
 ): Promise<void> {
-	const database = getDb(ctx);
-	const root = ctx.projectRoot;
-	if (!root) {
-		if (uiCtx?.hasUI) uiCtx.ui.notify("Not inside a git repository.", "error");
-		return;
-	}
+	const projectCtx = requireProject(ctx, uiCtx);
+	if (!projectCtx) return;
+	const { db: database, root, settings: currentSettings } = projectCtx;
 	const label = args[0] ?? "";
 	const project = getProject(database);
 	if (!project) {
@@ -172,7 +170,6 @@ export async function runCompleteMilestone(
 		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");
 		return;
 	}
-	const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 	const result = await handleCompleteMilestone(database, root, milestone.id, currentSettings);
 	if (result.success) {
 		pi.sendUserMessage(

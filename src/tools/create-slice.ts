@@ -2,7 +2,8 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { initSliceDir } from "../common/artifacts.js";
-import { type TffContext, findMilestoneByLabel, getDb } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { findMilestoneByLabel } from "../common/db-resolvers.js";
 import { getMilestone, getNextSliceNumber, insertSlice } from "../common/db.js";
 import { sliceLabel } from "../common/types.js";
 

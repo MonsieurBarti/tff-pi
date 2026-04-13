@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { type TffContext, findSliceByLabel, getDb } from "../common/context.js";
+import { type TffContext, requireProject } from "../common/context.js";
+import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import type { PhaseContext } from "../common/phase.js";
-import { DEFAULT_SETTINGS } from "../common/settings.js";
 import { sliceLabel } from "../common/types.js";
 import { findActiveSlice } from "../orchestrator.js";
 import { phaseModules } from "../phases/index.js";
@@ -86,13 +86,11 @@ export async function runShipChanges(
 	uiCtx: ExtensionCommandContext | null,
 	args: string[],
 ): Promise<void> {
-	const database = getDb(ctx);
-	const root = ctx.projectRoot;
-	if (!root) return;
+	const project = requireProject(ctx, uiCtx);
+	if (!project) return;
+	const { db: database, root, settings: currentSettings } = project;
 	const label = args[0] ?? "";
-	const slice = label
-		? (findSliceByLabel(database, label) ?? getSlice(database, label))
-		: findActiveSlice(database);
+	const slice = label ? resolveSlice(database, label) : findActiveSlice(database);
 	if (!slice) {
 		const msg = label ? `Slice not found: ${label}` : "No active slice found.";
 		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");
@@ -107,7 +105,6 @@ export async function runShipChanges(
 	}
 	const milestone = getMilestone(database, slice.milestoneId);
 	if (!milestone) return;
-	const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 	const freshSlice = getSlice(database, slice.id);
 	if (!freshSlice) return;
 	const execCtx: PhaseContext = {

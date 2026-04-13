@@ -1,9 +1,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { type TffContext, getDb } from "../common/context.js";
+import { type TffContext, requireProject } from "../common/context.js";
 import { getMilestone, getSlice } from "../common/db.js";
 import type { PhaseContext } from "../common/phase.js";
-import { DEFAULT_SETTINGS } from "../common/settings.js";
 import type { Phase } from "../common/types.js";
 import { determineNextPhase, findActiveSlice } from "../orchestrator.js";
 import { phaseModules } from "../phases/index.js";
@@ -36,10 +35,10 @@ export async function runNext(
 	uiCtx: ExtensionCommandContext | null,
 	_args: string[],
 ): Promise<void> {
-	const database = getDb(ctx);
-	const root = ctx.projectRoot;
-	if (!root) return;
-	const validation = validateNext(database, ctx.projectRoot);
+	const project = requireProject(ctx, uiCtx);
+	if (!project) return;
+	const { db: database, root, settings: currentSettings } = project;
+	const validation = validateNext(database, root);
 	if (!validation.valid) {
 		if (uiCtx?.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 		return;
@@ -51,7 +50,6 @@ export async function runNext(
 	if (!slice) return;
 	const milestone = getMilestone(database, slice.milestoneId);
 	if (!milestone) return;
-	const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 	const mod = phaseModules[phase];
 	const phaseCtx: PhaseContext = {
 		pi,

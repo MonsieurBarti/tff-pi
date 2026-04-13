@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { type TffContext, findSliceByLabel, getDb } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { findSliceByLabel } from "../common/db-resolvers.js";
 import { getEventLog } from "../common/db.js";
 import { formatDuration } from "../common/format.js";
 import { findActiveSlice } from "../orchestrator.js";

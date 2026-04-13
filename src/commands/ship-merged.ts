@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { type TffContext, findSliceByLabel, getDb } from "../common/context.js";
+import { type TffContext, requireProject } from "../common/context.js";
+import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { sliceLabel } from "../common/types.js";
@@ -71,13 +72,11 @@ export async function runShipMerged(
 	uiCtx: ExtensionCommandContext | null,
 	args: string[],
 ): Promise<void> {
-	const database = getDb(ctx);
-	const root = ctx.projectRoot;
-	if (!root) return;
+	const project = requireProject(ctx, uiCtx);
+	if (!project) return;
+	const { db: database, root } = project;
 	const label = args[0] ?? "";
-	const slice = label
-		? (findSliceByLabel(database, label) ?? getSlice(database, label))
-		: findActiveSlice(database);
+	const slice = label ? resolveSlice(database, label) : findActiveSlice(database);
 	if (!slice) {
 		const msg = label ? `Slice not found: ${label}` : "No active slice found.";
 		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");

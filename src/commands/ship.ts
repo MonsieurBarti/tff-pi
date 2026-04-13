@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { type TffContext, findSliceByLabel, getDb } from "../common/context.js";
+import { type TffContext, requireProject } from "../common/context.js";
+import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
 import { type PhaseContext, runPhaseWithFreshContext } from "../common/phase.js";
-import { DEFAULT_SETTINGS } from "../common/settings.js";
 import { type ValidateResult, sliceLabel } from "../common/types.js";
 import { findActiveSlice } from "../orchestrator.js";
 import { phaseModules } from "../phases/index.js";
@@ -34,26 +34,23 @@ export async function runShip(
 	uiCtx: ExtensionCommandContext | null,
 	args: string[],
 ): Promise<void> {
-	const database = getDb(ctx);
-	const root = ctx.projectRoot;
-	if (!root) return;
+	const project = requireProject(ctx, uiCtx);
+	if (!project) return;
+	const { db: database, root, settings: currentSettings } = project;
 	const label = args[0] ?? "";
-	const slice = label
-		? (findSliceByLabel(database, label) ?? getSlice(database, label))
-		: findActiveSlice(database);
+	const slice = label ? resolveSlice(database, label) : findActiveSlice(database);
 	if (!slice) {
 		const msg = label ? `Slice not found: ${label}` : "No active slice found.";
 		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");
 		return;
 	}
-	const validation = validateShip(database, slice.id, ctx.projectRoot);
+	const validation = validateShip(database, slice.id, root);
 	if (!validation.valid) {
 		if (uiCtx?.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
 		return;
 	}
 	const milestone = getMilestone(database, slice.milestoneId);
 	if (!milestone) return;
-	const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
 	const mod = phaseModules.ship;
 	const phaseCtx: PhaseContext = {
 		pi,

@@ -1,7 +1,8 @@
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { handleShipMerged } from "../commands/ship-merged.js";
-import { type TffContext, getDb, resolveSlice } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { resolveSlice } from "../common/db-resolvers.js";
 
 export function register(pi: ExtensionAPI, ctx: TffContext): void {
 	pi.registerTool(

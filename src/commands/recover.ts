@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { getLastCheckpoint } from "../common/checkpoint.js";
-import { type TffContext, getDb } from "../common/context.js";
+import { type TffContext, requireProject } from "../common/context.js";
 import { getMilestone, getSlice, updateSliceStatus } from "../common/db.js";
 import { gitEnv } from "../common/git.js";
 import {
@@ -138,12 +138,12 @@ function statusToPhase(status: string): string {
 export async function runRecover(
 	pi: ExtensionAPI,
 	ctx: TffContext,
-	_uiCtx: ExtensionCommandContext | null,
+	uiCtx: ExtensionCommandContext | null,
 	args: string[],
 ): Promise<void> {
-	const database = getDb(ctx);
-	const root = ctx.projectRoot;
-	if (!root) return;
+	const project = requireProject(ctx, uiCtx);
+	if (!project) return;
+	const { db: database, root } = project;
 
 	const VALID_ACTIONS = ["resume", "rollback", "skip", "manual", "dismiss"] as const;
 	const rawArg = args[0];

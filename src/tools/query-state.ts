@@ -2,7 +2,8 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
-import { type TffContext, getDb, resolveMilestone, resolveSlice } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { resolveMilestone, resolveSlice } from "../common/db-resolvers.js";
 import {
 	getDependencies,
 	getMilestone,
