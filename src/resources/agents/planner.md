@@ -6,7 +6,8 @@ R=task decomposer for TFF plan phase.
 - C1: every AC from SPEC.md must map to >=1 task
 - C2: tasks must have explicit dependency edges
 - C3: each task must be completable by a single agent session
-- C4: must call `tff_write_plan` with tasks array
+- C4: must call `tff_write_plan` with a non-empty tasks array — this is the ONLY way the plan phase is marked complete. Without it, execute phase refuses to start and the plan phase shows as stalled in `/tff doctor`.
+- C5: real decomposition forks (e.g. split vs combined, library A vs B) must go through `tff_ask_user` — never invent options in prose
 
 ## Behavior
 1. Read SPEC.md — extract all acceptance criteria

@@ -1,17 +1,90 @@
 import { execFileSync } from "node:child_process";
 import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
+import { cleanupCheckpoints } from "../common/checkpoint.js";
+import { compressIfEnabled } from "../common/compress.js";
 import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import { gitEnv } from "../common/git.js";
-import type { PhaseContext, PhaseModule, PhaseResult } from "../common/phase.js";
+import { getPrTools } from "../common/gh-client.js";
+import { parsePrUrl } from "../common/gh-helpers.js";
+import { branchExists, gitEnv, remoteBranchExists } from "../common/git.js";
+import { closePredecessorIfReady } from "../common/phase-completion.js";
+import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import type { Slice } from "../common/types.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath, removeWorktree } from "../common/worktree.js";
+import { predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface PreflightResult {
 	ok: boolean;
 	errors: string[];
+}
+
+/**
+ * Cleanup after a slice PR is merged: remove worktree + checkpoints, delete
+ * slice branch (local + remote), checkout the milestone branch and pull,
+ * mark the slice closed. Shared between the `shipPhase` re-entry path and the
+ * new `/tff ship-merged` slash command (user-attested merge, no PR fetch).
+ */
+export function finalizeMergedSlice(
+	db: Database.Database,
+	root: string,
+	slice: Slice,
+	milestoneNumber: number,
+): void {
+	const mLabel = milestoneLabel(milestoneNumber);
+	const sLabel = sliceLabel(milestoneNumber, slice.number);
+	const milestoneBranch = `milestone/${mLabel}`;
+	const sliceBranch = `slice/${sLabel}`;
+	const env = gitEnv();
+
+	cleanupCheckpoints(root, sLabel);
+	removeWorktree(root, sLabel);
+
+	// Stash any uncommitted work before swapping branches.
+	const status = execFileSync("git", ["status", "--porcelain"], {
+		cwd: root,
+		encoding: "utf-8",
+		env,
+	}).trim();
+	if (status) {
+		execFileSync("git", ["stash", "push", "-m", `tff-ship-${sLabel}`], {
+			cwd: root,
+			encoding: "utf-8",
+			env,
+		});
+	}
+
+	execFileSync("git", ["checkout", milestoneBranch], {
+		cwd: root,
+		encoding: "utf-8",
+		env,
+	});
+	execFileSync("git", ["pull", "origin", milestoneBranch], {
+		cwd: root,
+		encoding: "utf-8",
+		env,
+	});
+
+	// Delete slice branches — local and remote. Check existence first rather
+	// than swallowing errors: GitHub's squash-merge often deletes the remote
+	// branch automatically, and the local branch may already be gone.
+	if (branchExists(sliceBranch, root)) {
+		execFileSync("git", ["branch", "-D", sliceBranch], {
+			cwd: root,
+			encoding: "utf-8",
+			env,
+		});
+	}
+	if (remoteBranchExists(sliceBranch, root)) {
+		execFileSync("git", ["push", "origin", "--delete", sliceBranch], {
+			cwd: root,
+			encoding: "utf-8",
+			env,
+		});
+	}
+
+	updateSliceStatus(db, slice.id, "closed");
 }
 
 export function preflightCheck(
@@ -24,13 +97,14 @@ export function preflightCheck(
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
 	const base = `milestones/${mLabel}/slices/${sLabel}`;
 
-	// Check required artifacts exist and are non-empty
+	// All tiers must have all artifacts — review is required for every slice.
 	const requiredArtifacts = [
 		"SPEC.md",
 		"PLAN.md",
 		"REQUIREMENTS.md",
 		"VERIFICATION.md",
 		"REVIEW.md",
+		"PR.md",
 	];
 	for (const artifact of requiredArtifacts) {
 		const content = readArtifact(root, `${base}/${artifact}`);
@@ -45,33 +119,26 @@ export function preflightCheck(
 	if (uncheckedItems && uncheckedItems.length > 0) {
 		errors.push(`VERIFICATION.md has ${uncheckedItems.length} unchecked item(s)`);
 	}
-	if (/\bFAIL\b/i.test(verification) || /\bBLOCKED\b/i.test(verification)) {
+	// Match FAIL/BLOCKED only as shouty-case verdict markers — lowercase
+	// mentions ("0 fail", "would fail if...") are narrative text, not status.
+	if (/\bFAIL\b/.test(verification) || /\bBLOCKED\b/.test(verification)) {
 		errors.push("VERIFICATION.md contains failure marker (FAIL or BLOCKED)");
 	}
 
 	return { ok: errors.length === 0, errors };
 }
 
-function buildPrBody(root: string, mLabel: string, sLabel: string, sliceTitle: string): string {
-	const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
-	const verifyMd =
-		readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`) ?? "";
-	const reviewMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REVIEW.md`) ?? "";
-	return [
-		`## ${sLabel}: ${sliceTitle}`,
-		"",
-		"### Acceptance Criteria",
-		specMd,
-		"",
-		"### Verification",
-		verifyMd,
-		"",
-		"### Review Findings",
-		reviewMd,
-	].join("\n");
+function buildPrBody(root: string, mLabel: string, sLabel: string): string {
+	const prMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PR.md`);
+	if (!prMd || prMd.trim().length === 0) {
+		throw new Error(
+			`PR.md missing for ${sLabel}. Run the verify phase to author it via tff_write_pr before shipping.`,
+		);
+	}
+	return prMd;
 }
 
-function suggestNextAction(db: Database.Database, milestoneId: string): string {
+export function suggestNextAction(db: Database.Database, milestoneId: string): string {
 	const slices = getSlices(db, milestoneId);
 	const openSlices = slices.filter((s) => s.status !== "closed");
 	if (openSlices.length === 0) {
@@ -81,7 +148,7 @@ function suggestNextAction(db: Database.Database, milestoneId: string): string {
 }
 
 export const shipPhase: PhaseModule = {
-	async run(ctx: PhaseContext): Promise<PhaseResult> {
+	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
 
 		const mLabel = milestoneLabel(milestoneNumber);
@@ -98,32 +165,31 @@ export const shipPhase: PhaseModule = {
 			phase: "ship",
 		});
 
+		closePredecessorIfReady(pi, db, root, slice, "ship", predecessorPhase, verifyPhaseArtifacts);
+
 		try {
 			// --- Re-entry: PR already exists ---
 			if (slice.prUrl) {
-				const prJson = execFileSync("gh", ["pr", "view", slice.prUrl, "--json", "state,comments"], {
-					cwd: root,
-					encoding: "utf-8",
-					env,
-				}).trim();
-				const pr = JSON.parse(prJson) as {
+				const parsed = parsePrUrl(slice.prUrl);
+				if (!parsed) {
+					return { success: false, retry: false, error: `Invalid PR URL: ${slice.prUrl}` };
+				}
+				const prTools = getPrTools();
+				const viewResult = await prTools.view({ repo: parsed.repo, number: parsed.number });
+				if (viewResult.code !== 0) {
+					return {
+						success: false,
+						retry: false,
+						error: `gh pr view failed: ${viewResult.stderr}`,
+					};
+				}
+				const pr = JSON.parse(viewResult.stdout) as {
 					state: string;
 					comments: { body: string; author: { login: string } }[];
 				};
 
 				if (pr.state === "MERGED") {
-					removeWorktree(root, sLabel);
-					execFileSync("git", ["checkout", milestoneBranch], {
-						cwd: root,
-						encoding: "utf-8",
-						env,
-					});
-					execFileSync("git", ["pull", "origin", milestoneBranch], {
-						cwd: root,
-						encoding: "utf-8",
-						env,
-					});
-					updateSliceStatus(db, slice.id, "closed");
+					finalizeMergedSlice(db, root, slice, milestoneNumber);
 					const next = suggestNextAction(db, slice.milestoneId);
 					pi.sendUserMessage(`PR merged. Slice closed.\n\n${next}`);
 					pi.events.emit("tff:phase", {
@@ -137,8 +203,16 @@ export const shipPhase: PhaseModule = {
 
 				if (pr.comments.length > 0) {
 					const feedback = pr.comments.map((c) => `**${c.author.login}**: ${c.body}`).join("\n\n");
-					updateSliceStatus(db, slice.id, "executing");
-					resetTasksToOpen(db, slice.id);
+					// Stash feedback as an artifact; leave the slice in `shipping`
+					// so the user can decide whether to do a small fix (edit
+					// worktree + ship-merged) or re-enter execute. The execute
+					// phase picks up REVIEW_FEEDBACK.md on next run.
+					updateSliceStatus(db, slice.id, "shipping");
+					writeArtifact(
+						root,
+						`milestones/${mLabel}/slices/${sLabel}/REVIEW_FEEDBACK.md`,
+						`# Review Feedback\n\n${feedback}\n`,
+					);
 					pi.events.emit("tff:phase", {
 						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 						type: "phase_failed",
@@ -146,7 +220,19 @@ export const shipPhase: PhaseModule = {
 						durationMs: Date.now() - startTime,
 						error: "PR has review comments",
 					});
-					return { success: false, retry: true, feedback };
+					pi.sendUserMessage(
+						[
+							`Review feedback recorded for ${sLabel}.`,
+							"",
+							"Reviewer said:",
+							`> ${feedback}`,
+							"",
+							`For small fixes: edit the worktree, push to the slice branch, then run \`/tff ship-merged ${sLabel}\` once merged.`,
+							"",
+							`For larger fixes: run \`/tff execute ${sLabel}\` to re-enter the TDD loop (tasks will be reset automatically).`,
+						].join("\n"),
+					);
+					return { success: true, retry: false };
 				}
 
 				pi.sendUserMessage("PR still waiting for review.");
@@ -180,6 +266,17 @@ export const shipPhase: PhaseModule = {
 
 			updateSliceStatus(db, slice.id, "shipping");
 
+			// Ensure the milestone branch is on origin before pushing the slice
+			// branch — `gh pr create` needs the base ref to exist remotely, and
+			// older projects may have created the milestone branch locally
+			// without ever pushing it. Idempotent: if origin already has it,
+			// `push -u` is a no-op.
+			execFileSync("git", ["push", "-u", "origin", milestoneBranch], {
+				cwd: wtPath,
+				encoding: "utf-8",
+				env,
+			});
+
 			// Push slice branch
 			execFileSync("git", ["push", "-u", "origin", sliceBranch], {
 				cwd: wtPath,
@@ -187,76 +284,120 @@ export const shipPhase: PhaseModule = {
 				env,
 			});
 
-			// Build PR body
-			const prBody = buildPrBody(root, mLabel, sLabel, slice.title);
+			// Build PR body — author wrote PR.md during verify
+			const prBody = buildPrBody(root, mLabel, sLabel);
+
+			// Derive repo slug from origin remote (gh-pi requires explicit repo)
+			const remoteUrl = execFileSync("git", ["remote", "get-url", "origin"], {
+				cwd: wtPath,
+				encoding: "utf-8",
+				env,
+			}).trim();
+			const repoMatch = remoteUrl.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
+			if (!repoMatch || !repoMatch[1]) {
+				return {
+					success: false,
+					retry: false,
+					error: `Cannot parse repo from remote: ${remoteUrl}`,
+				};
+			}
+			const repo = repoMatch[1];
 
 			// Create PR
-			const prUrl = execFileSync(
-				"gh",
-				[
-					"pr",
-					"create",
-					"--base",
-					milestoneBranch,
-					"--head",
-					sliceBranch,
-					"--title",
-					`feat(${sLabel}): ${slice.title}`,
-					"--body",
-					prBody,
-				],
-				{ cwd: wtPath, encoding: "utf-8", env },
-			).trim();
+			const prTools = getPrTools();
+			const createResult = await prTools.create({
+				repo,
+				title: `feat(${sLabel}): ${slice.title}`,
+				body: prBody,
+				head: sliceBranch,
+				base: milestoneBranch,
+			});
+			if (createResult.code !== 0) {
+				return {
+					success: false,
+					retry: false,
+					error: `gh pr create failed: ${createResult.stderr}`,
+				};
+			}
+			const prUrl = createResult.stdout.trim();
 
 			// Store PR URL
 			updateSlicePrUrl(db, slice.id, prUrl);
 
 			// Extract PR number from URL
-			const prNumber = prUrl.split("/").pop() ?? "";
+			const prNumber = Number.parseInt(prUrl.split("/").pop() ?? "0", 10);
 
-			// Write PR.md — respect user_artifacts compression
+			// Prepend PR metadata to the existing PR.md (body authored in verify)
 			const compressed = settings.compress.user_artifacts;
-			const prMd = compressed
-				? [`# PR: ${sLabel}`, `URL: ${prUrl} | Base: ${milestoneBranch}`, prBody].join("\n")
+			const header = compressed
+				? `# PR: ${sLabel}\nURL: ${prUrl} | Base: ${milestoneBranch}\n\n`
 				: [
 						"# Pull Request",
 						"",
 						`**URL:** ${prUrl}`,
-						"",
+						`**Base:** ${milestoneBranch}`,
 						`**Title:** feat(${sLabel}): ${slice.title}`,
 						"",
-						`**Base:** ${milestoneBranch}`,
+						"---",
 						"",
-						"## Description",
-						prBody,
+						"",
 					].join("\n");
-			writeArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PR.md`, prMd);
+			writeArtifact(
+				root,
+				`milestones/${mLabel}/slices/${sLabel}/PR.md`,
+				compressIfEnabled(header + prBody, "artifacts", settings),
+			);
 
-			// Wait for CI
-			try {
-				execFileSync("gh", ["pr", "checks", prNumber, "--watch"], {
-					cwd: wtPath,
-					encoding: "utf-8",
-					env,
-					timeout: 600_000,
-				});
-			} catch {
+			// Wait for CI. Treat "no checks configured" as green — repos without
+			// a CI workflow have nothing to fail on, and we don't want to
+			// punish users for not wiring up GitHub Actions.
+			const checksResult = await prTools.checks({ repo, number: prNumber, watch: true });
+			const noChecksConfigured =
+				checksResult.code !== 0 &&
+				/no checks? (?:reported|found)/i.test(
+					`${checksResult.stderr ?? ""}\n${checksResult.stdout ?? ""}`,
+				);
+			if (checksResult.code !== 0 && !noChecksConfigured) {
 				// CI failed — loop back to executing for fixes
 				updateSliceStatus(db, slice.id, "executing");
 				resetTasksToOpen(db, slice.id);
+				const detail = (checksResult.stderr || checksResult.stdout || "").trim();
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 					type: "phase_failed",
 					phase: "ship",
 					durationMs: Date.now() - startTime,
-					error: "CI checks failed",
+					error: `CI checks failed: ${detail}`,
 				});
-				return { success: false, retry: true, error: "CI checks failed" };
+				return {
+					success: false,
+					retry: true,
+					error: `CI checks failed: ${detail}`,
+				};
 			}
 
-			// Auto-merge disabled: leave PR open for manual review
+			// Auto-merge disabled: hand control to the agent to poll the user
+			// via tff_ask_user until they report merged/changes. Mirrors
+			// TFF-CC's ship-slice merge gate (AskUserQuestion with 2 options).
+			// The agent is authorized to call tff_ship_merged or
+			// tff_ship_changes based on the user's reply — no polling of
+			// GitHub; the user's answer is the source of truth.
 			if (!settings.ship.auto_merge) {
-				pi.sendUserMessage(`PR ready for review at ${prUrl}`);
+				pi.sendUserMessage(
+					[
+						`The slice PR is open: ${prUrl}`,
+						"",
+						`Now ask the user whether the PR was merged, using tff_ask_user with id \`pr_gate_${sLabel}\`, header "PR status", and two options:`,
+						'  1) label "PR merged"       — description "I merged the PR on GitHub."',
+						'  2) label "PR needs changes" — description "Reviewers requested changes."',
+						"",
+						"After the user replies:",
+						`  - If "PR merged": call tff_ship_merged({ sliceLabel: "${sLabel}" }).`,
+						`  - If "PR needs changes": ask the user for the reviewer feedback text in one follow-up message, then call tff_ship_changes({ sliceLabel: "${sLabel}", feedback: "<their exact feedback>" }).`,
+						"",
+						"Do NOT call these tools before the user has explicitly answered. Do NOT poll GitHub or guess the state — the user's reply is the source of truth.",
+					].join("\n"),
+				);
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 					type: "phase_complete",
@@ -266,46 +407,21 @@ export const shipPhase: PhaseModule = {
 				return { success: true, retry: false };
 			}
 
-			// Squash merge
-			execFileSync("gh", ["pr", "merge", prNumber, "--squash"], {
-				cwd: wtPath,
-				encoding: "utf-8",
-				env,
+			// Merge PR using the configured method (default: squash).
+			const mergeResult = await prTools.merge({
+				repo,
+				number: prNumber,
+				method: settings.ship.merge_method,
 			});
-
-			// Cleanup worktree
-			removeWorktree(root, sLabel);
-
-			// Pull milestone branch — stash any uncommitted work first
-			try {
-				const status = execFileSync("git", ["status", "--porcelain"], {
-					cwd: root,
-					encoding: "utf-8",
-					env,
-				}).trim();
-				if (status) {
-					execFileSync("git", ["stash", "push", "-m", `tff-ship-${sLabel}`], {
-						cwd: root,
-						encoding: "utf-8",
-						env,
-					});
-				}
-			} catch {
-				// Ignore stash errors
+			if (mergeResult.code !== 0) {
+				return {
+					success: false,
+					retry: false,
+					error: `gh pr merge failed: ${mergeResult.stderr}`,
+				};
 			}
-			execFileSync("git", ["checkout", milestoneBranch], {
-				cwd: root,
-				encoding: "utf-8",
-				env,
-			});
-			execFileSync("git", ["pull", "origin", milestoneBranch], {
-				cwd: root,
-				encoding: "utf-8",
-				env,
-			});
 
-			// Mark slice closed
-			updateSliceStatus(db, slice.id, "closed");
+			finalizeMergedSlice(db, root, slice, milestoneNumber);
 
 			const next = suggestNextAction(db, slice.milestoneId);
 			pi.sendUserMessage(`Slice shipped and merged.\n\n${next}`);

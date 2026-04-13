@@ -1,6 +1,10 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { type TffContext, getDb } from "../common/context.js";
+import { findSliceByLabel } from "../common/db-resolvers.js";
 import { getEventLog } from "../common/db.js";
 import { formatDuration } from "../common/format.js";
+import { findActiveSlice } from "../orchestrator.js";
 
 export function handleLogs(
 	db: Database.Database,
@@ -32,4 +36,25 @@ export function handleLogs(
 		lines.push(`${time}  ${entry.type.padEnd(18)}${extra.join("  ")}`);
 	}
 	return lines.join("\n");
+}
+
+export async function runLogs(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	_uiCtx: ExtensionCommandContext | null,
+	args: string[],
+): Promise<void> {
+	const db = getDb(ctx);
+	const rawArgs = args.join(" ").trim();
+	const jsonFlag = rawArgs.includes("--json");
+	const label = rawArgs.replace("--json", "").trim();
+	const slice = label ? findSliceByLabel(db, label) : null;
+	const activeSlice = findActiveSlice(db);
+	const targetSlice = slice ?? activeSlice;
+	if (!targetSlice) {
+		pi.sendUserMessage("No slice found. Usage: `/tff logs [M01-S01] [--json]`");
+		return;
+	}
+	const result = handleLogs(db, targetSlice.id, { json: jsonFlag });
+	pi.sendUserMessage(result);
 }

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMilestone } from "../../../src/commands/new-milestone.js";
 import {
 	artifactExists,
@@ -11,6 +11,7 @@ import {
 	milestoneDir,
 	readArtifact,
 } from "../../../src/common/artifacts.js";
+import { compressIfEnabled } from "../../../src/common/compress.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -20,6 +21,10 @@ import {
 } from "../../../src/common/db.js";
 import { branchExists } from "../../../src/common/git.js";
 import { must } from "../../helpers.js";
+
+vi.mock("../../../src/common/compress.js", () => ({
+	compressIfEnabled: vi.fn((input: string) => input),
+}));
 
 function createTestDb(): Database.Database {
 	const db = openDatabase(":memory:");
@@ -109,5 +114,12 @@ describe("createMilestone", () => {
 		createMilestone(db, root, projectId, "Core");
 		expect(branchExists("milestone/M01", root)).toBe(true);
 		expect(branchExists("milestone/M02", root)).toBe(true);
+	});
+
+	it("compresses content when enabled", () => {
+		vi.mocked(compressIfEnabled).mockReturnValueOnce("[COMPRESSED]req");
+		createMilestone(db, root, projectId, "Foundation");
+		const written = readArtifact(root, "milestones/M01/REQUIREMENTS.md");
+		expect(written).toBe("[COMPRESSED]req");
 	});
 });

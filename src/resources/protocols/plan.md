@@ -1,5 +1,18 @@
 # Plan Phase Protocol
 
+<HARD-GATE>
+The plan phase is NOT COMPLETE until `tff_write_plan` returns successfully
+with at least one task. Writing PLAN.md via Write/Edit/filesystem does NOT
+count — the database must contain tasks with computed waves.
+
+If you cannot produce a structured task list (because the spec is ambiguous,
+for example), STOP and call `tff_ask_user` with 2-3 curated options
+clarifying the ambiguity. Do NOT write prose in place of a plan.
+
+Only `tff_write_plan` signals phase_complete. Any other exit = phase stuck.
+</HARD-GATE>
+
+
 ## Input
 - SPEC.md — slice specification with AC
 - RESEARCH.md (optional) — findings and constraints
@@ -34,7 +47,12 @@ Rules:
 Build traceability matrix: AC-N -> [T-N, ...]
 Every AC must have >=1 task. Flag gaps.
 
-### 5. Write Plan
+### 5. Ask User Before Committing (when ambiguous)
+If task decomposition has a real fork (e.g., "split auth into 2 tasks vs 4",
+"use Prisma vs raw SQL"), use `tff_ask_user` with 2-3 curated options
+BEFORE calling `tff_write_plan`. Never invent options in free-form prose.
+
+### 6. Write Plan
 Call `tff_write_plan(sliceId, content, tasks)`:
 
 content = markdown with task table + AC traceability
@@ -46,6 +64,10 @@ tasks = structured array for DB:
 ]
 ```
 
+After the tool returns successfully, STOP. Do not call any other tools. The system handles plan review automatically — do NOT call `plannotator_submit_plan`, `plannotator_annotate`, or any plannotator_* tool. TFF emits the review request on an event bus; plannotator opens its UI modal; the tool return only resolves after the user approves in the UI.
+
+If the tool returns an error with `feedback`, the user rejected the plan in plannotator. Read the feedback, revise, and call `tff_write_plan` again with the updated content.
+
 ## Output
 PLAN.md artifact written. Tasks + dependencies inserted in DB. Waves auto-computed.
-Status transitions to `planning`.
+Phase transitions to `executing` when the user runs `/tff next`.

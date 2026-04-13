@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { readArtifact } from "./common/artifacts.js";
-import { getActiveMilestone, getActiveSlice, getProject, getSlice } from "./common/db.js";
+import {
+	getActiveMilestone,
+	getActiveSlice,
+	getProject,
+	getSlice,
+	getTasksByWave,
+} from "./common/db.js";
 import type { Phase, Slice, SliceStatus, Task, Tier } from "./common/types.js";
 import { milestoneLabel, sliceLabel } from "./common/types.js";
 
@@ -40,7 +46,7 @@ export function determineNextPhase(status: SliceStatus, tier?: Tier | null): Pha
 		case "executing":
 			return "verify";
 		case "verifying":
-			return tier === "S" ? "ship" : "review";
+			return "review";
 		case "reviewing":
 			return "ship";
 		default:
@@ -64,6 +70,7 @@ const PHASE_AGENT: Record<Phase, string> = {
 	verify: "verifier",
 	review: "code-reviewer",
 	ship: "executor",
+	"ship-fix": "inline-fixer",
 };
 
 const PHASE_TOOLS: Record<Phase, string[]> = {
@@ -72,7 +79,7 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 		"tff_write_spec",
 		"tff_write_requirements",
 		"tff_query_state",
-		"tff_confirm_gate",
+		"tff_ask_user",
 	],
 	research: [
 		"tff_write_research",
@@ -81,11 +88,18 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 		"tff-fff_grep",
 		"tff-fff_search",
 	],
-	plan: ["tff_write_plan", "tff_query_state", "tff-fff_find", "tff-fff_grep"],
+	plan: ["tff_write_plan", "tff_query_state", "tff-fff_find", "tff-fff_grep", "tff_ask_user"],
 	execute: ["tff_query_state", "tff-fff_find", "tff-fff_grep", "tff-fff_search"],
-	verify: ["tff_query_state", "tff-fff_find", "tff-fff_grep"],
-	review: ["tff_query_state", "tff-fff_find", "tff-fff_grep"],
+	verify: [
+		"tff_write_verification",
+		"tff_write_pr",
+		"tff_query_state",
+		"tff-fff_find",
+		"tff-fff_grep",
+	],
+	review: ["tff_write_review", "tff_query_state", "tff-fff_find", "tff-fff_grep"],
 	ship: ["tff_query_state"],
+	"ship-fix": ["tff_ask_user", "tff_ship_apply_done"],
 };
 
 export function loadAgentResource(agentName: string): string {
@@ -236,7 +250,53 @@ export function verifyPhaseArtifacts(
 		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PLAN.md`)) {
 			missing.push("PLAN.md");
 		}
+		const waveMap = getTasksByWave(db, slice.id);
+		if (waveMap.size === 0) {
+			missing.push("tasks persisted in DB (tff_write_plan must be called)");
+		}
+	} else if (phase === "verify") {
+		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`)) {
+			missing.push("VERIFICATION.md");
+		}
+	} else if (phase === "review") {
+		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REVIEW.md`)) {
+			missing.push("REVIEW.md");
+		}
 	}
 
 	return { ok: missing.length === 0, missing };
+}
+
+/**
+ * Returns the phase whose artifacts must exist before entering `target`.
+ * null means no precondition (e.g., discuss is the first phase).
+ */
+export function predecessorPhase(target: Phase, tier?: Tier | null): Phase | null {
+	switch (target) {
+		case "discuss":
+			return null;
+		case "research":
+			return "discuss";
+		case "plan":
+			return tier === "S" ? "discuss" : "research";
+		case "execute":
+			return "plan";
+		case "verify":
+			// verify.ts has an inline empty-diff gate that catches "execute produced
+			// nothing" better than an artifact check. We still return "execute" here
+			// so `closePredecessorIfReady` can mark execute complete when verify
+			// starts — verifyPhaseArtifacts has no execute-case, so the artifact
+			// check is a no-op (ok=true).
+			return "execute";
+		case "review":
+			return "verify";
+		case "ship":
+			return "review";
+		case "ship-fix":
+			// Side-channel phase — not part of the discuss→ship pipeline, so it
+			// has no predecessor in the state machine sense.
+			return null;
+		default:
+			return null;
+	}
 }

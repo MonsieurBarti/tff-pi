@@ -13,6 +13,12 @@ Your first questions must reflect reality, not assumptions.
 <HARD-GATE>
 Do NOT call tff_classify or tff_write_spec during questioning.
 The system will reject the call. Complete exploration first.
+
+After EVERY `tff_ask_user` call, END YOUR TURN IMMEDIATELY. Do not
+emit any further tool calls, restatements, or "waiting..." messages.
+The user's next message is their numeric reply — you must receive
+it before proceeding. Calling the next tool without waiting is the
+bug that causes discuss to auto-complete without user input.
 </HARD-GATE>
 
 One question per message (C4). Position-first (C6).
@@ -34,24 +40,26 @@ Red Flags — thoughts that mean STOP:
 <HARD-GATE>
 You MUST present 2-3 approaches with trade-offs and get user
 selection BEFORE proceeding. No exceptions.
+
+Present approaches via `tff_ask_user` — NEVER as free-form prose.
+The tool enforces 2-3 mutually exclusive options per question
+so you cannot invent alternatives on the fly.
 </HARD-GATE>
 
-Lead with recommendation (C6). Explain trade-offs for each.
+Lead with recommendation (C6). Explain trade-offs for each option's `description`.
 
-## 5. DEPTH VERIFICATION
+## 5. READINESS CHECK
 Present structured summary using user's exact terminology.
 Ask: "Ready to write the spec?"
-After user confirms → call `tff_confirm_gate(sliceId, "depth_verified")`.
 
 ## 6. TIER CLASSIFICATION
-Propose tier with justification:
-- S: trivial, no unknowns, skip research
+Propose tier via `tff_ask_user` with a single question (id: `tier_choice`):
+- S: trivial, no unknowns, skip research (still goes through review)
 - SS: standard work, some investigation
 - SSS: complex, multi-system, significant unknowns
 
-Ask user to confirm or override.
-After confirmation → call `tff_confirm_gate(sliceId, "tier_confirmed")`.
-Then call `tff_classify(sliceId, tier)`.
+Include your recommended tier as the first option. After the user selects →
+call `tff_classify(sliceId, tier)`.
 
 ## 7. SPEC WRITING
 Self-review before writing (4-point check):
@@ -70,6 +78,8 @@ Write REQUIREMENTS.md via `tff_write_requirements` call:
 - R-IDs, classes (functional/non-functional/constraint)
 - Concrete acceptance conditions with examples
 - Verification instructions
+
+After each `tff_write_*` call returns successfully, STOP. Do NOT call `plannotator_submit_plan`, `plannotator_annotate`, or any plannotator_* tool. TFF handles plannotator review automatically via its event bus; you never call plannotator tools directly. If the tool returns an error with `feedback`, the user rejected the artifact in plannotator — read the feedback, revise, and call the `tff_write_*` tool again.
 
 ## 8. COMPLETION
 Confirm artifacts written. User can request changes in conversation.

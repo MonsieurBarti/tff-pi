@@ -45,7 +45,7 @@ describe("discussPhase", () => {
 	});
 
 	it("conforms to PhaseModule interface", () => {
-		expect(typeof discussPhase.run).toBe("function");
+		expect(typeof discussPhase.prepare).toBe("function");
 	});
 
 	it("returns success and sends message", async () => {
@@ -62,8 +62,9 @@ describe("discussPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await discussPhase.run(ctx);
+		const result = await discussPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(result.message).toBeDefined();
+		expect(sendUserMessage).not.toHaveBeenCalled();
 	});
 });

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCompleteMilestone } from "../../src/commands/complete-milestone.js";
 import { createMilestone } from "../../src/commands/new-milestone.js";
 import { handleNew } from "../../src/commands/new.js";
-import { initTffDirectory, writeArtifact } from "../../src/common/artifacts.js";
+import { initTffDirectory, readArtifact, writeArtifact } from "../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -16,6 +16,7 @@ import {
 	insertMilestone,
 	insertProject,
 	insertSlice,
+	insertTask,
 	openDatabase,
 	updateSlicePrUrl,
 	updateSliceStatus,
@@ -40,6 +41,28 @@ vi.mock("node:child_process", async (importOriginal) => {
 	};
 });
 
+const mockView = vi.fn();
+const mockCreate = vi.fn();
+const mockChecks = vi.fn();
+const mockMerge = vi.fn();
+
+vi.mock("@the-forge-flow/gh-pi", () => ({
+	createGHClient: vi.fn(() => ({})),
+	createPRTools: vi.fn(() => ({
+		view: mockView,
+		create: mockCreate,
+		checks: mockChecks,
+		merge: mockMerge,
+	})),
+}));
+
+vi.mock("../../src/common/memory.js", () => ({
+	getMemory: vi.fn(() => null),
+	initMemory: vi.fn().mockResolvedValue(null),
+	shutdownMemory: vi.fn().mockResolvedValue(undefined),
+	resetMemoryForTest: vi.fn(),
+}));
+
 vi.mock("../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	removeWorktree: vi.fn(),
@@ -52,6 +75,8 @@ vi.mock("../../src/common/git.js", () => ({
 	getCurrentBranch: vi.fn().mockReturnValue("main"),
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
+	pushBranch: vi.fn(),
+	remoteBranchExists: vi.fn().mockReturnValue(true),
 	getDiff: vi.fn().mockReturnValue("diff --git a/foo.ts b/foo.ts\n+added line"),
 	gitEnv: vi.fn().mockReturnValue({}),
 }));
@@ -109,6 +134,9 @@ describe("E2E critical path", () => {
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
 			const cmdArgs = args[1] as string[];
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
+			}
 			if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "create") {
 				return "https://github.com/org/repo/pull/1\n";
 			}
@@ -120,6 +148,19 @@ describe("E2E critical path", () => {
 			}
 			return "";
 		});
+
+		mockView.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: JSON.stringify({ state: "MERGED", comments: [] }),
+			stderr: "",
+		});
+		mockCreate.mockReset().mockResolvedValue({
+			code: 0,
+			stdout: "https://github.com/org/repo/pull/1",
+			stderr: "",
+		});
+		mockChecks.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+		mockMerge.mockReset().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
 
 		db = openDatabase(":memory:");
 		applyMigrations(db);
@@ -178,10 +219,10 @@ describe("E2E critical path", () => {
 			updateSliceTier(db, sliceId, "SS");
 			updateSliceStatus(db, sliceId, "discussing");
 
-			// Step 5: researchPhase.run → verify sendUserMessage called
+			// Step 5: researchPhase.prepare → verify sendUserMessage called
 			const researchPi = makePi();
 			const researchSlice = must(getSlice(db, sliceId));
-			const researchResult = await researchPhase.run({
+			const researchResult = await researchPhase.prepare({
 				pi: researchPi,
 				db,
 				root,
@@ -190,7 +231,8 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(researchResult.success).toBe(true);
-			expect(researchPi.sendUserMessage).toHaveBeenCalledTimes(1);
+			expect(researchResult.message).toBeDefined();
+			expect(researchPi.sendUserMessage).not.toHaveBeenCalled();
 			// Simulate RESEARCH.md output
 			writeArtifact(
 				root,
@@ -198,10 +240,10 @@ describe("E2E critical path", () => {
 				"# Research\nJWT best practices: use RS256",
 			);
 
-			// Step 6: planPhase.run → verify sendUserMessage called
+			// Step 6: planPhase.prepare → verify sendUserMessage called
 			const planPi = makePi();
 			const planSlice = must(getSlice(db, sliceId));
-			const planResult = await planPhase.run({
+			const planResult = await planPhase.prepare({
 				pi: planPi,
 				db,
 				root,
@@ -210,7 +252,8 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(planResult.success).toBe(true);
-			expect(planPi.sendUserMessage).toHaveBeenCalledTimes(1);
+			expect(planResult.message).toBeDefined();
+			expect(planPi.sendUserMessage).not.toHaveBeenCalled();
 			// Simulate PLAN.md output
 			writeArtifact(
 				root,
@@ -218,10 +261,13 @@ describe("E2E critical path", () => {
 				"# Plan\nStep 1: implement JWT\nStep 2: add middleware",
 			);
 
-			// Step 7: executePhase.run → verify sendUserMessage called
+			// Step 7: executePhase.prepare → verify sendUserMessage called.
+			// Simulate tasks persisted by plan phase (required after Fix #1).
+			insertTask(db, { sliceId, number: 1, title: "Implement JWT", wave: 1 });
+			insertTask(db, { sliceId, number: 2, title: "Add middleware", wave: 2 });
 			const executePi = makePi();
 			const executeSlice = must(getSlice(db, sliceId));
-			const executeResult = await executePhase.run({
+			const executeResult = await executePhase.prepare({
 				pi: executePi,
 				db,
 				root,
@@ -230,13 +276,13 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(executeResult.success).toBe(true);
-			// execute phase may or may not call sendUserMessage depending on tasks
-			// (no tasks = early return with success, which is fine)
+			expect(executeResult.message).toBeDefined();
+			expect(executePi.sendUserMessage).not.toHaveBeenCalled();
 
-			// Step 8: verifyPhase.run → verify sendUserMessage called
+			// Step 8: verifyPhase.prepare → verify sendUserMessage called
 			const verifyPi = makePi();
 			const verifySlice = must(getSlice(db, sliceId));
-			const verifyResult = await verifyPhase.run({
+			const verifyResult = await verifyPhase.prepare({
 				pi: verifyPi,
 				db,
 				root,
@@ -245,7 +291,8 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(verifyResult.success).toBe(true);
-			expect(verifyPi.sendUserMessage).toHaveBeenCalledTimes(1);
+			expect(verifyResult.message).toBeDefined();
+			expect(verifyPi.sendUserMessage).not.toHaveBeenCalled();
 			// Simulate VERIFICATION.md
 			writeArtifact(
 				root,
@@ -253,10 +300,10 @@ describe("E2E critical path", () => {
 				"# Verification\n- [x] AC-1 passes\n- [x] AC-2 passes",
 			);
 
-			// Step 9: reviewPhase.run → verify message includes "Security Review"
+			// Step 9: reviewPhase.prepare → verify message includes "Security Review"
 			const reviewPi = makePi();
 			const reviewSlice = must(getSlice(db, sliceId));
-			const reviewResult = await reviewPhase.run({
+			const reviewResult = await reviewPhase.prepare({
 				pi: reviewPi,
 				db,
 				root,
@@ -265,29 +312,34 @@ describe("E2E critical path", () => {
 				settings: DEFAULT_SETTINGS,
 			});
 			expect(reviewResult.success).toBe(true);
-			expect(reviewPi.sendUserMessage).toHaveBeenCalledTimes(1);
-			const reviewMsg = (reviewPi.sendUserMessage as ReturnType<typeof vi.fn>).mock
-				.calls[0]?.[0] as string;
+			expect(reviewResult.message).toBeDefined();
+			expect(reviewPi.sendUserMessage).not.toHaveBeenCalled();
+			const reviewMsg = reviewResult.message ?? "";
 			expect(reviewMsg).toContain("Security Review");
 
-			// Step 10: Simulate REVIEW.md, set status to "reviewing"
+			// Step 10: Simulate REVIEW.md and PR.md, set status to "reviewing"
 			writeArtifact(
 				root,
 				`milestones/${mLabel}/slices/${sLabel}/REVIEW.md`,
 				"# Review\nAll good. No issues found.",
 			);
+			writeArtifact(
+				root,
+				`milestones/${mLabel}/slices/${sLabel}/PR.md`,
+				"# Description\n\nAdds auth.",
+			);
 			updateSliceStatus(db, sliceId, "reviewing");
 
-			// Step 11: shipPhase.run with auto_merge: true
+			// Step 11: shipPhase.prepare with auto_merge: true
 			const shipPi = makePi();
 			const shipSlice = must(getSlice(db, sliceId));
-			const shipResult = await shipPhase.run({
+			const shipResult = await shipPhase.prepare({
 				pi: shipPi,
 				db,
 				root,
 				slice: shipSlice,
 				milestoneNumber: msNumber,
-				settings: makeSettings({ ship: { auto_merge: true } }),
+				settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 			});
 			expect(shipResult.success).toBe(true);
 			const shippedSlice = must(getSlice(db, sliceId));
@@ -295,7 +347,7 @@ describe("E2E critical path", () => {
 			expect(shippedSlice.status).toBe("closed");
 
 			// Step 12: handleCompleteMilestone → milestone PR created
-			const completeResult = handleCompleteMilestone(db, root, milestoneId, DEFAULT_SETTINGS);
+			const completeResult = await handleCompleteMilestone(db, root, milestoneId, DEFAULT_SETTINGS);
 			expect(completeResult.success).toBe(true);
 			expect(completeResult.prUrl).toContain("github.com");
 		});
@@ -335,16 +387,17 @@ describe("E2E critical path", () => {
 				"# Verification\n- [x] All pass",
 			);
 			writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW.md", "# Review\nAll good");
+			writeArtifact(root, "milestones/M01/slices/M01-S01/PR.md", "# Description\n\nAdds auth.");
 
 			const pi = makePi();
 			const slice = must(getSlice(db, sliceId));
-			const result = await shipPhase.run({
+			const result = await shipPhase.prepare({
 				pi,
 				db,
 				root,
 				slice,
 				milestoneNumber: 1,
-				settings: makeSettings({ ship: { auto_merge: false } }),
+				settings: makeSettings({ ship: { auto_merge: false, merge_method: "squash" } }),
 			});
 
 			expect(result.success).toBe(true);
@@ -354,19 +407,17 @@ describe("E2E critical path", () => {
 			expect(updated.status).toBe("shipping");
 			expect(updated.prUrl).toContain("github.com");
 
-			// gh pr merge should NOT have been called
-			const mergeCalls = mockExec.mock.calls.filter(
-				(call: unknown[]) =>
-					call[0] === "gh" &&
-					(call[1] as string[])?.[0] === "pr" &&
-					(call[1] as string[])?.[1] === "merge",
-			);
-			expect(mergeCalls).toHaveLength(0);
+			// pr merge should NOT have been called
+			expect(mockMerge).not.toHaveBeenCalled();
 
-			// sendUserMessage should mention "ready for review"
+			// sendUserMessage hands the merge gate to the agent — PR URL +
+			// tff_ask_user + tool routing for merged/changes.
 			expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
 			const msg = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
-			expect(msg).toContain("ready for review");
+			expect(msg).toContain("PR is open");
+			expect(msg).toContain("tff_ask_user");
+			expect(msg).toContain("tff_ship_merged");
+			expect(msg).toContain("tff_ship_changes");
 		});
 	});
 
@@ -397,11 +448,12 @@ describe("E2E critical path", () => {
 			writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# Requirements");
 			writeArtifact(root, "milestones/M01/slices/M01-S01/VERIFICATION.md", "# Verification");
 			writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW.md", "# Review");
+			writeArtifact(root, "milestones/M01/slices/M01-S01/PR.md", "# Description");
 
 			// mockExec already returns { state: "MERGED", comments: [] } for gh pr view
 			const pi = makePi();
 			const slice = must(getSlice(db, sliceId));
-			const result = await shipPhase.run({
+			const result = await shipPhase.prepare({
 				pi,
 				db,
 				root,
@@ -420,7 +472,7 @@ describe("E2E critical path", () => {
 	// 4. Ship re-entry with PR comments
 	// -----------------------------------------------------------------------
 	describe("ship re-entry with PR comments", () => {
-		it("transitions back to executing with feedback", async () => {
+		it("stashes review feedback and leaves slice in shipping", async () => {
 			initTffDirectory(root);
 			insertProject(db, { name: "TFF", vision: "Vision" });
 			const projectId = must(getProject(db)).id;
@@ -443,26 +495,24 @@ describe("E2E critical path", () => {
 			writeArtifact(root, `${base}/PLAN.md`, "# Plan");
 			writeArtifact(root, `${base}/VERIFICATION.md`, "# V\n- [x] pass");
 			writeArtifact(root, `${base}/REVIEW.md`, "# Review");
+			writeArtifact(root, `${base}/PR.md`, "# Description");
 			updateSliceStatus(db, sliceId, "shipping");
 			updateSliceTier(db, sliceId, "SS");
 			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
 
-			// Mock gh pr view to return OPEN with comments
-			mockExec.mockImplementation((...args: unknown[]) => {
-				const cmd = args[0] as string;
-				const cmdArgs = args[1] as string[];
-				if (cmd === "gh" && cmdArgs?.[0] === "pr" && cmdArgs?.[1] === "view") {
-					return JSON.stringify({
-						state: "OPEN",
-						comments: [{ body: "Fix the error handling", author: { login: "reviewer" } }],
-					});
-				}
-				return "";
+			// Mock prTools.view to return OPEN with comments
+			mockView.mockResolvedValue({
+				code: 0,
+				stdout: JSON.stringify({
+					state: "OPEN",
+					comments: [{ body: "Fix the error handling", author: { login: "reviewer" } }],
+				}),
+				stderr: "",
 			});
 
 			const pi = makePi();
 			const slice = must(getSlice(db, sliceId));
-			const result = await shipPhase.run({
+			const result = await shipPhase.prepare({
 				pi,
 				db,
 				root,
@@ -470,11 +520,12 @@ describe("E2E critical path", () => {
 				milestoneNumber: 1,
 				settings: DEFAULT_SETTINGS,
 			});
-			expect(result.success).toBe(false);
-			expect(result.retry).toBe(true);
-			expect(result.feedback).toContain("Fix the error handling");
+			expect(result.success).toBe(true);
+			expect(result.retry).toBe(false);
 			const updated = must(getSlice(db, sliceId));
-			expect(updated.status).toBe("executing");
+			expect(updated.status).toBe("shipping");
+			const stashed = readArtifact(root, `${base}/REVIEW_FEEDBACK.md`);
+			expect(stashed).toContain("Fix the error handling");
 		});
 	});
 

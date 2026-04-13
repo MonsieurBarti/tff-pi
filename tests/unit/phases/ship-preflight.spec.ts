@@ -28,6 +28,7 @@ describe("preflightCheck", () => {
 		writeArtifact(root, `${base}/REQUIREMENTS.md`, "# Requirements\nR1: must work");
 		writeArtifact(root, `${base}/VERIFICATION.md`, verification);
 		writeArtifact(root, `${base}/REVIEW.md`, "# Review\nApproved");
+		writeArtifact(root, `${base}/PR.md`, "# PR\nDescription here");
 	}
 
 	beforeEach(() => {
@@ -39,7 +40,7 @@ describe("preflightCheck", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("passes when all 5 artifacts exist and verification is clean", () => {
+	it("passes when all required artifacts exist and verification is clean", () => {
 		writeAllArtifacts(root);
 		const result = preflightCheck(root, fakeSlice, 1);
 		expect(result.ok).toBe(true);
@@ -87,8 +88,34 @@ describe("preflightCheck", () => {
 		writeArtifact(root, `${base}/VERIFICATION.md`, "# Verification\n- [ ] Not done\nFAIL");
 		const result = preflightCheck(root, fakeSlice, 1);
 		expect(result.ok).toBe(false);
-		// Should have errors for SPEC.md, PLAN.md, REQUIREMENTS.md, REVIEW.md missing
+		// Should have errors for SPEC.md, PLAN.md, REQUIREMENTS.md, REVIEW.md, PR.md missing
 		// plus unchecked items and failure marker
-		expect(result.errors.length).toBeGreaterThanOrEqual(5);
+		expect(result.errors.length).toBeGreaterThanOrEqual(6);
+	});
+
+	it("passes when VERIFICATION.md mentions lowercase 'fail' in prose (e.g. '0 fail')", () => {
+		// Regression: the preflight used to be case-insensitive and false-flagged
+		// test-summary lines like "0 fail" or "would fail if..." as verdicts.
+		// FAIL/BLOCKED are shouty-case verdict markers only.
+		writeAllArtifacts(
+			root,
+			"# Verification\n- [x] Check 1\n```\n59 pass\n0 fail\n```\nOverall: PASS",
+		);
+		const result = preflightCheck(root, fakeSlice, 1);
+		expect(result.ok).toBe(true);
+		expect(result.errors).toEqual([]);
+	});
+
+	it("S-tier preflight still requires REVIEW.md (review required for all tiers)", () => {
+		const sTierSlice: Slice = { ...fakeSlice, tier: "S" };
+		writeArtifact(root, `${base}/SPEC.md`, "# Spec");
+		writeArtifact(root, `${base}/PLAN.md`, "# Plan");
+		writeArtifact(root, `${base}/REQUIREMENTS.md`, "# Requirements");
+		writeArtifact(root, `${base}/VERIFICATION.md`, "# Verification\n- [x] ok");
+		const result = preflightCheck(root, sTierSlice, 1);
+		expect(result.ok).toBe(false);
+		expect(result.errors).toEqual(
+			expect.arrayContaining([expect.stringContaining("REVIEW.md missing")]),
+		);
 	});
 });

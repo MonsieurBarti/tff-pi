@@ -17,7 +17,7 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json && cp -r src/resources dist/resources",
+		"build": "tsc -p tsconfig.build.json && rm -rf dist/resources && cp -R src/resources dist/resources",
 		"dev": "tsc -p tsconfig.build.json --watch",
 		"test": "vitest run",
 		"test:watch": "vitest",
@@ -52,21 +52,25 @@
 	"engines": {
 		"node": ">=20.0.0"
 	},
+	"packageManager": "bun@1.3.11",
 	"pi": {
 		"extensions": [
 			"./dist/index.js"
 		]
 	},
 	"peerDependencies": {
-		"@mariozechner/pi-coding-agent": "*",
 		"@mariozechner/pi-ai": "*",
+		"@mariozechner/pi-coding-agent": "*",
 		"@mariozechner/pi-tui": "*",
+		"@plannotator/pi-extension": "*",
 		"@sinclair/typebox": "*",
 		"@the-forge-flow/fff-pi": "*",
+		"@the-forge-flow/gh-pi": "*",
 		"@the-forge-flow/gitnexus-pi": "*",
-		"@the-forge-flow/lightpanda-pi": "*",
 		"@the-forge-flow/hippo-memory-pi": "*",
-		"@the-forge-flow/sub-agents-pi": "*"
+		"@the-forge-flow/lightpanda-pi": "*",
+		"@the-forge-flow/sub-agents-pi": "*",
+		"@the-forge-flow/ultra-compress-pi": "*"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",

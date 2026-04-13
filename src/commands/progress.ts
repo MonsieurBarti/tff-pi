@@ -1,4 +1,6 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { type TffContext, getDb } from "../common/context.js";
 import { getMilestones, getPhaseRuns, getProject, getSlices, getTasks } from "../common/db.js";
 import { formatDuration } from "../common/format.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
@@ -59,4 +61,14 @@ export function handleProgress(db: Database.Database): string {
 	);
 
 	return lines.join("\n").trimEnd();
+}
+
+export async function runProgress(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	_uiCtx: ExtensionCommandContext | null,
+	_args: string[],
+): Promise<void> {
+	const result = handleProgress(getDb(ctx));
+	pi.sendUserMessage(result);
 }

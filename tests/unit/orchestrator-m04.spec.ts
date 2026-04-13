@@ -2,7 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { Task } from "../../src/common/types.js";
 import { enrichContextWithFff, loadPhaseResources } from "../../src/orchestrator.js";
 
-const ALL_PHASES = ["discuss", "research", "plan", "execute", "verify", "review", "ship"] as const;
+const ALL_PHASES = [
+	"discuss",
+	"research",
+	"plan",
+	"execute",
+	"verify",
+	"review",
+	"ship",
+	"ship-fix",
+] as const;
 
 describe("loadPhaseResources", () => {
 	it.each(ALL_PHASES)("returns agentPrompt and protocol for phase '%s' (smoke)", (phase) => {
