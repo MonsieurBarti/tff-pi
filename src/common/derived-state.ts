@@ -50,6 +50,16 @@ export function computeSliceStatus(
 	const sLabel = sliceLabel(milestone.number, slice.number);
 	const base = `milestones/${mLabel}/slices/${sLabel}`;
 
+	// Rule 1: closed — ship completed + pr_url set
+	const shipCompleted = db
+		.prepare(
+			`SELECT 1 FROM phase_run
+     WHERE slice_id = ? AND phase = 'ship' AND status = 'completed'
+     LIMIT 1`,
+		)
+		.get(sliceId) as { 1: number } | undefined;
+	if (shipCompleted && slice.prUrl) return "closed";
+
 	const latest = latestNonIgnoredPhaseRun(db, sliceId);
 
 	// Rule 2: in-flight phase

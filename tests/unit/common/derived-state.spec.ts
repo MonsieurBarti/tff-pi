@@ -10,6 +10,8 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
+	updatePhaseRun,
+	updateSlicePrUrl,
 } from "../../../src/common/db.js";
 import { computeSliceStatus } from "../../../src/common/derived-state.js";
 
@@ -71,6 +73,42 @@ describe("computeSliceStatus — rule 2 (in-flight)", () => {
 			startedAt: new Date().toISOString(),
 		});
 		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
+	});
+});
+
+describe("computeSliceStatus — rule 1 (closed)", () => {
+	it("returns 'closed' when ship is completed AND pr_url is set", () => {
+		const runId = insertPhaseRun(db, {
+			sliceId,
+			phase: "ship",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId, { status: "completed", finishedAt: new Date().toISOString() });
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
+		expect(computeSliceStatus(db, root, sliceId)).toBe("closed");
+	});
+
+	it("does NOT return 'closed' when ship completed but pr_url is null", () => {
+		const runId = insertPhaseRun(db, {
+			sliceId,
+			phase: "ship",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId, { status: "completed", finishedAt: new Date().toISOString() });
+		expect(computeSliceStatus(db, root, sliceId)).not.toBe("closed");
+	});
+
+	it("does NOT return 'closed' when pr_url is set but ship is not completed", () => {
+		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "ship",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		expect(computeSliceStatus(db, root, sliceId)).toBe("shipping");
 	});
 });
 
