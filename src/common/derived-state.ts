@@ -177,22 +177,29 @@ export function computeSliceStatus(
 	return "created";
 }
 
+export interface ReconcileResult {
+	status: SliceStatus; // the (possibly unchanged) current status
+	from: SliceStatus; // the value before reconcile
+	changed: boolean;
+}
+
 export function reconcileSliceStatus(
 	db: Database.Database,
 	root: string,
 	sliceId: string,
-): SliceStatus {
+): ReconcileResult {
 	const current = getSlice(db, sliceId);
 	if (!current) throw new Error(`Slice not found: ${sliceId}`);
 	const computed = computeSliceStatus(db, root, sliceId);
-	if (computed !== current.status) {
+	const changed = computed !== current.status;
+	if (changed) {
 		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(computed, sliceId);
 		// Event emission happens in caller contexts that hold an event bus
 		// (event-logger for phase-driven writes, recover/migration for explicit
 		// reconciles). Keeping derived-state free of bus dependencies preserves
 		// testability as a pure DB+FS function.
 	}
-	return computed;
+	return { status: computed, from: current.status, changed };
 }
 
 export function overrideSliceStatus(

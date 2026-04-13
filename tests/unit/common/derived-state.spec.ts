@@ -260,7 +260,7 @@ describe("reconcileSliceStatus", () => {
 			startedAt: new Date().toISOString(),
 		});
 		const result = reconcileSliceStatus(db, root, sliceId);
-		expect(result).toBe("planning");
+		expect(result.status).toBe("planning");
 		expect(getSlice(db, sliceId)?.status).toBe("planning");
 	});
 
@@ -273,7 +273,7 @@ describe("reconcileSliceStatus", () => {
 		});
 		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
 		const result = reconcileSliceStatus(db, root, sliceId);
-		expect(result).toBe("planning");
+		expect(result.status).toBe("planning");
 	});
 
 	it("throws if the slice does not exist", () => {

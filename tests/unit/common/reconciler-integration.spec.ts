@@ -32,36 +32,35 @@ class MockEventBus {
 	}
 }
 
-let db: Database.Database;
-let root: string;
-let sliceId: string;
-let bus: MockEventBus;
-let logger: EventLogger;
-
-beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "reconciler-integ-"));
-	db = openDatabase(":memory:");
-	applyMigrations(db);
-	const projectId = insertProject(db, { name: "p", vision: "v" });
-	const milestoneId = insertMilestone(db, {
-		projectId,
-		number: 1,
-		name: "m",
-		branch: "m01",
-	});
-	sliceId = insertSlice(db, { milestoneId, number: 1, title: "s" });
-	bus = new MockEventBus();
-	logger = new EventLogger(db, join(root, ".tff", "logs"), root);
-	logger.subscribe(bus);
-});
-
-afterEach(() => {
-	logger.dispose();
-	db.close();
-	rmSync(root, { recursive: true, force: true });
-});
-
 describe("EventLogger → reconciler integration", () => {
+	let db: Database.Database;
+	let root: string;
+	let sliceId: string;
+	let bus: MockEventBus;
+	let logger: EventLogger;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "reconciler-integ-"));
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+		const projectId = insertProject(db, { name: "p", vision: "v" });
+		const milestoneId = insertMilestone(db, {
+			projectId,
+			number: 1,
+			name: "m",
+			branch: "m01",
+		});
+		sliceId = insertSlice(db, { milestoneId, number: 1, title: "s" });
+		bus = new MockEventBus();
+		logger = new EventLogger(db, join(root, ".tff", "logs"), root);
+		logger.subscribe(bus);
+	});
+
+	afterEach(() => {
+		logger.dispose();
+		db.close();
+		rmSync(root, { recursive: true, force: true });
+	});
 	it("reconciles slice.status on phase_start", () => {
 		bus.emit("tff:phase", {
 			type: "phase_start",
