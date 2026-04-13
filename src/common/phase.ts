@@ -76,30 +76,26 @@ interface FreshContextOpts {
 	phaseCtx: PhaseContext;
 	cmdCtx: ExtensionCommandContext | null;
 	phase: Phase;
-	/**
-	 * Kept for API back-compat but no longer honored — newSession is fired
-	 * fire-and-forget to avoid the deadlock described in the function body.
-	 */
+	/** Kept for API back-compat; not honored. */
 	timeoutMs?: number;
 }
 
 /**
- * Runs a phase's prepare() in the current session, stashes the resulting
- * prompt to disk, and schedules a fresh PI session to deliver it.
+ * Runs a phase's prepare() in the current session, opens a fresh PI session,
+ * and delivers the prepared prompt autonomously so the agent starts working
+ * without user input.
  *
- * **Critical: newSession() is fire-and-forget.** Awaiting it inside this
- * command handler deadlocks — PI cannot tear down the current session
- * until our handler returns, but awaiting newSession here prevents us
- * from returning. Prior versions used `Promise.race(newSession, timeout)`
- * which hung every `/tff next` post-plan in the wild (session.lock stayed
- * held, pending-phase-message.txt stashed, no new jsonl, no timeout ever
- * firing because the event loop was blocked by the unresolved handler
- * promise).
+ * Pattern (mirrors gsd-pi `auto/run-unit.ts` and `auto-direct-dispatch.ts`):
+ *   1. `await cmdCtx.newSession()` — swap to a clean session. Awaiting works
+ *      because we're still inside the outer command-handler coroutine; PI
+ *      tears down the old session and rebinds the extension during the await.
+ *   2. `phaseCtx.pi.sendMessage({customType, content, display}, {triggerTurn: true})`
+ *      — deliver + kick a turn on the now-idle fresh session. `triggerTurn:
+ *      true` is the piece that makes the agent auto-process; SessionManager
+ *      `appendMessage` or plain `sendUserMessage` isn't enough.
  *
- * Trade-off: we cannot surface newSession's cancellation/failure to the
- * user directly — the current session is gone by the time newSession
- * resolves. Failure recovery flows through `/tff doctor`, which reads
- * the orphaned session.lock + pending-phase-message.txt.
+ * Disk-stashed message is a crash-recovery backstop (for /tff doctor).
+ * On the happy path we clear it after delivery; on cancel we leave it.
  */
 export async function runPhaseWithFreshContext(
 	opts: FreshContextOpts,
@@ -137,21 +133,34 @@ export async function runPhaseWithFreshContext(
 		return prepareResult;
 	}
 
-	// Stash the message on disk (module-level state is not guaranteed to
-	// survive the extension reload triggered by newSession). The
-	// session_start handler for the new session reads it back.
-	writePendingMessage(phaseCtx.root, prepareResult.message);
+	const message = prepareResult.message;
 
-	// Release the lock before scheduling — the new session starts without
-	// holding a lock (acquireLock happens only inside command handlers),
-	// and /tff doctor handles any rare orphaned state.
+	// Stash on disk as a crash-recovery backstop before we try to switch.
+	writePendingMessage(phaseCtx.root, message);
+
+	// Release the lock before awaiting newSession — the new session must
+	// start without holding our lock.
 	releaseLock(phaseCtx.root);
 
-	// Schedule newSession to fire AFTER this handler returns. void discards
-	// the promise: we intentionally do not await it (see docblock).
-	setImmediate(() => {
-		void cmdCtx.newSession();
-	});
+	const { cancelled } = await cmdCtx.newSession();
+
+	if (cancelled) {
+		// Leave the disk stash in place; /tff doctor can recover.
+		return {
+			success: false,
+			retry: true,
+			error: "New session was cancelled by a session_before_switch handler",
+		};
+	}
+
+	// Deliver the prompt and trigger the agent turn autonomously.
+	phaseCtx.pi.sendMessage(
+		{ customType: "tff-phase", content: message, display: true },
+		{ triggerTurn: true },
+	);
+
+	// Clear the disk stash — delivery succeeded.
+	clearPendingMessage(phaseCtx.root);
 
 	return { success: true, retry: false };
 }
