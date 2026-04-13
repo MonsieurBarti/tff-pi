@@ -10,7 +10,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 			name: "tff_ship_changes",
 			label: "TFF Ship: Changes Requested",
 			description:
-				"Call AFTER the user confirms (via tff_ask_user) that the PR needs changes AND provides the reviewer feedback text. Flips the slice back to execute with the feedback attached. Pass the reviewer feedback verbatim — do NOT summarize.",
+				"Call AFTER the user confirms (via tff_ask_user) that the PR needs changes AND provides the reviewer feedback text. Stashes the feedback as REVIEW_FEEDBACK.md under the slice artifact dir and leaves the slice in `shipping`. The user then decides: small edits in the worktree followed by `/tff ship-merged`, or a full `/tff execute` re-entry. Pass the reviewer feedback verbatim — do NOT summarize.",
 			parameters: Type.Object({
 				sliceLabel: Type.String({
 					description: "Slice label (e.g., M01-S01) or slice id",
@@ -21,6 +21,13 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				const database = getDb(ctx);
+				if (!ctx.projectRoot) {
+					return {
+						content: [{ type: "text", text: "TFF project root not initialized." }],
+						details: { sliceLabel: params.sliceLabel },
+						isError: true,
+					};
+				}
 				const slice = resolveSlice(database, params.sliceLabel);
 				if (!slice) {
 					return {
@@ -29,7 +36,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						isError: true,
 					};
 				}
-				const result = handleShipChanges(pi, database, slice.id, params.feedback);
+				const result = handleShipChanges(pi, database, ctx.projectRoot, slice.id, params.feedback);
 				if (!result.success) {
 					return {
 						content: [{ type: "text", text: result.message }],
@@ -37,16 +44,14 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						isError: true,
 					};
 				}
-				// Slice is now `executing` with tasks reset. Tell the agent to
-				// run /tff execute to re-enter with the feedback. We don't
-				// auto-invoke runHeavyPhase here because this handler runs
-				// inside the agent turn; the user will drive the next step
-				// via /tff execute (or agent-suggested `/tff next`).
+				// Feedback has been stashed under REVIEW_FEEDBACK.md. Slice stays
+				// in `shipping` — the user decides whether to do a small fix
+				// (edit worktree + /tff ship-merged) or re-run /tff execute.
 				return {
 					content: [
 						{
 							type: "text",
-							text: `${result.message}\n\nNext: tell the user to run \`/tff execute ${params.sliceLabel}\` (or \`/tff next\`) to apply the changes.`,
+							text: `${result.message}\n\nReview feedback saved to REVIEW_FEEDBACK.md. Tell the user: for a small fix, edit the worktree and push to the slice branch then run \`/tff ship-merged ${params.sliceLabel}\`. For a larger fix, run \`/tff execute ${params.sliceLabel}\` to re-enter TDD.`,
 						},
 					],
 					details: { sliceLabel: params.sliceLabel, feedback: params.feedback },

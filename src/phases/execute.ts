@@ -1,6 +1,8 @@
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { readArtifact } from "../common/artifacts.js";
 import { createCheckpoint } from "../common/checkpoint.js";
-import { getTasksByWave, updateSliceStatus } from "../common/db.js";
+import { getTasksByWave, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
@@ -44,7 +46,25 @@ export const executePhase: PhaseModule = {
 			? "\n\nWrite comments and docs in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes."
 			: "";
 
-		const retryContext = ctx.feedback ? `\n\n## Previous Failure Context\n${ctx.feedback}` : "";
+		// Pick up stashed review feedback from ship-changes / ship re-entry.
+		// Fold it into ctx.feedback, reset tasks, then delete the artifact so
+		// subsequent runs don't re-apply it.
+		const feedbackRel = `milestones/${mLabel}/slices/${sLabel}/REVIEW_FEEDBACK.md`;
+		const feedbackPath = join(root, ".tff", feedbackRel);
+		let combinedFeedback = ctx.feedback ?? "";
+		if (existsSync(feedbackPath)) {
+			const stashed = readArtifact(root, feedbackRel) ?? "";
+			combinedFeedback = combinedFeedback ? `${combinedFeedback}\n\n${stashed}` : stashed;
+			resetTasksToOpen(db, slice.id);
+			try {
+				unlinkSync(feedbackPath);
+			} catch {
+				// Non-fatal: artifact will be overwritten on next ship-changes.
+			}
+		}
+		const retryContext = combinedFeedback
+			? `\n\n## Previous Failure Context\n${combinedFeedback}`
+			: "";
 
 		const { agentPrompt, protocol } = loadPhaseResources("execute");
 

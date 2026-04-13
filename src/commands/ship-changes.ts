@@ -1,14 +1,12 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { writeArtifact } from "../common/artifacts.js";
 import { type TffContext, requireProject } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { getMilestone, getSlice, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
+import { getMilestone, getSlice } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import type { PhaseContext } from "../common/phase.js";
-import { sliceLabel } from "../common/types.js";
+import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { findActiveSlice } from "../orchestrator.js";
-import { phaseModules } from "../phases/index.js";
-import { runHeavyPhase } from "./run-heavy-phase.js";
 
 export interface ShipChangesResult {
 	success: boolean;
@@ -16,20 +14,24 @@ export interface ShipChangesResult {
 	feedback: string;
 	milestoneNumber: number;
 	sliceId: string;
+	sliceLabel: string;
 }
 
 /**
- * PR review requested changes. User runs this with the feedback text; we
- * flip the slice back to `executing`, reset tasks to open, and return the
- * feedback so the caller can re-enter execute with the context.
+ * PR review requested changes. We stash the reviewer feedback as
+ * `REVIEW_FEEDBACK.md` under the slice's artifact dir and leave the slice in
+ * `shipping` status. The user decides how to fix:
+ *   - Small fix → edit worktree, push, then `/tff ship-merged` once merged.
+ *   - Large fix → `/tff execute <slice>` to re-enter TDD (which will pick
+ *     up REVIEW_FEEDBACK.md and reset tasks itself).
  *
- * Pairs with `/tff ship-merged` — together they replace the manual-review
- * polling loop where the user had to keep running `/tff ship <slice>` until
- * GitHub reported the merge state.
+ * Pairs with `/tff ship-merged` for the manual-review loop — neither command
+ * polls GitHub; the user's answer is the source of truth.
  */
 export function handleShipChanges(
 	pi: ExtensionAPI,
 	db: Database.Database,
+	root: string,
 	sliceIdOrLabel: string,
 	feedback: string,
 ): { success: false; message: string } | ShipChangesResult {
@@ -57,11 +59,15 @@ export function handleShipChanges(
 		};
 	}
 
+	const mLabel = milestoneLabel(milestone.number);
 	const sLabel = sliceLabel(milestone.number, slice.number);
 	const startTime = Date.now();
 
-	updateSliceStatus(db, slice.id, "executing");
-	resetTasksToOpen(db, slice.id);
+	writeArtifact(
+		root,
+		`milestones/${mLabel}/slices/${sLabel}/REVIEW_FEEDBACK.md`,
+		`# Review Feedback\n\n${feedback.trim()}\n`,
+	);
 
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(slice.id, sLabel, milestone.number),
@@ -73,10 +79,11 @@ export function handleShipChanges(
 
 	return {
 		success: true,
-		message: `${sLabel} reopened for fixes. Re-entering execute with feedback.`,
+		message: `Review feedback recorded for ${sLabel}.`,
 		feedback,
 		milestoneNumber: milestone.number,
 		sliceId: slice.id,
+		sliceLabel: sLabel,
 	};
 }
 
@@ -88,7 +95,7 @@ export async function runShipChanges(
 ): Promise<void> {
 	const project = requireProject(ctx, uiCtx);
 	if (!project) return;
-	const { db: database, root, settings: currentSettings } = project;
+	const { db: database, root } = project;
 	const label = args[0] ?? "";
 	const slice = label ? resolveSlice(database, label) : findActiveSlice(database);
 	if (!slice) {
@@ -97,25 +104,23 @@ export async function runShipChanges(
 		return;
 	}
 	const feedback = args.slice(1).join(" ").trim();
-	const result = handleShipChanges(pi, database, slice.id, feedback);
+	const result = handleShipChanges(pi, database, root, slice.id, feedback);
 	if (!result.success) {
 		if (uiCtx?.hasUI) uiCtx.ui.notify(result.message, "error");
 		else pi.sendUserMessage(result.message);
 		return;
 	}
-	const milestone = getMilestone(database, slice.milestoneId);
-	if (!milestone) return;
-	const freshSlice = getSlice(database, slice.id);
-	if (!freshSlice) return;
-	const execCtx: PhaseContext = {
-		pi,
-		db: database,
-		root,
-		slice: freshSlice,
-		milestoneNumber: milestone.number,
-		settings: currentSettings,
-		feedback: result.feedback,
-	};
-	pi.sendUserMessage(result.message);
-	await runHeavyPhase(ctx, "execute", phaseModules.execute, execCtx);
+	const sLabel = result.sliceLabel;
+	pi.sendUserMessage(
+		[
+			`Review feedback recorded for ${sLabel}.`,
+			"",
+			"Reviewer said:",
+			`> ${result.feedback}`,
+			"",
+			`For small fixes: edit the worktree, push to the slice branch, then run \`/tff ship-merged ${sLabel}\` once merged.`,
+			"",
+			`For larger fixes: run \`/tff execute ${sLabel}\` to re-enter the TDD loop (tasks will be reset automatically).`,
+		].join("\n"),
+	);
 }

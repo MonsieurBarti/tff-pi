@@ -280,7 +280,7 @@ describe("shipPhase", () => {
 		expect(updated.status).toBe("closed");
 	});
 
-	it("re-entry: PR with comments returns to executing", async () => {
+	it("re-entry: PR with comments stashes feedback and leaves slice in shipping", async () => {
 		mockView.mockResolvedValue({
 			code: 0,
 			stdout: JSON.stringify({
@@ -300,11 +300,14 @@ describe("shipPhase", () => {
 			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
-		expect(result.success).toBe(false);
-		expect(result.retry).toBe(true);
-		expect(result.feedback).toContain("please fix");
+		expect(result.success).toBe(true);
+		expect(result.retry).toBe(false);
+		// Slice stays in `shipping`; the user decides whether to edit the
+		// worktree or re-enter execute. Tasks are NOT reset automatically.
 		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("executing");
+		expect(updated.status).toBe("shipping");
+		const stashed = readArtifact(root, "milestones/M01/slices/M01-S01/REVIEW_FEEDBACK.md");
+		expect(stashed).toContain("please fix");
 	});
 
 	it("re-entry: open PR with no comments returns waiting", async () => {

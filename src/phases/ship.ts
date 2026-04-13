@@ -214,8 +214,16 @@ export const shipPhase: PhaseModule = {
 
 				if (pr.comments.length > 0) {
 					const feedback = pr.comments.map((c) => `**${c.author.login}**: ${c.body}`).join("\n\n");
-					updateSliceStatus(db, slice.id, "executing");
-					resetTasksToOpen(db, slice.id);
+					// Stash feedback as an artifact; leave the slice in `shipping`
+					// so the user can decide whether to do a small fix (edit
+					// worktree + ship-merged) or re-enter execute. The execute
+					// phase picks up REVIEW_FEEDBACK.md on next run.
+					updateSliceStatus(db, slice.id, "shipping");
+					writeArtifact(
+						root,
+						`milestones/${mLabel}/slices/${sLabel}/REVIEW_FEEDBACK.md`,
+						`# Review Feedback\n\n${feedback}\n`,
+					);
 					pi.events.emit("tff:phase", {
 						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 						type: "phase_failed",
@@ -223,7 +231,19 @@ export const shipPhase: PhaseModule = {
 						durationMs: Date.now() - startTime,
 						error: "PR has review comments",
 					});
-					return { success: false, retry: true, feedback };
+					pi.sendUserMessage(
+						[
+							`Review feedback recorded for ${sLabel}.`,
+							"",
+							"Reviewer said:",
+							`> ${feedback}`,
+							"",
+							`For small fixes: edit the worktree, push to the slice branch, then run \`/tff ship-merged ${sLabel}\` once merged.`,
+							"",
+							`For larger fixes: run \`/tff execute ${sLabel}\` to re-enter the TDD loop (tasks will be reset automatically).`,
+						].join("\n"),
+					);
+					return { success: true, retry: false };
 				}
 
 				pi.sendUserMessage("PR still waiting for review.");

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCompleteMilestone } from "../../src/commands/complete-milestone.js";
 import { createMilestone } from "../../src/commands/new-milestone.js";
 import { handleNew } from "../../src/commands/new.js";
-import { initTffDirectory, writeArtifact } from "../../src/common/artifacts.js";
+import { initTffDirectory, readArtifact, writeArtifact } from "../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -465,7 +465,7 @@ describe("E2E critical path", () => {
 	// 4. Ship re-entry with PR comments
 	// -----------------------------------------------------------------------
 	describe("ship re-entry with PR comments", () => {
-		it("transitions back to executing with feedback", async () => {
+		it("stashes review feedback and leaves slice in shipping", async () => {
 			initTffDirectory(root);
 			insertProject(db, { name: "TFF", vision: "Vision" });
 			const projectId = must(getProject(db)).id;
@@ -512,11 +512,12 @@ describe("E2E critical path", () => {
 				milestoneNumber: 1,
 				settings: DEFAULT_SETTINGS,
 			});
-			expect(result.success).toBe(false);
-			expect(result.retry).toBe(true);
-			expect(result.feedback).toContain("Fix the error handling");
+			expect(result.success).toBe(true);
+			expect(result.retry).toBe(false);
 			const updated = must(getSlice(db, sliceId));
-			expect(updated.status).toBe("executing");
+			expect(updated.status).toBe("shipping");
+			const stashed = readArtifact(root, `${base}/REVIEW_FEEDBACK.md`);
+			expect(stashed).toContain("Fix the error handling");
 		});
 	});
 
