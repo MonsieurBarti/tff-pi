@@ -21,6 +21,7 @@ import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
+import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import { checkForUpdates } from "./update-check.js";
 
@@ -147,6 +148,17 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				ctx.eventLogger = new EventLogger(ctx.db, logsDir);
 				ctx.eventLogger.subscribe(pi.events);
 
+				// ExtensionAPI.on returns void, but ToolCallLoggerPi expects a disposer.
+				// Extension handlers are cleared on session_shutdown, so a no-op unsubscribe is safe.
+				const piAdapter: ToolCallLoggerPi = {
+					on: (event, handler) => {
+						pi.on(event as Parameters<typeof pi.on>[0], handler as never);
+						return () => {};
+					},
+				};
+				ctx.toolCallLogger = new ToolCallLogger(piAdapter, pi.events);
+				ctx.toolCallLogger.subscribe();
+
 				if (uiCtx.hasUI) {
 					ctx.tuiMonitor = new TUIMonitor(uiCtx.ui);
 					ctx.tuiMonitor.subscribe(pi.events);
@@ -184,6 +196,8 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	// Lifecycle: session_shutdown
 	// -------------------------------------------------------------------------
 	pi.on("session_shutdown", async () => {
+		ctx.toolCallLogger?.dispose();
+		ctx.toolCallLogger = null;
 		ctx.eventLogger = null;
 		ctx.tuiMonitor = null;
 		await shutdownFffBridge();

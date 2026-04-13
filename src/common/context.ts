@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import type { EventLogger } from "./event-logger.js";
 import type { FffBridge } from "./fff-integration.js";
 import { DEFAULT_SETTINGS, type Settings } from "./settings.js";
+import type { ToolCallLogger } from "./tool-call-logger.js";
 import type { TUIMonitor } from "./tui-monitor.js";
 
 /**
@@ -19,6 +20,7 @@ export interface TffContext {
 	settings: Settings | null;
 	fffBridge: FffBridge | null;
 	eventLogger: EventLogger | null;
+	toolCallLogger: ToolCallLogger | null;
 	tuiMonitor: TUIMonitor | null;
 	cmdCtx: ExtensionCommandContext | null;
 	initError: string | null;
@@ -41,6 +43,7 @@ export function createTffContext(): TffContext {
 		settings: null,
 		fffBridge: null,
 		eventLogger: null,
+		toolCallLogger: null,
 		tuiMonitor: null,
 		cmdCtx: null,
 		initError: null,
