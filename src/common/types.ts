@@ -17,6 +17,15 @@ export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
 export const TASK_STATUSES = ["open", "in_progress", "closed"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const PHASE_RUN_STATUSES = [
+	"started",
+	"completed",
+	"failed",
+	"abandoned",
+	"retried",
+] as const;
+export type PhaseRunStatus = (typeof PHASE_RUN_STATUSES)[number];
+
 export const TIERS = ["S", "SS", "SSS"] as const;
 export type Tier = (typeof TIERS)[number];
 
