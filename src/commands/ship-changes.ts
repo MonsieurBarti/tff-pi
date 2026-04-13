@@ -1,8 +1,14 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { type TffContext, findSliceByLabel, getDb } from "../common/context.js";
 import { getMilestone, getSlice, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
+import type { PhaseContext } from "../common/phase.js";
+import { DEFAULT_SETTINGS } from "../common/settings.js";
 import { sliceLabel } from "../common/types.js";
+import { findActiveSlice } from "../orchestrator.js";
+import { phaseModules } from "../phases/index.js";
+import { runHeavyPhase } from "./run-heavy-phase.js";
 
 export interface ShipChangesResult {
 	success: boolean;
@@ -72,4 +78,47 @@ export function handleShipChanges(
 		milestoneNumber: milestone.number,
 		sliceId: slice.id,
 	};
+}
+
+export async function runShipChanges(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	uiCtx: ExtensionCommandContext | null,
+	args: string[],
+): Promise<void> {
+	const database = getDb(ctx);
+	const root = ctx.projectRoot;
+	if (!root) return;
+	const label = args[0] ?? "";
+	const slice = label
+		? (findSliceByLabel(database, label) ?? getSlice(database, label))
+		: findActiveSlice(database);
+	if (!slice) {
+		const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");
+		return;
+	}
+	const feedback = args.slice(1).join(" ").trim();
+	const result = handleShipChanges(pi, database, slice.id, feedback);
+	if (!result.success) {
+		if (uiCtx?.hasUI) uiCtx.ui.notify(result.message, "error");
+		else pi.sendUserMessage(result.message);
+		return;
+	}
+	const milestone = getMilestone(database, slice.milestoneId);
+	if (!milestone) return;
+	const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
+	const freshSlice = getSlice(database, slice.id);
+	if (!freshSlice) return;
+	const execCtx: PhaseContext = {
+		pi,
+		db: database,
+		root,
+		slice: freshSlice,
+		milestoneNumber: milestone.number,
+		settings: currentSettings,
+		feedback: result.feedback,
+	};
+	pi.sendUserMessage(result.message);
+	await runHeavyPhase(ctx, "execute", phaseModules.execute, execCtx);
 }

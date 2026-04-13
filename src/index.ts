@@ -1,32 +1,27 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { runHeavyPhase } from "./commands/run-heavy-phase.js";
 import { handleShipChanges } from "./commands/ship-changes.js";
 import { handleShipMerged } from "./commands/ship-merged.js";
-import { validateShip } from "./commands/ship.js";
 import { createCheckpoint } from "./common/checkpoint.js";
 import {
 	createTffContext,
 	findMilestoneByLabel,
-	findSliceByLabel,
 	getDb,
 	resolveMilestone,
 	resolveSlice,
 } from "./common/context.js";
-import { getMilestone, getSlice } from "./common/db.js";
+import { getMilestone } from "./common/db.js";
 import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import { addRemote, initialCommitAndPush } from "./common/git.js";
 import { emitPhaseCompleteIfArtifactsReady } from "./common/phase-completion.js";
-import { type PhaseContext, runPhaseWithFreshContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS } from "./common/settings.js";
-import { SLICE_STATUSES, TIERS, sliceLabel } from "./common/types.js";
+import { SLICE_STATUSES, TIERS } from "./common/types.js";
 import { getWorktreePath } from "./common/worktree.js";
 import { registerLifecycleHooks } from "./lifecycle.js";
-import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
-import { phaseModules } from "./phases/index.js";
+import { verifyPhaseArtifacts } from "./orchestrator.js";
 import { type AskUserQuestion, handleAskUser } from "./tools/ask-user.js";
 import { handleClassify } from "./tools/classify.js";
 import { handleCreateProject } from "./tools/create-project.js";
@@ -66,7 +61,7 @@ export default function tffExtension(pi: ExtensionAPI): void {
 		},
 		handler: async (args, uiCtx) => {
 			ctx.cmdCtx = uiCtx;
-			const { subcommand, args: rest } = parseSubcommand(args);
+			const { subcommand, args: _rest } = parseSubcommand(args);
 
 			if (!isValidSubcommand(subcommand)) {
 				if (uiCtx.hasUI) {
@@ -79,140 +74,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}
 
 			switch (subcommand) {
-				case "ship": {
-					const database = getDb(ctx);
-					const root = ctx.projectRoot;
-					if (!root) return;
-					const label = rest[0] ?? "";
-					const slice = label
-						? (findSliceByLabel(database, label) ?? getSlice(database, label))
-						: findActiveSlice(database);
-					if (!slice) {
-						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
-						return;
-					}
-					const validation = validateShip(database, slice.id, ctx.projectRoot);
-					if (!validation.valid) {
-						if (uiCtx.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
-						return;
-					}
-					const milestone = getMilestone(database, slice.milestoneId);
-					if (!milestone) return;
-					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
-					const mod = phaseModules.ship;
-					const phaseCtx: PhaseContext = {
-						pi,
-						db: database,
-						root,
-						slice,
-						milestoneNumber: milestone.number,
-						settings: currentSettings,
-						fffBridge: ctx.fffBridge,
-					};
-					if (uiCtx.hasUI)
-						uiCtx.ui.notify(
-							`Starting ship phase for ${sliceLabel(milestone.number, slice.number)}...`,
-							"info",
-						);
-					const result = await runPhaseWithFreshContext({
-						phaseModule: mod,
-						phaseCtx,
-						cmdCtx: ctx.cmdCtx,
-						phase: "ship",
-					});
-					if (result.success) {
-						if (uiCtx.hasUI) uiCtx.ui.notify("Ship phase complete.", "info");
-					} else if (result.retry && result.feedback) {
-						// PR has review comments — re-enter execute with feedback
-						if (uiCtx.hasUI)
-							uiCtx.ui.notify(
-								"PR has review comments. Re-entering execute phase for fixes.",
-								"info",
-							);
-						const executeMod = phaseModules.execute;
-						const freshSlice = getSlice(database, slice.id);
-						if (freshSlice) {
-							const execCtx: PhaseContext = {
-								pi,
-								db: database,
-								root,
-								slice: freshSlice,
-								milestoneNumber: milestone.number,
-								settings: currentSettings,
-								feedback: result.feedback,
-							};
-							await runHeavyPhase(ctx, "execute", executeMod, execCtx);
-						}
-					} else {
-						if (uiCtx.hasUI)
-							uiCtx.ui.notify(`Ship phase failed: ${result.error ?? "unknown error"}`, "error");
-					}
-					break;
-				}
-
-				case "ship-merged": {
-					const database = getDb(ctx);
-					const root = ctx.projectRoot;
-					if (!root) return;
-					const label = rest[0] ?? "";
-					const slice = label
-						? (findSliceByLabel(database, label) ?? getSlice(database, label))
-						: findActiveSlice(database);
-					if (!slice) {
-						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
-						return;
-					}
-					const result = handleShipMerged(pi, database, root, slice.id);
-					if (result.success) {
-						pi.sendUserMessage(`PR merged. ${result.message}`);
-						if (uiCtx.hasUI) uiCtx.ui.notify("Slice closed.", "info");
-					} else {
-						if (uiCtx.hasUI) uiCtx.ui.notify(result.message, "error");
-					}
-					break;
-				}
-
-				case "ship-changes": {
-					const database = getDb(ctx);
-					const root = ctx.projectRoot;
-					if (!root) return;
-					const label = rest[0] ?? "";
-					const slice = label
-						? (findSliceByLabel(database, label) ?? getSlice(database, label))
-						: findActiveSlice(database);
-					if (!slice) {
-						const msg = label ? `Slice not found: ${label}` : "No active slice found.";
-						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
-						return;
-					}
-					const feedback = rest.slice(1).join(" ").trim();
-					const result = handleShipChanges(pi, database, slice.id, feedback);
-					if (!result.success) {
-						if (uiCtx.hasUI) uiCtx.ui.notify(result.message, "error");
-						else pi.sendUserMessage(result.message);
-						break;
-					}
-					const milestone = getMilestone(database, slice.milestoneId);
-					if (!milestone) return;
-					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
-					const freshSlice = getSlice(database, slice.id);
-					if (!freshSlice) return;
-					const execCtx: PhaseContext = {
-						pi,
-						db: database,
-						root,
-						slice: freshSlice,
-						milestoneNumber: milestone.number,
-						settings: currentSettings,
-						feedback: result.feedback,
-					};
-					pi.sendUserMessage(result.message);
-					await runHeavyPhase(ctx, "execute", phaseModules.execute, execCtx);
-					break;
-				}
-
 				default: {
 					pi.sendUserMessage(
 						`\`/tff ${subcommand}\` is not yet implemented in this version of TFF.`,

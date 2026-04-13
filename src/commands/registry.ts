@@ -17,6 +17,9 @@ import { runProgress } from "./progress.js";
 import { runRecover } from "./recover.js";
 import { runResearch } from "./research.js";
 import { runSettings } from "./settings.js";
+import { runShipChanges } from "./ship-changes.js";
+import { runShipMerged } from "./ship-merged.js";
+import { runShip } from "./ship.js";
 import { runStatus } from "./status.js";
 import { runVerify } from "./verify.js";
 
@@ -53,4 +56,7 @@ COMMANDS.set("research", runResearch);
 COMMANDS.set("plan", runPlan);
 COMMANDS.set("execute", runExecute);
 COMMANDS.set("verify", runVerify);
+COMMANDS.set("ship", runShip);
+COMMANDS.set("ship-merged", runShipMerged);
+COMMANDS.set("ship-changes", runShipChanges);
 COMMANDS.set("next", runNext);

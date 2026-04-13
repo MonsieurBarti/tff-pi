@@ -1,8 +1,10 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { type TffContext, findSliceByLabel, getDb } from "../common/context.js";
 import { getMilestone, getSlice } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { sliceLabel } from "../common/types.js";
+import { findActiveSlice } from "../orchestrator.js";
 import { finalizeMergedSlice, suggestNextAction } from "../phases/ship.js";
 
 export interface ShipMergedResult {
@@ -61,4 +63,31 @@ export function handleShipMerged(
 		success: true,
 		message: `${sLabel} closed. ${next}`,
 	};
+}
+
+export async function runShipMerged(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	uiCtx: ExtensionCommandContext | null,
+	args: string[],
+): Promise<void> {
+	const database = getDb(ctx);
+	const root = ctx.projectRoot;
+	if (!root) return;
+	const label = args[0] ?? "";
+	const slice = label
+		? (findSliceByLabel(database, label) ?? getSlice(database, label))
+		: findActiveSlice(database);
+	if (!slice) {
+		const msg = label ? `Slice not found: ${label}` : "No active slice found.";
+		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");
+		return;
+	}
+	const result = handleShipMerged(pi, database, root, slice.id);
+	if (result.success) {
+		pi.sendUserMessage(`PR merged. ${result.message}`);
+		if (uiCtx?.hasUI) uiCtx.ui.notify("Slice closed.", "info");
+	} else {
+		if (uiCtx?.hasUI) uiCtx.ui.notify(result.message, "error");
+	}
 }
