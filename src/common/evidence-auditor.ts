@@ -127,20 +127,172 @@ function parseInlineVerdicts(md: string, claims: ParsedClaim[], seen: Set<string
 	}
 }
 
-export function auditVerification(
-	_db: Database.Database,
-	_sliceId: string,
-	_verificationMd: string,
-): AuditReport {
-	// Filled in by Task 3.
+interface EventLogRow {
+	payload: string;
+}
+
+interface EventPayload {
+	toolCallId: string;
+	toolName: string;
+	input?: { command?: string };
+	isError: boolean;
+	startedAt: string;
+}
+
+function queryBashEvents(db: Database.Database, sliceId: string): EventPayload[] {
+	const rows = db
+		.prepare(
+			`SELECT payload FROM event_log
+			 WHERE channel = 'tff:tool'
+			   AND slice_id = ?
+			   AND json_extract(payload, '$.phase') = 'verify'
+			   AND json_extract(payload, '$.toolName') = 'bash'`,
+		)
+		.all(sliceId) as EventLogRow[];
+
+	const out: EventPayload[] = [];
+	for (const r of rows) {
+		try {
+			out.push(JSON.parse(r.payload) as EventPayload);
+		} catch {
+			// Drop malformed rows silently — monitoring must not fail the pipeline.
+		}
+	}
+	return out;
+}
+
+function commandsOverlap(a: string, b: string): boolean {
+	return a.includes(b) || b.includes(a);
+}
+
+function matchClaim(claim: ParsedClaim, events: EventPayload[]): AuditFinding {
+	const candidates = events.filter((e) => {
+		const actual = e.input?.command;
+		if (typeof actual !== "string") return false;
+		return commandsOverlap(claim.command, actual);
+	});
+
+	if (candidates.length === 0) {
+		return {
+			claim,
+			verdict: "unverifiable",
+			reason: `No bash tool call captured in the verify phase matched command \`${claim.command}\`.`,
+		};
+	}
+
+	candidates.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+	const chosen = candidates[0];
+	if (!chosen) {
+		return {
+			claim,
+			verdict: "unverifiable",
+			reason: "Internal: candidate list empty after sort.",
+		};
+	}
+
+	const actualExit: 0 | 1 = chosen.isError ? 1 : 0;
+	const evidence: AuditEvidence = {
+		toolCallId: chosen.toolCallId,
+		actualCommand: chosen.input?.command ?? "",
+		actualExit,
+		timestamp: chosen.startedAt,
+	};
+
+	if (claim.expectedExit === undefined) {
+		return {
+			claim,
+			verdict: "unverifiable",
+			evidence,
+			reason: "Tool call captured, but the claim does not commit to a pass/fail outcome.",
+		};
+	}
+
+	if (claim.expectedExit === actualExit) {
+		return {
+			claim,
+			verdict: "match",
+			evidence,
+			reason: `Claim exit ${claim.expectedExit} matches captured exit ${actualExit}.`,
+		};
+	}
+
 	return {
-		findings: [],
-		summary: { match: 0, mismatch: 0, unverifiable: 0 },
-		hasMismatches: false,
+		claim,
+		verdict: "mismatch",
+		evidence,
+		reason: `Claim expected exit ${claim.expectedExit}, but captured exit ${actualExit}.`,
 	};
 }
 
-export function formatAuditReport(_report: AuditReport): string {
-	// Filled in by Task 3.
-	return "";
+export function auditVerification(
+	db: Database.Database,
+	sliceId: string,
+	verificationMd: string,
+): AuditReport {
+	const claims = parseVerificationClaims(verificationMd);
+	const events = queryBashEvents(db, sliceId);
+	const findings = claims.map((c) => matchClaim(c, events));
+
+	const summary = { match: 0, mismatch: 0, unverifiable: 0 };
+	for (const f of findings) summary[f.verdict] += 1;
+
+	return {
+		findings,
+		summary,
+		hasMismatches: summary.mismatch > 0,
+	};
+}
+
+export function formatAuditReport(report: AuditReport): string {
+	const lines: string[] = [];
+	lines.push("# Verification Audit");
+	lines.push("");
+	lines.push(`**Generated:** ${new Date().toISOString()}`);
+	lines.push(
+		`**Summary:** ${report.summary.match} match, ${report.summary.mismatch} mismatch, ${report.summary.unverifiable} unverifiable`,
+	);
+	lines.push("");
+
+	const mismatches = report.findings.filter((f) => f.verdict === "mismatch");
+	const unverifiable = report.findings.filter((f) => f.verdict === "unverifiable");
+	const matches = report.findings.filter((f) => f.verdict === "match");
+
+	if (mismatches.length > 0) {
+		lines.push("## Mismatches");
+		lines.push("");
+		for (const f of mismatches) {
+			lines.push(`### Claim: \`${f.claim.command}\``);
+			lines.push("");
+			lines.push(`Line: ${f.claim.raw}`);
+			if (f.evidence) {
+				lines.push("");
+				lines.push(`Evidence: tool-call \`${f.evidence.toolCallId}\` at ${f.evidence.timestamp}`);
+				lines.push(`- Actual command: \`${f.evidence.actualCommand}\``);
+				lines.push(`- Actual exit: ${f.evidence.actualExit}`);
+			}
+			lines.push("");
+			lines.push(`Reason: ${f.reason}`);
+			lines.push("");
+		}
+	}
+
+	if (unverifiable.length > 0) {
+		lines.push("## Unverifiable");
+		lines.push("");
+		for (const f of unverifiable) {
+			lines.push(`- Claim: \`${f.claim.command}\` — ${f.reason}`);
+		}
+		lines.push("");
+	}
+
+	if (matches.length > 0) {
+		lines.push("## Matches");
+		lines.push("");
+		for (const f of matches) {
+			lines.push(`- \`${f.claim.command}\` — match (exit ${f.evidence?.actualExit ?? "?"})`);
+		}
+		lines.push("");
+	}
+
+	return lines.join("\n");
 }
