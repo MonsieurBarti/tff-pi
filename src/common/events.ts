@@ -6,6 +6,7 @@ export const TFF_CHANNELS = [
 	"tff:wave",
 	"tff:review",
 	"tff:pipeline",
+	"tff:tool",
 ] as const;
 
 export type TffChannel = (typeof TFF_CHANNELS)[number];
@@ -60,12 +61,32 @@ export interface PipelineEvent extends TffEvent {
 	totalDurationMs?: number;
 }
 
+export interface ToolCallEvent {
+	timestamp: string;
+	type: "tool_call";
+	// Slice context — null for ambient (between-phase) calls
+	sliceId: string | null;
+	sliceLabel: string | null;
+	milestoneNumber: number | null;
+	phase: Phase | null;
+	// Tool identification
+	toolCallId: string;
+	toolName: string;
+	// Payload
+	input: unknown;
+	output: unknown;
+	isError: boolean;
+	durationMs: number;
+	startedAt: string;
+}
+
 export type TffEventMap = {
 	"tff:phase": PhaseEvent;
 	"tff:task": TaskEvent;
 	"tff:wave": WaveEvent;
 	"tff:review": ReviewEvent;
 	"tff:pipeline": PipelineEvent;
+	"tff:tool": ToolCallEvent;
 };
 
 export interface EventBus {
