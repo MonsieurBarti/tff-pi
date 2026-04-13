@@ -1,5 +1,8 @@
+import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { type NewProjectInput, handleNew } from "../commands/new.js";
+import { type TffContext, getDb } from "../common/context.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 
 export interface ToolResult {
@@ -37,4 +40,39 @@ export function handleCreateProject(
 			isError: true,
 		};
 	}
+}
+
+export function register(pi: ExtensionAPI, ctx: TffContext): void {
+	pi.registerTool(
+		defineTool({
+			name: "tff_create_project",
+			label: "TFF Create Project",
+			description:
+				"Create a new TFF project with name and vision. Call this after brainstorming with the user via /tff new. Use /tff new-milestone to add milestones afterwards.",
+			parameters: Type.Object({
+				projectName: Type.String({ description: "Name of the project" }),
+				vision: Type.String({ description: "Vision statement for the project" }),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				const database = getDb(ctx);
+				const root = ctx.projectRoot;
+				if (!root) {
+					return {
+						content: [{ type: "text", text: "Error: No project root found." }],
+						details: {},
+						isError: true,
+					};
+				}
+				return handleCreateProject(
+					database,
+					root,
+					{
+						projectName: params.projectName,
+						vision: params.vision,
+					},
+					ctx.settings ?? DEFAULT_SETTINGS,
+				);
+			},
+		}),
+	);
 }

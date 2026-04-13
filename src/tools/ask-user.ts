@@ -1,3 +1,7 @@
+import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
+import type { TffContext } from "../common/context.js";
+
 export interface AskUserOption {
 	label: string;
 	description: string;
@@ -148,4 +152,68 @@ export function handleAskUser(questions: AskUserQuestion[]): ToolResult {
 			questionIds: questions.map((q) => q.id),
 		},
 	};
+}
+
+export function register(pi: ExtensionAPI, _ctx: TffContext): void {
+	pi.registerTool(
+		defineTool({
+			name: "tff_ask_user",
+			label: "TFF Ask User",
+			description:
+				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-3 bounded options (single-select) or 2+ (multi-select). Use this INSTEAD of free-form questions to prevent agent-invented options.",
+			promptGuidelines: [
+				"Use for any user decision that has a discrete set of valid answers",
+				"Single-select questions: 2-3 options; 'None of the above' is auto-injected",
+				"Multi-select: set allowMultiple=true; any number of options",
+				"Headers must be ≤12 characters (TUI label)",
+				"Do not paraphrase user input into your own options — if the user gave a free-form answer, reflect it back literally",
+			],
+			parameters: Type.Object({
+				questions: Type.Array(
+					Type.Object({
+						id: Type.String({
+							description: "Stable snake_case id for mapping the user's answer back",
+						}),
+						header: Type.String({
+							description: "Short header shown in the UI (≤12 chars)",
+						}),
+						question: Type.String({
+							description: "Single-sentence prompt shown to the user",
+						}),
+						options: Type.Array(
+							Type.Object({
+								label: Type.String({ description: "1-5 word user-facing label" }),
+								description: Type.String({
+									description: "One short sentence explaining the impact/tradeoff",
+								}),
+							}),
+							{
+								description:
+									"2-3 mutually-exclusive options for single-select, or 2+ for multi-select",
+							},
+						),
+						allowMultiple: Type.Optional(
+							Type.Boolean({
+								description: "Allow the user to select multiple options. Default false.",
+							}),
+						),
+					}),
+					{ description: "One or more questions to ask the user" },
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				try {
+					return handleAskUser(params.questions as AskUserQuestion[]);
+				} catch (err) {
+					return {
+						content: [
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+						],
+						details: {},
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
 }

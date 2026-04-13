@@ -19,6 +19,16 @@ const SRC = join(process.cwd(), "src");
 const INDEX = readFileSync(join(SRC, "index.ts"), "utf-8");
 const ORCH = readFileSync(join(SRC, "orchestrator.ts"), "utf-8");
 
+// Tool registrations now live in src/tools/<name>.ts; concatenate every
+// tool module plus index.ts so the name-extractor finds them regardless
+// of where they sit.
+const TOOLS_DIR = join(SRC, "tools");
+const TOOL_SOURCES = readdirSync(TOOLS_DIR)
+	.filter((f) => f.endsWith(".ts"))
+	.map((f) => readFileSync(join(TOOLS_DIR, f), "utf-8"))
+	.join("\n");
+const REGISTRATION_SRC = `${INDEX}\n${TOOL_SOURCES}`;
+
 const RESOURCES_DIR = join(SRC, "resources");
 
 function collectMarkdown(dir: string): { path: string; content: string }[] {
@@ -73,7 +83,7 @@ function extractPhaseTools(orchSrc: string): Map<string, string[]> {
 }
 
 describe("tool registry consistency", () => {
-	const registered = extractRegisteredTools(INDEX);
+	const registered = extractRegisteredTools(REGISTRATION_SRC);
 	const resources = collectMarkdown(RESOURCES_DIR);
 
 	// tff-fff_* tools come from an external extension (fff) and are never
@@ -161,7 +171,7 @@ describe("phase completion path coverage", () => {
 			const emitsInline =
 				src.includes('type: "phase_complete"') || src.includes('type: "phase_failed"');
 			const writerTool = WRITER_TOOL_BY_PHASE[phase];
-			const hasWriterTool = writerTool ? INDEX.includes(`name: "${writerTool}"`) : false;
+			const hasWriterTool = writerTool ? REGISTRATION_SRC.includes(`name: "${writerTool}"`) : false;
 			// Execute is the exception: no writer tool, but its completion is captured by
 			// closePredecessorIfReady in verify.ts.
 			if (phase === "execute") {
