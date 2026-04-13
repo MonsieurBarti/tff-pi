@@ -323,6 +323,28 @@ describe("recovery", () => {
 			expect(result).toContain("1");
 			expect(result.length).toBeLessThanOrEqual(81);
 		});
+
+		it("strips ANSI escape sequences from bash commands", () => {
+			const cmd = "bun test \x1b[31mFAIL\x1b[0m";
+			expect(summarizeInput("bash", { command: cmd })).toBe("bun test FAIL");
+		});
+
+		it("replaces control characters with spaces", () => {
+			const cmd = "echo foo\x00bar\r\nbaz";
+			// NUL, CR, LF each become a single space.
+			expect(summarizeInput("bash", { command: cmd })).toBe("echo foo bar  baz");
+		});
+
+		it("does not split a UTF-16 surrogate pair at the truncation boundary", () => {
+			// Emoji "🎉" is U+1F389, encoded as the surrogate pair D83C+DF89 (2 UTF-16 units).
+			// Build a 79-char prefix + emoji; truncate at 80 would split the surrogate.
+			const prefix = "a".repeat(79);
+			const cmd = `${prefix}🎉tail`;
+			const result = summarizeInput("bash", { command: cmd });
+			// Truncator drops the high surrogate, appends ellipsis at position 79.
+			expect(result).toBe(`${"a".repeat(79)}…`);
+			expect(result.length).toBeLessThanOrEqual(80);
+		});
 	});
 
 	describe("formatRecoveryBriefing", () => {
@@ -352,6 +374,30 @@ describe("recovery", () => {
 			expect(briefing).toContain("✗");
 			expect(briefing).toContain("12:06:01");
 			expect(briefing).toContain("(4.2s)");
+		});
+
+		it("escapes backticks in commandSummary so the rendered span can't break out", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			updateSliceStatus(db, sId, "executing");
+
+			seedToolCall(sId, {
+				command: "bash -c 'echo `date`'",
+				startedAt: "2026-04-13T12:00:00.000Z",
+			});
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			// Rendered span should NOT contain a literal backtick inside the
+			// inline-code wrapper. Substitute with ASCII single-quote.
+			expect(briefing).toContain("'echo 'date''");
+			expect(briefing).not.toContain("`echo `date``");
 		});
 
 		it("omits the Recent tool calls section entirely when evidence is empty", () => {

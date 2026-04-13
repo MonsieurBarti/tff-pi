@@ -6,8 +6,8 @@ import type { Slice, SliceStatus } from "./types.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
 import { getWorktreePath, worktreeExists } from "./worktree.js";
 
-export const FORENSICS_MAX_COUNT = 10;
-export const FORENSICS_WINDOW_MS = 30 * 60 * 1000;
+const FORENSICS_MAX_COUNT = 10;
+const FORENSICS_WINDOW_MS = 30 * 60 * 1000;
 
 export interface RecentToolCall {
 	timestamp: string;
@@ -20,14 +20,33 @@ export interface RecentToolCall {
 export function summarizeInput(toolName: string, input: unknown): string {
 	if (input === null || typeof input !== "object") return "";
 	const obj = input as Record<string, unknown>;
-	const truncate = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
+	// Strip C0 + DEL control chars AND CSI ANSI escapes (ESC[...letter).
+	// Keeps command summaries readable in terminals and prevents control-char
+	// bleed into the briefing. Built via RegExp ctor to avoid static analysis
+	// flagging literal control chars in a regex.
+	const ansiCsi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, "g");
+	const ctrl = new RegExp(
+		`[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`,
+		"g",
+	);
+	const sanitize = (s: string): string => s.replace(ansiCsi, "").replace(ctrl, " ");
+
+	const truncate = (s: string, n = 80) => {
+		const clean = sanitize(s);
+		if (clean.length <= n) return clean;
+		// Avoid splitting a UTF-16 surrogate pair at the cut boundary.
+		let end = n;
+		const last = clean.charCodeAt(end - 1);
+		if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+		return `${clean.slice(0, end)}…`;
+	};
 
 	if (toolName === "bash") {
 		return typeof obj.command === "string" ? truncate(obj.command) : "";
 	}
 	if (toolName === "write" || toolName === "edit" || toolName === "notebook_edit") {
 		const p = obj.path ?? obj.file_path;
-		return typeof p === "string" ? p : "";
+		return typeof p === "string" ? sanitize(p) : "";
 	}
 	if (toolName.startsWith("tff_write_")) {
 		const artifact = toolName.replace(/^tff_write_/, "").toUpperCase();
@@ -285,7 +304,8 @@ export function formatRecoveryBriefing(
 			const marker = tc.isError ? "✗" : "✓";
 			const time = tc.timestamp.slice(11, 19);
 			const dur = tc.durationMs > 0 ? ` (${(tc.durationMs / 1000).toFixed(1)}s)` : "";
-			const cmd = tc.commandSummary ? ` \`${tc.commandSummary}\`` : "";
+			const safeCmd = tc.commandSummary.replace(/`/g, "'");
+			const cmd = safeCmd ? ` \`${safeCmd}\`` : "";
 			lines.push(`- ${time} ${tc.toolName}${cmd} ${marker}${dur}`);
 		}
 	}
