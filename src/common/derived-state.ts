@@ -209,4 +209,3 @@ export function overrideSliceStatus(
 	void reason;
 	db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(status, sliceId);
 }
-

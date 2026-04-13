@@ -82,6 +82,19 @@ export interface ToolCallEvent {
 	startedAt: string;
 }
 
+export interface DerivedEvent extends TffEvent {
+	type: "status_changed";
+	from: string;
+	to: string;
+}
+
+export interface OverrideEvent extends TffEvent {
+	type: "status_override";
+	from: string;
+	to: string;
+	reason: string;
+}
+
 export type TffEventMap = {
 	"tff:phase": PhaseEvent;
 	"tff:task": TaskEvent;
@@ -89,6 +102,8 @@ export type TffEventMap = {
 	"tff:review": ReviewEvent;
 	"tff:pipeline": PipelineEvent;
 	"tff:tool": ToolCallEvent;
+	"tff:derived": DerivedEvent;
+	"tff:override": OverrideEvent;
 };
 
 export interface EventBus {

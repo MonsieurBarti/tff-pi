@@ -275,6 +275,10 @@ describe("reconcileSliceStatus", () => {
 		const result = reconcileSliceStatus(db, root, sliceId);
 		expect(result).toBe("planning");
 	});
+
+	it("throws if the slice does not exist", () => {
+		expect(() => reconcileSliceStatus(db, root, "nope")).toThrow();
+	});
 });
 
 describe("overrideSliceStatus", () => {
@@ -287,4 +291,3 @@ describe("overrideSliceStatus", () => {
 		expect(() => overrideSliceStatus(db, "nope", "closed", "r")).toThrow();
 	});
 });
-
