@@ -16,6 +16,7 @@ import {
 } from "../../../src/common/db.js";
 import {
 	computeSliceStatus,
+	overrideSliceStatus,
 	reconcileSliceStatus,
 } from "../../../src/common/derived-state.js";
 
@@ -273,6 +274,17 @@ describe("reconcileSliceStatus", () => {
 		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
 		const result = reconcileSliceStatus(db, root, sliceId);
 		expect(result).toBe("planning");
+	});
+});
+
+describe("overrideSliceStatus", () => {
+	it("writes the status directly to the cache column", () => {
+		overrideSliceStatus(db, sliceId, "closed", "milestone-close");
+		expect(getSlice(db, sliceId)?.status).toBe("closed");
+	});
+
+	it("throws if the slice does not exist", () => {
+		expect(() => overrideSliceStatus(db, "nope", "closed", "r")).toThrow();
 	});
 });
 

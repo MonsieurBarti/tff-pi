@@ -195,3 +195,18 @@ export function reconcileSliceStatus(
 	return computed;
 }
 
+export function overrideSliceStatus(
+	db: Database.Database,
+	sliceId: string,
+	status: SliceStatus,
+	reason: string,
+): void {
+	const current = getSlice(db, sliceId);
+	if (!current) throw new Error(`Slice not found: ${sliceId}`);
+	// reason is captured for the tff:override event emitted by caller contexts
+	// that hold an event bus. This function is a pure DB write — emission lives
+	// in callers (recover command, complete-milestone, migration).
+	void reason;
+	db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(status, sliceId);
+}
+
