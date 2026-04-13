@@ -116,68 +116,55 @@ describe("runPhaseWithFreshContext", () => {
 		expect(readLock(root)).toBeNull();
 	});
 
-	it("awaits cmdCtx.newSession with a setup callback that appends the prepared message", async () => {
+	it("awaits cmdCtx.newSession and delivers the prepared message via pi.sendUserMessage", async () => {
 		const testRoot = mkdtempSync(join(tmpdir(), "tff-await-"));
 		mkdirSync(join(testRoot, ".tff"), { recursive: true });
-		const calls: { setupCalled: boolean; appendedContent: string | null } = {
-			setupCalled: false,
-			appendedContent: null,
-		};
-		const fakeSessionManager = {
-			appendMessage: async (msg: { role: string; content: string }) => {
-				calls.appendedContent = msg.content;
-			},
-		};
-		const fakeCmdCtx = {
-			newSession: async (opts: {
-				parentSession?: string;
-				setup?: (sm: typeof fakeSessionManager) => Promise<void>;
-			}) => {
-				if (opts.setup) {
-					calls.setupCalled = true;
-					await opts.setup(fakeSessionManager);
-				}
-				return { cancelled: false };
-			},
-			hasUI: false,
-		};
+		const newSessionMock = vi.fn<NewSessionFn>().mockResolvedValue({ cancelled: false });
+		const sendUserMessageMock = vi.fn();
+		const fakeCmdCtx = { newSession: newSessionMock, hasUI: false };
+		const fakePi = { sendUserMessage: sendUserMessageMock };
 		const phaseModule = {
 			prepare: async () => ({ success: true, retry: false, message: "go execute" }),
 		};
 
-		const { runPhaseWithFreshContext } = await import("../../../src/common/phase.js");
 		const result = await runPhaseWithFreshContext({
 			phaseModule,
 			// biome-ignore lint/suspicious/noExplicitAny: test stub
-			phaseCtx: { root: testRoot, slice: { id: "s1" } } as any,
+			phaseCtx: { root: testRoot, slice: { id: "s1" }, pi: fakePi } as any,
 			// biome-ignore lint/suspicious/noExplicitAny: test stub
 			cmdCtx: fakeCmdCtx as any,
 			phase: "execute",
 		});
 
 		expect(result.success).toBe(true);
-		expect(calls.setupCalled).toBe(true);
-		expect(calls.appendedContent).toBe("go execute");
+		expect(newSessionMock).toHaveBeenCalledOnce();
+		expect(sendUserMessageMock).toHaveBeenCalledWith("go execute");
+		// newSession must complete BEFORE sendUserMessage fires (the order that
+		// triggers a turn in the new session, not the old one).
+		const newSessionOrder = newSessionMock.mock.invocationCallOrder[0] ?? 0;
+		const sendOrder = sendUserMessageMock.mock.invocationCallOrder[0] ?? 0;
+		expect(newSessionOrder).toBeLessThan(sendOrder);
 
 		rmSync(testRoot, { recursive: true, force: true });
 	});
 
-	it("propagates cancelled: true from newSession as a retryable failure", async () => {
+	it("propagates cancelled: true from newSession as a retryable failure and does not send the message", async () => {
 		const testRoot = mkdtempSync(join(tmpdir(), "tff-cancel-"));
 		mkdirSync(join(testRoot, ".tff"), { recursive: true });
+		const sendUserMessageMock = vi.fn();
 		const fakeCmdCtx = {
 			newSession: async () => ({ cancelled: true }),
 			hasUI: false,
 		};
+		const fakePi = { sendUserMessage: sendUserMessageMock };
 		const phaseModule = {
 			prepare: async () => ({ success: true, retry: false, message: "go" }),
 		};
 
-		const { runPhaseWithFreshContext } = await import("../../../src/common/phase.js");
 		const result = await runPhaseWithFreshContext({
 			phaseModule,
 			// biome-ignore lint/suspicious/noExplicitAny: test stub
-			phaseCtx: { root: testRoot, slice: { id: "s1" } } as any,
+			phaseCtx: { root: testRoot, slice: { id: "s1" }, pi: fakePi } as any,
 			// biome-ignore lint/suspicious/noExplicitAny: test stub
 			cmdCtx: fakeCmdCtx as any,
 			phase: "execute",
@@ -186,6 +173,7 @@ describe("runPhaseWithFreshContext", () => {
 		expect(result.success).toBe(false);
 		expect(result.retry).toBe(true);
 		expect(result.error).toContain("cancelled");
+		expect(sendUserMessageMock).not.toHaveBeenCalled();
 
 		rmSync(testRoot, { recursive: true, force: true });
 	});

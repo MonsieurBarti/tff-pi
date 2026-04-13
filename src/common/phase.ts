@@ -45,21 +45,26 @@ interface FreshContextOpts {
 }
 
 /**
- * Runs a phase's prepare() in the current session, then awaits a fresh PI
- * session that delivers the prepared prompt as its first user message via
- * the `setup` callback.
+ * Runs a phase's prepare() in the current session, then opens a fresh PI
+ * session and delivers the prepared prompt as the first user message, which
+ * triggers the agent turn automatically.
  *
- * Modeled on `pi-coding-agent/examples/extensions/handoff.ts` — the canonical
- * pattern is `await ctx.newSession({ parentSession, setup })` directly inside
- * a command handler. Pi handles teardown of the current session and binding
- * of the new one during the await; module-level state in this extension is
- * gone after newSession resolves, so re-establish anything you need in the
- * `session_start` hook.
+ * Two-step handoff:
+ *   1. `await cmdCtx.newSession()` — swaps to a clean session. Pi rebinds
+ *      the extension instance during the await; module-level state in this
+ *      extension is gone after resolve. Re-establish anything you need in
+ *      the `session_start` hook.
+ *   2. `phaseCtx.pi.sendUserMessage(message)` — `pi` is the ExtensionAPI
+ *      handle that survives the rebind. `sendUserMessage` always triggers
+ *      a new turn (unlike `SessionManager.appendMessage` inside a `setup`
+ *      callback, which only pre-populates history and leaves the agent
+ *      waiting for user input).
  *
  * Earlier versions stashed the message to disk and fired newSession via
- * `setImmediate` to avoid a presumed deadlock — that workaround is no longer
- * needed and caused silent no-ops when the captured ExtensionRunner was
- * torn down before setImmediate fired.
+ * `setImmediate` to avoid a presumed deadlock — that workaround caused
+ * silent no-ops when the captured ExtensionRunner was torn down before
+ * setImmediate fired. The `setup` callback variant that followed it left
+ * the agent waiting because `appendMessage` doesn't trigger a turn.
  */
 export async function runPhaseWithFreshContext(
 	opts: FreshContextOpts,
@@ -99,11 +104,7 @@ export async function runPhaseWithFreshContext(
 	releaseLock(phaseCtx.root);
 
 	const message = prepareResult.message;
-	const { cancelled } = await cmdCtx.newSession({
-		setup: async (sm) => {
-			await sm.appendMessage({ role: "user", content: message, timestamp: Date.now() });
-		},
-	});
+	const { cancelled } = await cmdCtx.newSession();
 
 	if (cancelled) {
 		return {
@@ -112,6 +113,10 @@ export async function runPhaseWithFreshContext(
 			error: "New session was cancelled by a session_before_switch handler",
 		};
 	}
+
+	// Delivers + triggers a turn. Use pi (ExtensionAPI, survives rebind)
+	// rather than cmdCtx (ExtensionCommandContext, dies with the old session).
+	phaseCtx.pi.sendUserMessage(message);
 
 	return { success: true, retry: false };
 }
