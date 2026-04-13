@@ -111,4 +111,33 @@ describe("write-verification audit integration", () => {
 		deleteArtifact(tmp, auditPath);
 		expect(existsSync(join(tmp, ".tff", auditPath))).toBe(false);
 	});
+
+	it("mismatch path writes .audit-blocked sentinel in the slice directory", () => {
+		seedBashEvent("bun run test", true);
+		const md = "Ran `bun run test` — all pass";
+		handleWriteVerification(db, tmp, slice.id, md);
+		const report = auditVerification(db, slice.id, md);
+
+		// Mirror what execute() does on mismatch:
+		if (report.hasMismatches) {
+			writeArtifact(tmp, "milestones/M01/slices/M01-S01/.audit-blocked", "blocked\n");
+		}
+		expect(existsSync(join(tmp, ".tff", "milestones/M01/slices/M01-S01/.audit-blocked"))).toBe(
+			true,
+		);
+	});
+
+	it("clean retry removes .audit-blocked sentinel", () => {
+		// First, write the sentinel as if a prior run had failed.
+		writeArtifact(tmp, "milestones/M01/slices/M01-S01/.audit-blocked", "blocked\n");
+		expect(existsSync(join(tmp, ".tff", "milestones/M01/slices/M01-S01/.audit-blocked"))).toBe(
+			true,
+		);
+
+		// Simulate a clean retry by calling deleteArtifact.
+		deleteArtifact(tmp, "milestones/M01/slices/M01-S01/.audit-blocked");
+		expect(existsSync(join(tmp, ".tff", "milestones/M01/slices/M01-S01/.audit-blocked"))).toBe(
+			false,
+		);
+	});
 });

@@ -258,6 +258,14 @@ export function verifyPhaseArtifacts(
 		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`)) {
 			missing.push("VERIFICATION.md");
 		}
+		// Audit block marker — written by tff_write_verification when the
+		// evidence auditor finds claim/tool-call mismatches. Its presence
+		// means the phase is incomplete even if VERIFICATION.md exists.
+		if (readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/.audit-blocked`)) {
+			missing.push(
+				"audit mismatches must be resolved (delete .audit-blocked via a clean tff_write_verification)",
+			);
+		}
 	} else if (phase === "review") {
 		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/REVIEW.md`)) {
 			missing.push("REVIEW.md");

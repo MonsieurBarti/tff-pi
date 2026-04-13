@@ -107,6 +107,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 					const mLabel = milestoneLabel(milestone.number);
 					const sLabel = sliceLabel(milestone.number, slice.number);
 					const auditPath = `milestones/${mLabel}/slices/${sLabel}/VERIFICATION-AUDIT.md`;
+					const blockedPath = `milestones/${mLabel}/slices/${sLabel}/.audit-blocked`;
 
 					if (auditReport.findings.length > 0) {
 						writeArtifact(root, auditPath, formatAuditReport(auditReport));
@@ -117,6 +118,13 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 					}
 
 					if (auditReport.hasMismatches) {
+						// Persist the block so a later phase transition can't bypass the gate
+						// via closePredecessorIfReady's artifact-existence-only check.
+						writeArtifact(
+							root,
+							blockedPath,
+							"Audit found mismatches. See VERIFICATION-AUDIT.md.\n",
+						);
 						return {
 							content: [
 								{
@@ -132,6 +140,9 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							isError: true,
 						};
 					}
+
+					// Audit clean — clear any stale block marker from a prior mismatching run.
+					deleteArtifact(root, blockedPath);
 
 					emitPhaseCompleteIfArtifactsReady(
 						pi,
