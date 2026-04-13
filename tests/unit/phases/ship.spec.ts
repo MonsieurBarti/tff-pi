@@ -121,6 +121,11 @@ describe("shipPhase", () => {
 		);
 		writeArtifact(root, "milestones/M01/slices/M01-S01/VERIFICATION.md", "# All pass");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW.md", "# Review\nAll good");
+		writeArtifact(
+			root,
+			"milestones/M01/slices/M01-S01/PR.md",
+			"# Description\n\nAuthored during verify.",
+		);
 	});
 
 	afterEach(() => {

@@ -79,6 +79,7 @@ export async function handleCompleteMilestone(
 		"REQUIREMENTS.md",
 		"VERIFICATION.md",
 		"REVIEW.md",
+		"PR.md",
 	];
 	for (const slice of slices) {
 		const sLabel = sliceLabel(milestone.number, slice.number);

@@ -48,6 +48,9 @@ export const verifyPhase: PhaseModule = {
 			? "\n\nWrite VERIFICATION.md in compressed R1-R10 notation."
 			: "";
 
+		const prInstruction =
+			"\n\nAfter VERIFICATION.md is written and tests pass, call `tff_write_pr` to author PR.md — the pull request description. Use concise, reviewer-facing copy; do not dump internal process notes. Ship will use this verbatim as the PR body, so projects can override the template at .tff/templates/pr-body.md.";
+
 		const { agentPrompt, protocol } = loadPhaseResources("verify");
 		const milestoneBranch = `milestone/${mLabel}`;
 		const rawDiff = getDiff(milestoneBranch, wtPath) ?? "";
@@ -92,6 +95,7 @@ export const verifyPhase: PhaseModule = {
 			"## Test Instructions",
 			testInstruction,
 			compressHint,
+			prInstruction,
 		].join("\n");
 
 		// --- Mechanical verification (runs independently of AI) ---

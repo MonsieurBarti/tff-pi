@@ -317,11 +317,16 @@ describe("E2E critical path", () => {
 			const reviewMsg = reviewResult.message ?? "";
 			expect(reviewMsg).toContain("Security Review");
 
-			// Step 10: Simulate REVIEW.md, set status to "reviewing"
+			// Step 10: Simulate REVIEW.md and PR.md, set status to "reviewing"
 			writeArtifact(
 				root,
 				`milestones/${mLabel}/slices/${sLabel}/REVIEW.md`,
 				"# Review\nAll good. No issues found.",
+			);
+			writeArtifact(
+				root,
+				`milestones/${mLabel}/slices/${sLabel}/PR.md`,
+				"# Description\n\nAdds auth.",
 			);
 			updateSliceStatus(db, sliceId, "reviewing");
 
@@ -382,6 +387,7 @@ describe("E2E critical path", () => {
 				"# Verification\n- [x] All pass",
 			);
 			writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW.md", "# Review\nAll good");
+			writeArtifact(root, "milestones/M01/slices/M01-S01/PR.md", "# Description\n\nAdds auth.");
 
 			const pi = makePi();
 			const slice = must(getSlice(db, sliceId));
@@ -442,6 +448,7 @@ describe("E2E critical path", () => {
 			writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# Requirements");
 			writeArtifact(root, "milestones/M01/slices/M01-S01/VERIFICATION.md", "# Verification");
 			writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW.md", "# Review");
+			writeArtifact(root, "milestones/M01/slices/M01-S01/PR.md", "# Description");
 
 			// mockExec already returns { state: "MERGED", comments: [] } for gh pr view
 			const pi = makePi();
@@ -488,6 +495,7 @@ describe("E2E critical path", () => {
 			writeArtifact(root, `${base}/PLAN.md`, "# Plan");
 			writeArtifact(root, `${base}/VERIFICATION.md`, "# V\n- [x] pass");
 			writeArtifact(root, `${base}/REVIEW.md`, "# Review");
+			writeArtifact(root, `${base}/PR.md`, "# Description");
 			updateSliceStatus(db, sliceId, "shipping");
 			updateSliceTier(db, sliceId, "SS");
 			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");

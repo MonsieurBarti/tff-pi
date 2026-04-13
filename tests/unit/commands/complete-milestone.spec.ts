@@ -69,6 +69,7 @@ const REQUIRED_ARTIFACTS = [
 	"REQUIREMENTS.md",
 	"VERIFICATION.md",
 	"REVIEW.md",
+	"PR.md",
 ];
 
 function writeAllArtifacts(root: string, milestoneNum: number, sliceNum: number): void {

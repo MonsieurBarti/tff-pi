@@ -28,6 +28,7 @@ describe("preflightCheck", () => {
 		writeArtifact(root, `${base}/REQUIREMENTS.md`, "# Requirements\nR1: must work");
 		writeArtifact(root, `${base}/VERIFICATION.md`, verification);
 		writeArtifact(root, `${base}/REVIEW.md`, "# Review\nApproved");
+		writeArtifact(root, `${base}/PR.md`, "# PR\nDescription here");
 	}
 
 	beforeEach(() => {
@@ -39,7 +40,7 @@ describe("preflightCheck", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("passes when all 5 artifacts exist and verification is clean", () => {
+	it("passes when all required artifacts exist and verification is clean", () => {
 		writeAllArtifacts(root);
 		const result = preflightCheck(root, fakeSlice, 1);
 		expect(result.ok).toBe(true);
@@ -87,9 +88,9 @@ describe("preflightCheck", () => {
 		writeArtifact(root, `${base}/VERIFICATION.md`, "# Verification\n- [ ] Not done\nFAIL");
 		const result = preflightCheck(root, fakeSlice, 1);
 		expect(result.ok).toBe(false);
-		// Should have errors for SPEC.md, PLAN.md, REQUIREMENTS.md, REVIEW.md missing
+		// Should have errors for SPEC.md, PLAN.md, REQUIREMENTS.md, REVIEW.md, PR.md missing
 		// plus unchecked items and failure marker
-		expect(result.errors.length).toBeGreaterThanOrEqual(5);
+		expect(result.errors.length).toBeGreaterThanOrEqual(6);
 	});
 
 	it("passes when VERIFICATION.md mentions lowercase 'fail' in prose (e.g. '0 fail')", () => {

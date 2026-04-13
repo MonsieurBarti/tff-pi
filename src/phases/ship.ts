@@ -104,6 +104,7 @@ export function preflightCheck(
 		"REQUIREMENTS.md",
 		"VERIFICATION.md",
 		"REVIEW.md",
+		"PR.md",
 	];
 	for (const artifact of requiredArtifacts) {
 		const content = readArtifact(root, `${base}/${artifact}`);
@@ -127,26 +128,14 @@ export function preflightCheck(
 	return { ok: errors.length === 0, errors };
 }
 
-function buildPrBody(root: string, mLabel: string, sLabel: string, sliceTitle: string): string {
-	const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
-	// Pull only AC checklist lines from SPEC ("- [x]" / "- [ ]").
-	const acLines = specMd
-		.split("\n")
-		.filter((l) => /^\s*- \[[x ]\]/i.test(l))
-		.slice(0, 10);
-	const base = `milestones/${mLabel}/slices/${sLabel}`;
-	const sections: string[] = [`**${sLabel}**: ${sliceTitle}`, ""];
-	if (acLines.length > 0) {
-		sections.push("## Acceptance Criteria", ...acLines, "");
+function buildPrBody(root: string, mLabel: string, sLabel: string): string {
+	const prMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PR.md`);
+	if (!prMd || prMd.trim().length === 0) {
+		throw new Error(
+			`PR.md missing for ${sLabel}. Run the verify phase to author it via tff_write_pr before shipping.`,
+		);
 	}
-	sections.push(
-		"## Artifacts",
-		`- [SPEC](${base}/SPEC.md)`,
-		`- [PLAN](${base}/PLAN.md)`,
-		`- [VERIFICATION](${base}/VERIFICATION.md)`,
-		`- [REVIEW](${base}/REVIEW.md)`,
-	);
-	return sections.join("\n");
+	return prMd;
 }
 
 export function suggestNextAction(db: Database.Database, milestoneId: string): string {
@@ -295,8 +284,8 @@ export const shipPhase: PhaseModule = {
 				env,
 			});
 
-			// Build PR body
-			const prBody = buildPrBody(root, mLabel, sLabel, slice.title);
+			// Build PR body — author wrote PR.md during verify
+			const prBody = buildPrBody(root, mLabel, sLabel);
 
 			// Derive repo slug from origin remote (gh-pi requires explicit repo)
 			const remoteUrl = execFileSync("git", ["remote", "get-url", "origin"], {
@@ -338,10 +327,10 @@ export const shipPhase: PhaseModule = {
 			// Extract PR number from URL
 			const prNumber = Number.parseInt(prUrl.split("/").pop() ?? "0", 10);
 
-			// Write PR.md — respect user_artifacts compression
+			// Prepend PR metadata to the existing PR.md (body authored in verify)
 			const compressed = settings.compress.user_artifacts;
-			const prMd = compressed
-				? [`# PR: ${sLabel}`, `URL: ${prUrl} | Base: ${milestoneBranch}`, prBody].join("\n")
+			const header = compressed
+				? `# PR: ${sLabel}\nURL: ${prUrl} | Base: ${milestoneBranch}\n\n`
 				: [
 						"# Pull Request",
 						"",
@@ -349,12 +338,14 @@ export const shipPhase: PhaseModule = {
 						`**Base:** ${milestoneBranch}`,
 						`**Title:** feat(${sLabel}): ${slice.title}`,
 						"",
-						prBody,
+						"---",
+						"",
+						"",
 					].join("\n");
 			writeArtifact(
 				root,
 				`milestones/${mLabel}/slices/${sLabel}/PR.md`,
-				compressIfEnabled(prMd, "artifacts", settings),
+				compressIfEnabled(header + prBody, "artifacts", settings),
 			);
 
 			// Wait for CI. Treat "no checks configured" as green — repos without
