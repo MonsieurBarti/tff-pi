@@ -57,6 +57,53 @@ export interface RecoveryEvidence {
 	artifacts: string[];
 	checkpoints: string[];
 	lastCheckpoint: string | null;
+	recentToolCalls: RecentToolCall[];
+}
+
+function queryRecentToolCalls(db: Database.Database, sliceId: string): RecentToolCall[] {
+	const cutoffIso = new Date(Date.now() - FORENSICS_WINDOW_MS).toISOString();
+
+	let rows = db
+		.prepare(
+			`SELECT payload FROM event_log
+			 WHERE channel = 'tff:tool'
+			   AND slice_id = ?
+			   AND json_extract(payload, '$.startedAt') >= ?
+			 ORDER BY json_extract(payload, '$.startedAt') DESC
+			 LIMIT ?`,
+		)
+		.all(sliceId, cutoffIso, FORENSICS_MAX_COUNT) as { payload: string }[];
+
+	if (rows.length === 0) {
+		rows = db
+			.prepare(
+				`SELECT payload FROM event_log
+				 WHERE channel = 'tff:tool'
+				   AND slice_id = ?
+				 ORDER BY json_extract(payload, '$.startedAt') DESC
+				 LIMIT ?`,
+			)
+			.all(sliceId, FORENSICS_MAX_COUNT) as { payload: string }[];
+	}
+
+	const out: RecentToolCall[] = [];
+	for (const row of rows) {
+		try {
+			const p = JSON.parse(row.payload) as Record<string, unknown>;
+			if (typeof p.startedAt !== "string" || typeof p.toolName !== "string") continue;
+			out.push({
+				timestamp: p.startedAt,
+				toolName: p.toolName,
+				commandSummary: summarizeInput(p.toolName, p.input),
+				isError: Boolean(p.isError),
+				durationMs: typeof p.durationMs === "number" ? p.durationMs : 0,
+			});
+		} catch {
+			// Skip malformed rows silently — observability must not fail recovery.
+		}
+	}
+
+	return out.reverse();
 }
 
 export interface RecoveryDiagnosis {
@@ -100,7 +147,13 @@ export function diagnoseRecovery(
 			sliceLabel: "unknown",
 			status: "created",
 			classification: "manual",
-			evidence: { worktreeExists: false, artifacts: [], checkpoints: [], lastCheckpoint: null },
+			evidence: {
+				worktreeExists: false,
+				artifacts: [],
+				checkpoints: [],
+				lastCheckpoint: null,
+				recentToolCalls: [],
+			},
 			recommendation: "Slice not found in database.",
 		};
 	}
@@ -134,6 +187,7 @@ export function diagnoseRecovery(
 		artifacts: presentArtifacts,
 		checkpoints,
 		lastCheckpoint,
+		recentToolCalls: queryRecentToolCalls(db, sliceId),
 	};
 
 	const classification = classify(slice.status, evidence);

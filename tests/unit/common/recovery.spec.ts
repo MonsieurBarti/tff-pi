@@ -6,6 +6,7 @@ import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
+	insertEventLog,
 	insertMilestone,
 	insertProject,
 	insertSlice,
@@ -28,6 +29,35 @@ describe("recovery", () => {
 	let root: string;
 	let db: Database.Database;
 	let savedEnv: Record<string, string | undefined> = {};
+
+	function seedToolCall(
+		sliceId: string,
+		opts: {
+			command: string;
+			toolName?: string;
+			isError?: boolean;
+			startedAt?: string;
+			durationMs?: number;
+		},
+	): void {
+		const startedAt = opts.startedAt ?? new Date().toISOString();
+		const payload = JSON.stringify({
+			timestamp: startedAt,
+			type: "tool_call",
+			sliceId,
+			sliceLabel: "M01-S01",
+			milestoneNumber: 1,
+			phase: "execute",
+			toolCallId: `c-${Math.random().toString(36).slice(2, 10)}`,
+			toolName: opts.toolName ?? "bash",
+			input: { command: opts.command },
+			output: opts.isError ? "fail" : "ok",
+			isError: opts.isError ?? false,
+			durationMs: opts.durationMs ?? 10,
+			startedAt,
+		});
+		insertEventLog(db, { channel: "tff:tool", type: "tool_call", sliceId, payload });
+	}
 
 	beforeEach(() => {
 		for (const key of Object.keys(process.env)) {
@@ -166,6 +196,95 @@ describe("recovery", () => {
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			expect(diag.evidence.artifacts).toContain("SPEC.md");
 			expect(diag.evidence.artifacts).toContain("PLAN.md");
+		});
+
+		it("recentToolCalls is empty when the slice has no tff:tool events", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			updateSliceStatus(db, sId, "executing");
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			expect(diag.evidence.recentToolCalls).toEqual([]);
+		});
+
+		it("recentToolCalls returns at most 10 rows in chronological order (oldest first)", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			updateSliceStatus(db, sId, "executing");
+
+			const now = Date.now();
+			for (let i = 0; i < 15; i++) {
+				seedToolCall(sId, {
+					command: `cmd-${i}`,
+					startedAt: new Date(now - (15 - i) * 1000).toISOString(),
+				});
+			}
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			expect(diag.evidence.recentToolCalls).toHaveLength(10);
+			expect(diag.evidence.recentToolCalls[0]?.commandSummary).toBe("cmd-5");
+			expect(diag.evidence.recentToolCalls[9]?.commandSummary).toBe("cmd-14");
+		});
+
+		it("recentToolCalls excludes events outside the 30-min window when fresh events exist", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			updateSliceStatus(db, sId, "executing");
+
+			const now = Date.now();
+			seedToolCall(sId, {
+				command: "ancient",
+				startedAt: new Date(now - 90 * 60 * 1000).toISOString(),
+			});
+			seedToolCall(sId, {
+				command: "recent",
+				startedAt: new Date(now - 60 * 1000).toISOString(),
+			});
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			expect(diag.evidence.recentToolCalls).toHaveLength(1);
+			expect(diag.evidence.recentToolCalls[0]?.commandSummary).toBe("recent");
+		});
+
+		it("recentToolCalls falls back to last N overall when no events are within the window", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			updateSliceStatus(db, sId, "executing");
+
+			const now = Date.now();
+			seedToolCall(sId, {
+				command: "old-1",
+				startedAt: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
+			});
+			seedToolCall(sId, {
+				command: "old-2",
+				startedAt: new Date(now - 2.5 * 60 * 60 * 1000).toISOString(),
+			});
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			expect(diag.evidence.recentToolCalls).toHaveLength(2);
+			expect(diag.evidence.recentToolCalls[0]?.commandSummary).toBe("old-1");
+			expect(diag.evidence.recentToolCalls[1]?.commandSummary).toBe("old-2");
 		});
 	});
 
