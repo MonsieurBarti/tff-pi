@@ -207,7 +207,7 @@ export const shipPhase: PhaseModule = {
 					// so the user can decide whether to do a small fix (edit
 					// worktree + ship-merged) or re-enter execute. The execute
 					// phase picks up REVIEW_FEEDBACK.md on next run.
-					updateSliceStatus(db, slice.id, "shipping");
+					// phase_retried maps to `shipping` via reconciler rule 2 (ship/retried → shipping).
 					writeArtifact(
 						root,
 						`milestones/${mLabel}/slices/${sLabel}/REVIEW_FEEDBACK.md`,
@@ -215,7 +215,7 @@ export const shipPhase: PhaseModule = {
 					);
 					pi.events.emit("tff:phase", {
 						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-						type: "phase_failed",
+						type: "phase_retried",
 						phase: "ship",
 						durationMs: Date.now() - startTime,
 						error: "PR has review comments",
@@ -263,8 +263,6 @@ export const shipPhase: PhaseModule = {
 					error: `Pre-flight failed: ${preflight.errors.join(", ")}`,
 				};
 			}
-
-			updateSliceStatus(db, slice.id, "shipping");
 
 			// Ensure the milestone branch is on origin before pushing the slice
 			// branch — `gh pr create` needs the base ref to exist remotely, and
@@ -358,8 +356,7 @@ export const shipPhase: PhaseModule = {
 					`${checksResult.stderr ?? ""}\n${checksResult.stdout ?? ""}`,
 				);
 			if (checksResult.code !== 0 && !noChecksConfigured) {
-				// CI failed — loop back to executing for fixes
-				updateSliceStatus(db, slice.id, "executing");
+				// CI failed — reconciler rule 3 (ship/failed → executing) handles status.
 				resetTasksToOpen(db, slice.id);
 				const detail = (checksResult.stderr || checksResult.stdout || "").trim();
 				pi.events.emit("tff:phase", {

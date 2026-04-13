@@ -285,7 +285,7 @@ describe("shipPhase", () => {
 		expect(updated.status).toBe("closed");
 	});
 
-	it("re-entry: PR with comments stashes feedback and leaves slice in shipping", async () => {
+	it("re-entry: PR with comments stashes feedback and emits phase_retried for ship", async () => {
 		mockView.mockResolvedValue({
 			code: 0,
 			stdout: JSON.stringify({
@@ -296,8 +296,9 @@ describe("shipPhase", () => {
 		});
 		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
 		const slice = must(getSlice(db, sliceId));
+		const pi = makePi();
 		const ctx: PhaseContext = {
-			pi: makePi(),
+			pi,
 			db,
 			root,
 			slice,
@@ -307,10 +308,12 @@ describe("shipPhase", () => {
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 		expect(result.retry).toBe(false);
-		// Slice stays in `shipping`; the user decides whether to edit the
-		// worktree or re-enter execute. Tasks are NOT reset automatically.
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("shipping");
+		// Reconciler rule 2 (ship/retried → shipping) handles status transition.
+		// phase_retried is emitted; tasks are NOT reset automatically.
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_retried", phase: "ship" }),
+		);
 		const stashed = readArtifact(root, "milestones/M01/slices/M01-S01/REVIEW_FEEDBACK.md");
 		expect(stashed).toContain("please fix");
 	});
@@ -331,11 +334,12 @@ describe("shipPhase", () => {
 		expect(mockMerge).not.toHaveBeenCalled();
 	});
 
-	it("CI failure triggers retry path", async () => {
+	it("CI failure triggers retry path and emits phase_failed for ship", async () => {
 		mockChecks.mockResolvedValue({ code: 1, stdout: "", stderr: "checks failed" });
 		const slice = must(getSlice(db, sliceId));
+		const pi = makePi();
 		const ctx: PhaseContext = {
-			pi: makePi(),
+			pi,
 			db,
 			root,
 			slice,
@@ -345,8 +349,11 @@ describe("shipPhase", () => {
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);
 		expect(result.retry).toBe(true);
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("executing");
+		// Reconciler rule 3 (ship/failed → executing) handles status transition.
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_failed", phase: "ship" }),
+		);
 	});
 
 	it("returns error for invalid PR URL", async () => {

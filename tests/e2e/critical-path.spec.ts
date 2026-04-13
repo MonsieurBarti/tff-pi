@@ -402,9 +402,13 @@ describe("E2E critical path", () => {
 
 			expect(result.success).toBe(true);
 
-			// Slice should be "shipping" (not closed)
+			// Reconciler rule 2 (ship/started → shipping) handles status; verify
+			// phase_start was emitted and PR URL was persisted.
+			expect(pi.events.emit).toHaveBeenCalledWith(
+				"tff:phase",
+				expect.objectContaining({ type: "phase_start", phase: "ship" }),
+			);
 			const updated = must(getSlice(db, sliceId));
-			expect(updated.status).toBe("shipping");
 			expect(updated.prUrl).toContain("github.com");
 
 			// pr merge should NOT have been called
