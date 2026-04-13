@@ -6,7 +6,6 @@ import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { isGateUnlocked } from "../common/discuss-gates.js";
 import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
@@ -30,18 +29,6 @@ export function handleWriteSpec(
 	if (!slice) {
 		return {
 			content: [{ type: "text", text: `Slice not found: ${sliceId}` }],
-			details: { sliceId },
-			isError: true,
-		};
-	}
-	if (!isGateUnlocked(sliceId, "depth_verified")) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Depth verification required. Ask the user to confirm they're ready for spec writing, then call tff_confirm_gate(sliceId, 'depth_verified').",
-				},
-			],
 			details: { sliceId },
 			isError: true,
 		};
@@ -103,11 +90,10 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 			name: "tff_write_spec",
 			label: "TFF Write Spec",
 			description:
-				"Write the SPEC.md artifact for a slice. During interactive discuss, requires depth verification gate to be unlocked first via tff_confirm_gate. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles spec review automatically. If this tool returns an error with feedback, the user rejected the spec; revise and call this tool again.",
+				"Write the SPEC.md artifact for a slice. IMPORTANT: After this tool returns successfully, STOP. Do not call any plannotator_* tools — TFF handles spec review automatically. If this tool returns an error with feedback, the user rejected the spec; revise and call this tool again.",
 			promptSnippet:
-				"Call tff_confirm_gate('depth_verified') before calling tff_write_spec. The system enforces this. After tff_write_spec succeeds, STOP — do not call plannotator tools. TFF handles review automatically.",
+				"After tff_write_spec succeeds, STOP — do not call plannotator tools. TFF handles review automatically.",
 			promptGuidelines: [
-				"Requires depth_verified gate — call tff_confirm_gate('depth_verified') first",
 				"Used during the discuss phase to write the spec after user confirms readiness",
 				"IMPORTANT: Do not call plannotator tools after this tool returns. Review is automatic.",
 				"If tool returns error with feedback, user rejected spec; revise and retry.",

@@ -51,7 +51,6 @@ Lead with recommendation (C6). Explain trade-offs for each option's `description
 ## 5. DEPTH VERIFICATION
 Present structured summary using user's exact terminology.
 Ask: "Ready to write the spec?"
-After user confirms → call `tff_confirm_gate(sliceId, "depth_verified")`.
 
 ## 6. TIER CLASSIFICATION
 Propose tier via `tff_ask_user` with a single question (id: `tier_choice`):
@@ -60,7 +59,7 @@ Propose tier via `tff_ask_user` with a single question (id: `tier_choice`):
 - SSS: complex, multi-system, significant unknowns
 
 Include your recommended tier as the first option. After the user selects →
-call `tff_confirm_gate(sliceId, "tier_confirmed")` then `tff_classify(sliceId, tier)`.
+call `tff_classify(sliceId, tier)`.
 
 ## 7. SPEC WRITING
 Self-review before writing (4-point check):

@@ -4,7 +4,6 @@ import * as addRemote from "./add-remote.js";
 import * as askUser from "./ask-user.js";
 import * as checkpoint from "./checkpoint.js";
 import * as classify from "./classify.js";
-import * as confirmGate from "./confirm-gate.js";
 import * as createProject from "./create-project.js";
 import * as createSlice from "./create-slice.js";
 import * as queryState from "./query-state.js";
@@ -25,7 +24,6 @@ export const TOOL_REGISTRARS = [
 	queryState.register,
 	transition.register,
 	classify.register,
-	confirmGate.register,
 	createProject.register,
 	addRemote.register,
 	createSlice.register,

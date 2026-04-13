@@ -5,7 +5,6 @@ import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getSlice, updateSliceTier } from "../common/db.js";
-import { isGateUnlocked } from "../common/discuss-gates.js";
 import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
 import { TIERS, type Tier } from "../common/types.js";
 import { verifyPhaseArtifacts } from "../orchestrator.js";
@@ -21,19 +20,6 @@ export function handleClassify(db: Database.Database, sliceId: string, tier: Tie
 	if (!slice) {
 		return {
 			content: [{ type: "text", text: `Slice not found: ${sliceId}` }],
-			details: { sliceId },
-			isError: true,
-		};
-	}
-
-	if (!isGateUnlocked(sliceId, "tier_confirmed")) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Tier must be confirmed by the user. Propose a tier with justification and ask the user to confirm, then call tff_confirm_gate(sliceId, 'tier_confirmed').",
-				},
-			],
 			details: { sliceId },
 			isError: true,
 		};
@@ -58,12 +44,10 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 			name: "tff_classify",
 			label: "TFF Classify Slice",
 			description:
-				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex. During interactive discuss, requires tier confirmation gate via tff_confirm_gate.",
-			promptSnippet:
-				"Call tff_confirm_gate('tier_confirmed') before calling tff_classify. The system enforces this.",
+				"Set the tier (complexity classification) of a slice. S = simple (skip research), SS = standard, SSS = complex.",
 			promptGuidelines: [
-				"Requires tier_confirmed gate — call tff_confirm_gate('tier_confirmed') first",
-				"Propose a tier to the user, get confirmation, then call tff_confirm_gate, then tff_classify",
+				"Propose a tier in conversation, then call tff_classify with the user-confirmed tier",
+				"Use S to skip the research phase entirely (simple slices), SS for standard, SSS for complex",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({

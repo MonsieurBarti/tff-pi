@@ -13,7 +13,6 @@ import {
 	getProject,
 	openDatabase,
 } from "./common/db.js";
-import { resetAllGates } from "./common/discuss-gates.js";
 import { EventLogger } from "./common/event-logger.js";
 import { initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
@@ -144,7 +143,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				applyMigrations(ctx.db);
 				loadSettings(ctx, root);
 				ctx.initError = null;
-				resetAllGates();
 
 				// Initialize monitoring
 				const logsDir = tffPath(root, "logs");

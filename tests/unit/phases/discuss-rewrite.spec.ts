@@ -1,9 +1,8 @@
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyMigrations, openDatabase } from "../../../src/common/db.js";
-import { isGateUnlocked, resetGates, unlockGate } from "../../../src/common/discuss-gates.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { discussPhase } from "../../../src/phases/discuss.js";
 
@@ -49,10 +48,6 @@ function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
 }
 
 describe("discuss phase rewrite", () => {
-	beforeEach(() => {
-		resetGates("s1");
-	});
-
 	it("returns protocol message for delivery into fresh session", async () => {
 		const ctx = makeCtx();
 		const result = await discussPhase.prepare(ctx);
@@ -68,17 +63,6 @@ describe("discuss phase rewrite", () => {
 
 		expect(result.message).toContain("Test Slice");
 		expect(result.message).toContain("s1");
-	});
-
-	it("resets gates for the slice", async () => {
-		unlockGate("s1", "depth_verified");
-		unlockGate("s1", "tier_confirmed");
-
-		const ctx = makeCtx();
-		await discussPhase.prepare(ctx);
-
-		expect(isGateUnlocked("s1", "depth_verified")).toBe(false);
-		expect(isGateUnlocked("s1", "tier_confirmed")).toBe(false);
 	});
 
 	it("emits phase_start but NOT phase_complete (completion tracked on /tff next)", async () => {

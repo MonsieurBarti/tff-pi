@@ -79,7 +79,6 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 		"tff_write_spec",
 		"tff_write_requirements",
 		"tff_query_state",
-		"tff_confirm_gate",
 		"tff_ask_user",
 	],
 	research: [

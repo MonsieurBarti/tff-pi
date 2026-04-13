@@ -101,7 +101,6 @@ describe("tool registry consistency", () => {
 			"tff_write_verification",
 			"tff_write_review",
 			"tff_classify",
-			"tff_confirm_gate",
 			"tff_ask_user",
 			"tff_query_state",
 			"tff_transition",

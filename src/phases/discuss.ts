@@ -1,5 +1,4 @@
 import { updateSliceStatus } from "../common/db.js";
-import { resetGates } from "../common/discuss-gates.js";
 import { makeBaseEvent } from "../common/events.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { type PreparationBrief, buildPreparationBrief } from "../common/preparation.js";
@@ -11,7 +10,6 @@ export const discussPhase: PhaseModule = {
 		const { pi, db, slice, milestoneNumber } = ctx;
 
 		updateSliceStatus(db, slice.id, "discussing");
-		resetGates(slice.id);
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
 
