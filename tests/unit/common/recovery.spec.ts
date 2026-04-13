@@ -16,6 +16,7 @@ import {
 import { gitEnv } from "../../../src/common/git.js";
 import {
 	diagnoseRecovery,
+	formatRecoveryBriefing,
 	scanForStuckSlices,
 	summarizeInput,
 } from "../../../src/common/recovery.js";
@@ -321,6 +322,52 @@ describe("recovery", () => {
 			expect(result).toContain("a");
 			expect(result).toContain("1");
 			expect(result.length).toBeLessThanOrEqual(81);
+		});
+	});
+
+	describe("formatRecoveryBriefing", () => {
+		it("renders a Recent tool calls section when evidence has entries", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			updateSliceStatus(db, sId, "executing");
+
+			seedToolCall(sId, {
+				command: "bun run test",
+				isError: true,
+				durationMs: 4200,
+				startedAt: "2026-04-13T12:06:01.000Z",
+			});
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			expect(briefing).toContain("### Recent tool calls (last 1)");
+			expect(briefing).toContain("bash");
+			expect(briefing).toContain("bun run test");
+			expect(briefing).toContain("✗");
+			expect(briefing).toContain("12:06:01");
+			expect(briefing).toContain("(4.2s)");
+		});
+
+		it("omits the Recent tool calls section entirely when evidence is empty", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			updateSliceStatus(db, sId, "executing");
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			expect(briefing).not.toContain("Recent tool calls");
 		});
 	});
 });

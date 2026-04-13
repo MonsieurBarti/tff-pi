@@ -257,25 +257,46 @@ export function formatRecoveryBriefing(
 		? `${Math.round((Date.now() - new Date(lockTimestamp).getTime()) / 60_000)} minutes ago`
 		: "unknown";
 
-	return [
+	const lines: string[] = [
 		"## TFF Recovery — Interrupted Session Detected",
 		"",
 		`**What was running:** ${diagnosis.status} phase on ${diagnosis.sliceLabel}`,
-		lockTimestamp ? `**Crashed at:** ${lockTimestamp} (${elapsed})` : "",
-		diagnosis.evidence.lastCheckpoint
-			? `**Last checkpoint:** ${diagnosis.evidence.lastCheckpoint}`
-			: "",
-		"",
-		"### Evidence",
-		`- Worktree: ${diagnosis.evidence.worktreeExists ? "exists" : "missing"}`,
+	];
+	if (lockTimestamp) {
+		lines.push(`**Crashed at:** ${lockTimestamp} (${elapsed})`);
+	}
+	if (diagnosis.evidence.lastCheckpoint) {
+		lines.push(`**Last checkpoint:** ${diagnosis.evidence.lastCheckpoint}`);
+	}
+	lines.push("");
+	lines.push("### Evidence");
+	lines.push(`- Worktree: ${diagnosis.evidence.worktreeExists ? "exists" : "missing"}`);
+	lines.push(
 		`- Artifacts: ${diagnosis.evidence.artifacts.length > 0 ? diagnosis.evidence.artifacts.join(", ") : "none"}`,
+	);
+	lines.push(
 		`- Checkpoints: ${diagnosis.evidence.checkpoints.length > 0 ? diagnosis.evidence.checkpoints.join(", ") : "none"}`,
-		"",
-		`### Recommendation: ${diagnosis.classification}`,
-		diagnosis.recommendation,
-		"",
+	);
+
+	if (diagnosis.evidence.recentToolCalls.length > 0) {
+		lines.push("");
+		lines.push(`### Recent tool calls (last ${diagnosis.evidence.recentToolCalls.length})`);
+		for (const tc of diagnosis.evidence.recentToolCalls) {
+			const marker = tc.isError ? "✗" : "✓";
+			const time = tc.timestamp.slice(11, 19);
+			const dur = tc.durationMs > 0 ? ` (${(tc.durationMs / 1000).toFixed(1)}s)` : "";
+			const cmd = tc.commandSummary ? ` \`${tc.commandSummary}\`` : "";
+			lines.push(`- ${time} ${tc.toolName}${cmd} ${marker}${dur}`);
+		}
+	}
+
+	lines.push("");
+	lines.push(`### Recommendation: ${diagnosis.classification}`);
+	lines.push(diagnosis.recommendation);
+	lines.push("");
+	lines.push(
 		`To proceed: run \`/tff recover ${diagnosis.classification}\` or \`/tff recover dismiss\``,
-	]
-		.filter(Boolean)
-		.join("\n");
+	);
+
+	return lines.join("\n");
 }
