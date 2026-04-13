@@ -15,3 +15,7 @@ R=AC verifier for TFF verify phase.
 4. Discover test scope from changed files
 5. Run tests (scoped or full-suite fallback)
 6. Call `tff_write_verification(sliceId, content)` where content is a markdown report containing an AC checklist (`- [x] AC-N: ...` / `- [ ] AC-N: ...`), the test command run, and pass/fail summary.
+
+## Honesty
+
+Any shell command you cite is cross-checked against captured tool-call records. Fabricating or misremembering a command's exit code blocks `tff_write_verification` from completing the phase.
