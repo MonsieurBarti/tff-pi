@@ -1,5 +1,91 @@
 # Changelog
 
+## [0.1.2](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.1...tff-pi-v0.1.2) (2026-04-13)
+
+
+### Features
+
+* implicit phase-completion + structural regression tests ([9aab3d7](https://github.com/MonsieurBarti/tff-pi/commit/9aab3d73c56ba861dd2ea667598ff9ad3f563456))
+* **m08:** add context injection module for before_agent_start hook ([5bed58a](https://github.com/MonsieurBarti/tff-pi/commit/5bed58aec661e657ec5938297ee0588222bd69b0))
+* **m08:** add crash recovery — scan on start + /tff recover command ([a74d1a0](https://github.com/MonsieurBarti/tff-pi/commit/a74d1a0c5a4ea5bba318ee8bfd419f6dd2e4c3d9))
+* **m08:** add diagnostic logging to plannotator review round-trip ([d56a50f](https://github.com/MonsieurBarti/tff-pi/commit/d56a50f62f5cd15ca7b61fedb90fba7d3964e114))
+* **m08:** add formatforllm helper for ask-user tool result ([be03046](https://github.com/MonsieurBarti/tff-pi/commit/be03046a2386899d140d7e8e0068f3faca07a8ad))
+* **m08:** add gh-pi client singleton and url helper ([a4ecd08](https://github.com/MonsieurBarti/tff-pi/commit/a4ecd08fc08315a261bbf0cee0dd2d3c54385d6a))
+* **m08:** add git checkpoint module with tag-based snapshots ([c9131e6](https://github.com/MonsieurBarti/tff-pi/commit/c9131e611e03d7b0c52e28504b3dcba1c48b7ee3))
+* **m08:** add hippo-memory service singleton ([84cc3e5](https://github.com/MonsieurBarti/tff-pi/commit/84cc3e5146e84bd5d3f06ba94d436da38e2d47b2))
+* **m08:** add mechanical verifier — independent command execution + reporting ([6ecd7d4](https://github.com/MonsieurBarti/tff-pi/commit/6ecd7d40cec1a1602d3165771822cf23c7a2ab00))
+* **m08:** add phase runner wrapper with fresh context and lock management ([6a56f41](https://github.com/MonsieurBarti/tff-pi/commit/6a56f419ab6927ef9561f93e730e0446551af0e3))
+* **m08:** add recovery scanner — detect stuck slices, classify, format briefing ([e6af3a9](https://github.com/MonsieurBarti/tff-pi/commit/e6af3a9a039ef9e17cd001f6800dbe1d8c0f7427))
+* **m08:** add resetallgates for session switch cleanup ([4ef6a37](https://github.com/MonsieurBarti/tff-pi/commit/4ef6a3760544ee765ed9823c54481283d0a8631d))
+* **m08:** add session lock module for crash recovery and phase coordination ([c228ab3](https://github.com/MonsieurBarti/tff-pi/commit/c228ab310ad23c8c1736778382d5367cdf398545))
+* **m08:** add ultra-compress helper and session-start refresh ([d9208e9](https://github.com/MonsieurBarti/tff-pi/commit/d9208e92745b2bb09c8e261aff89d3070a29c836))
+* **m08:** add ultra-compress-pi peer dep + draft ecosystem integration spec ([b834b2f](https://github.com/MonsieurBarti/tff-pi/commit/b834b2f9f81ffc74b05b39f6f087db51a83fb619))
+* **m08:** add verification command detection from ci/hooks/package.json ([231b9d8](https://github.com/MonsieurBarti/tff-pi/commit/231b9d879e8697eee55d7f980ffc21c98f97b9f3))
+* **m08:** add verify_commands to settings schema ([8914f8b](https://github.com/MonsieurBarti/tff-pi/commit/8914f8ba42aa63b3eadca11764185ab5d4e34309))
+* **m08:** apply ultra-compress to artifact writes when enabled ([6deb1e5](https://github.com/MonsieurBarti/tff-pi/commit/6deb1e5294b90a89d35f7f6727fef07e1fba30d5))
+* **m08:** apply ultra-compress to context injection when enabled ([7273bcc](https://github.com/MonsieurBarti/tff-pi/commit/7273bcc617f9ca1bed0cd510143de0ca2fd3df0f))
+* **m08:** await ctx.newsession({setup}) for phase transitions (handoff.ts pattern) ([6512818](https://github.com/MonsieurBarti/tff-pi/commit/6512818013c89df5e662ee2a13485468b91b4abb))
+* **m08:** await newsession + pi.sendmessage({triggerturn:true}) (gsd-pi pattern) ([a23c91b](https://github.com/MonsieurBarti/tff-pi/commit/a23c91b300dc3a00fadedab06af05842b9122e64))
+* **m08:** cache verification commands in hippo-memory ([9ccd8a6](https://github.com/MonsieurBarti/tff-pi/commit/9ccd8a6da1ad3258bb51a5026fe276f0638ab1c3))
+* **m08:** clean up checkpoint tags after slice ships ([85fd335](https://github.com/MonsieurBarti/tff-pi/commit/85fd335cdb2dbc45be733a6369ab708dca4a037b))
+* **m08:** extend settings with compress.apply_to scope list ([61ffb1d](https://github.com/MonsieurBarti/tff-pi/commit/61ffb1d2decb49f7a5c64ee799ddcb78590c1f61))
+* **m08:** log crash events to hippo-memory on recovery ([de7fb50](https://github.com/MonsieurBarti/tff-pi/commit/de7fb509add47c2f0654b0e32697764634cce57f))
+* **m08:** make tff_ask_user block on ctx.ui.custom (replaces agent-stop prose) ([90c999b](https://github.com/MonsieurBarti/tff-pi/commit/90c999b3b426b63035534bfba8374e9b57bbbc3f))
+* **m08:** port gsd-pi showinterviewround as blocking ask-user primitive ([950d624](https://github.com/MonsieurBarti/tff-pi/commit/950d62425b11e4ba10baf420516baa112804a762))
+* **m08:** port gsd-pi ui design-system helpers for blocking ask-user ([e23fadd](https://github.com/MonsieurBarti/tff-pi/commit/e23faddc3c76265af626d6e2e9db554d7c5d32a6))
+* **m08:** reliability — fresh context, safety harness, crash recovery ([8d9d8df](https://github.com/MonsieurBarti/tff-pi/commit/8d9d8dffdfa8707afcd001263f943086c11874af))
+* **m08:** rewrite complete-milestone.ts to use gh-pi library ([d471ea7](https://github.com/MonsieurBarti/tff-pi/commit/d471ea760f95b9b8264ab989d7686f10b23798fe))
+* **m08:** rewrite fff-integration to use fff-pi service directly ([2e75aba](https://github.com/MonsieurBarti/tff-pi/commit/2e75abac1552ec7e0183950758c9d26e9ce7e1af))
+* **m08:** rewrite ship.ts to use gh-pi library ([3f30afb](https://github.com/MonsieurBarti/tff-pi/commit/3f30afb6ecd7808ca63e96422ef6389ffdb42f84))
+* **m08:** wire fff bridge into session lifecycle and plan/execute phases ([78d84a6](https://github.com/MonsieurBarti/tff-pi/commit/78d84a62a11f44275b198b084d503cf96041e180))
+* **m08:** wire fresh context wrapper into all heavy phase commands ([3d372a6](https://github.com/MonsieurBarti/tff-pi/commit/3d372a60b501c62e147b5d0a52cc5b80d9c8734a))
+* **m08:** wire git checkpoints into execute phase + tff_checkpoint tool ([2adfbbd](https://github.com/MonsieurBarti/tff-pi/commit/2adfbbd96978c1dff90db242c4369fb6d36f118e))
+* **m08:** wire mechanical verification + post-verify checkpoint into verify phase ([f290100](https://github.com/MonsieurBarti/tff-pi/commit/f290100102e6aa5eee145674a6c91f05c3332307))
+* **m08:** wire session lifecycle hooks ([af00584](https://github.com/MonsieurBarti/tff-pi/commit/af00584d99c7a0e8b6e2ac6d57e9672316ea1bfb))
+* **ship-fix:** widen phase enum so monitoring sees distinct events ([0f64769](https://github.com/MonsieurBarti/tff-pi/commit/0f6476943376d69d2ae5d0b0df7cbbd9539ff848))
+* **ship:** auto-fetch review feedback from gh pr ([f7b8645](https://github.com/MonsieurBarti/tff-pi/commit/f7b86453890a7e4ee45001e1d3d9f940e6dbc01f))
+* **ship:** enforce squash merge method + warn when slice pr wasnt squashed ([f572d03](https://github.com/MonsieurBarti/tff-pi/commit/f572d03bb299d999a69dc606a586f6514a1181f4))
+* **ship:** inline fix flow with quality gates and user approval ([a24598c](https://github.com/MonsieurBarti/tff-pi/commit/a24598c3ccec49509f8239da08e79f85bbe95e1c))
+* **ship:** pr.md author-driven via tff_write_pr + overridable template ([dbbde98](https://github.com/MonsieurBarti/tff-pi/commit/dbbde986ac34a343830f291cd6854da3cd72a457))
+
+
+### Bug Fixes
+
+* add missing tff_write_verification and tff_write_review tools ([f863f50](https://github.com/MonsieurBarti/tff-pi/commit/f863f5024ee4bd69caccbfebb656e7cfca8ead18))
+* await plannotator review in writer tools ([74a9d82](https://github.com/MonsieurBarti/tff-pi/commit/74a9d822968c872b89738333beae4f2119515bb8))
+* **build:** clean dist/resources before copy ([d2c8422](https://github.com/MonsieurBarti/tff-pi/commit/d2c8422ac34cd46997b3e5fd448d2f62697123cc))
+* **execute:** bind agent to worktree path with explicit hard-gate ([b3184a1](https://github.com/MonsieurBarti/tff-pi/commit/b3184a1ddd57fbc66c27829d3d37cc70a9850ee7))
+* **m08:** /tff recover uses diagnosed classification when no action specified ([c4e4335](https://github.com/MonsieurBarti/tff-pi/commit/c4e43353ac9b8a7ace54c4c6d8ccd6c3193b3e0e))
+* **m08:** atomic lockfile creation with o_excl + o_nofollow ([8cd6bbf](https://github.com/MonsieurBarti/tff-pi/commit/8cd6bbfa3395efae02f89d26c1d4b0f1a1638cde))
+* **m08:** await plannotator review in write-* tools and audit fire-and-forget ([994b8c9](https://github.com/MonsieurBarti/tff-pi/commit/994b8c95ab7e686dcf9509c0261ae539c9ac3891))
+* **m08:** break newsession deadlock + ux issues from test-tff logs ([55ec0a1](https://github.com/MonsieurBarti/tff-pi/commit/55ec0a1c96d6891495dbc052d5029ce54e31b828))
+* **m08:** clarify tff_ask_user headless error so llm stops retrying ([3ffa28b](https://github.com/MonsieurBarti/tff-pi/commit/3ffa28b9dccb03424324aaf485e22a57a610b035))
+* **m08:** create safety tag before git reset --hard on rollback ([89d8280](https://github.com/MonsieurBarti/tff-pi/commit/89d82803d0d5763159c1a3c6c8c6c2bc9d3285b0))
+* **m08:** declare @plannotator/pi-extension as peer dependency ([7d998b1](https://github.com/MonsieurBarti/tff-pi/commit/7d998b1d7b769d8ae4ced27f5dc40e9757fba4b8))
+* **m08:** deliver phase message from session_start hook after runtime binds ([a9e7da8](https://github.com/MonsieurBarti/tff-pi/commit/a9e7da8e6c37aaf9791951a998be6c7be0485b90))
+* **m08:** deliver phase prompt via new session's session_start handler ([8651dc0](https://github.com/MonsieurBarti/tff-pi/commit/8651dc075c3ffaf7de73653a06e4fb7f6b626ee3))
+* **m08:** gate verify command auto-detection behind verify_auto_detect setting ([a358663](https://github.com/MonsieurBarti/tff-pi/commit/a358663c536c8a4592d807d31043b267b46d210f))
+* **m08:** match plannotator-assigned reviewid in requestreview ([de702ff](https://github.com/MonsieurBarti/tff-pi/commit/de702ff82a8fdfd9465c66e7d74dd429143fa473))
+* **m08:** prevent plannotator tool hallucination in write-artifact flows ([1968ef2](https://github.com/MonsieurBarti/tff-pi/commit/1968ef2c76e8a9d1ab4983638e5355e3c3c3710f))
+* **m08:** refactor phases to prepare/send pattern for fresh context delivery ([63edd2e](https://github.com/MonsieurBarti/tff-pi/commit/63edd2e02775d191acb2c405969d8a7152b6e87d))
+* **m08:** remove stale references to removed /tff auto command ([0f478b2](https://github.com/MonsieurBarti/tff-pi/commit/0f478b240796df23f01aa518eb9c0a8c345dc459))
+* **m08:** require review phase for all tiers (no s-tier skip) ([2038a29](https://github.com/MonsieurBarti/tff-pi/commit/2038a294bb2c6dcc94f59fa5fa9f920090b68f12))
+* **m08:** sanitize and cap artifact content in context injection ([1dfe502](https://github.com/MonsieurBarti/tff-pi/commit/1dfe5026b9a1e4ae26e8e71a0290ecb2bae52d19))
+* **m08:** ship merge gate, agent discipline, and reliability cleanup ([737e0e0](https://github.com/MonsieurBarti/tff-pi/commit/737e0e032a433aab527f75f49c9c1dcf3030cd81))
+* **m08:** trigger agent turn after newsession via pi.senduser­message ([5fb7436](https://github.com/MonsieurBarti/tff-pi/commit/5fb74367650e572d7be29716dfb59df47e6ab4f8))
+* **m08:** trigger agent turn via new session pi after session creation ([c66968b](https://github.com/MonsieurBarti/tff-pi/commit/c66968b5902ce23c8ddae092dac7dd37f6130d12))
+* **m08:** truncate verify diff, rollback on verify fail, tier-aware preflight, clear stale pending ([5d9b9c5](https://github.com/MonsieurBarti/tff-pi/commit/5d9b9c5c3e35abb73e3f4801ee5133e94887cafa))
+* **m08:** use sendmessage with triggerturn in fresh session ([dcd2a3e](https://github.com/MonsieurBarti/tff-pi/commit/dcd2a3ea2240f3c359ac25d8ca20219104bf56e7))
+* **m08:** validate /tff recover action and report all stuck slices ([0f09d6e](https://github.com/MonsieurBarti/tff-pi/commit/0f09d6e61e094a84922a9d0d8d8d3ea535a26217))
+* phase-completion reliability + curated-choice tool ([cb45897](https://github.com/MonsieurBarti/tff-pi/commit/cb458970974be11a1240a0d3b190cce8b6147871))
+* **plannotator:** capture plannotator-assigned review id for event match ([8c939d7](https://github.com/MonsieurBarti/tff-pi/commit/8c939d7d28bdd822cafa9171b673ed0340965e32))
+* **plannotator:** wait for user click when plannotator is mounting ([524e45a](https://github.com/MonsieurBarti/tff-pi/commit/524e45af269bb28ebd2fed8e91bf461811af4453))
+
+
+### Reverts
+
+* **m08:** restore pre-phase-2 newsession flow (disk queue + setimmediate) ([5a4ed85](https://github.com/MonsieurBarti/tff-pi/commit/5a4ed8573545c03d21c45dbdd11dc3da1fbae289))
+
 ## [0.1.1](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.0...tff-pi-v0.1.1) (2026-04-11)
 
 
