@@ -83,6 +83,10 @@ describe("shipFixPhase", () => {
 		expect(result.message).toContain("Auth fix");
 		expect(result.message).toContain("please rename foo");
 		expect(result.message).toContain("worktrees/M01-S01");
+		// Must instruct the agent to auto-discover quality-gate commands
+		// rather than hardcoding a package-manager-specific invocation.
+		expect(result.message).toContain("discover them by inspecting the worktree");
+		expect(result.message).not.toContain("bun run lint:fix");
 	});
 
 	it("emits phase_start with phase='ship-fix' on prepare", async () => {
