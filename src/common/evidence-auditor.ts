@@ -84,7 +84,10 @@ function parseFencedBlocks(md: string, claims: ParsedClaim[], seen: Set<string>)
 			const outputLines: string[] = [];
 			for (let j = i + 1; j < lines.length; j++) {
 				const l = lines[j] ?? "";
-				if (l.startsWith("$ ") || l.trim() === "") break;
+				// Stop at the next shell-prompt line; blank lines WITHIN the output are
+				// normal (bun test, jest, etc. emit blank lines before the failure
+				// summary). Breaking on blank lines would mis-classify real failures.
+				if (l.startsWith("$ ")) break;
 				outputLines.push(l);
 			}
 			const output = outputLines.join("\n").toLowerCase();

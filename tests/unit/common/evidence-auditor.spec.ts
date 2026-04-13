@@ -53,4 +53,13 @@ describe("parseVerificationClaims", () => {
 		const claims = parseVerificationClaims(md);
 		expect(claims).toHaveLength(0);
 	});
+
+	it("fenced block: blank lines in output don't terminate the failure scan", () => {
+		// Real bun/jest output often has blank lines between sections,
+		// with the failure summary only visible AFTER the blank line.
+		const md = "```\n$ bun test\n\nerror: assertion failed\n```\n";
+		const claims = parseVerificationClaims(md);
+		expect(claims).toHaveLength(1);
+		expect(claims[0]).toMatchObject({ command: "bun test", expectedExit: 1 });
+	});
 });
