@@ -47,7 +47,7 @@ export interface Question {
 }
 
 export interface RoundResult {
-	/** Always false — end is handled by showWrapUpScreen, not per-question */
+	/** Always false — exit is handled by the overlay branch; no per-question end signal. */
 	endInterview: false;
 	answers: Record<string, { selected: string | string[]; notes: string }>;
 }
