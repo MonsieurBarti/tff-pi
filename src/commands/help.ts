@@ -16,7 +16,7 @@ export async function runHelp(
 			"- `/tff discuss [sliceId]` — Run the discuss phase on a slice\n" +
 			"- `/tff research [sliceId]` — Run the research phase on a slice\n" +
 			"- `/tff plan [sliceId]` — Run the plan phase on a slice\n" +
-			"- `/tff next` — Advance the active slice to its next phase\n" +
+			"- `/tff next` — Advance the active slice to its next phase\n\n" +
 			"**Monitoring:**\n" +
 			"- `/tff status` — Show current project status\n" +
 			"- `/tff progress` — Show detailed progress table\n" +
@@ -29,7 +29,7 @@ export async function runHelp(
 			"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
 			"- `/tff ship [sliceId]` — Open the slice PR and run CI\n" +
 			"- `/tff ship-merged [sliceId]` — You merged the PR: cleanup worktree + close slice\n" +
-			"- `/tff ship-changes [sliceId] <feedback>` — Reviewer requested changes: reopen for fixes\n\n" +
+			"- `/tff ship-changes [sliceId] <feedback>` — Reviewer requested changes: reopen for fixes\n" +
 			"- `/tff complete-milestone [M01]` — Create milestone PR after all slices ship",
 	);
 }

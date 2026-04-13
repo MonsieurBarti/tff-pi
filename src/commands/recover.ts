@@ -14,8 +14,22 @@ import { releaseLock } from "../common/session-lock.js";
 import { type SliceStatus, sliceLabel } from "../common/types.js";
 import { getWorktreePath, worktreeExists } from "../common/worktree.js";
 
+type RecoveryAction = RecoveryClassification | "dismiss";
+
+const VALID_ACTIONS = [
+	"resume",
+	"rollback",
+	"skip",
+	"manual",
+	"dismiss",
+] as const satisfies readonly RecoveryAction[];
+
+function isRecoveryAction(value: string): value is RecoveryAction {
+	return (VALID_ACTIONS as readonly string[]).includes(value);
+}
+
 export interface RecoverOptions {
-	action: RecoveryClassification | "dismiss";
+	action: RecoveryAction;
 	sliceId: string;
 	milestoneNumber: number;
 }
@@ -145,15 +159,14 @@ export async function runRecover(
 	if (!project) return;
 	const { db: database, root } = project;
 
-	const VALID_ACTIONS = ["resume", "rollback", "skip", "manual", "dismiss"] as const;
 	const rawArg = args[0];
-	if (rawArg !== undefined && !VALID_ACTIONS.includes(rawArg as (typeof VALID_ACTIONS)[number])) {
+	if (rawArg !== undefined && !isRecoveryAction(rawArg)) {
 		pi.sendUserMessage(
 			`Invalid recover action: \`${rawArg}\`. Valid actions: ${VALID_ACTIONS.join(", ")}.`,
 		);
 		return;
 	}
-	const explicitAction = rawArg as RecoveryClassification | "dismiss" | undefined;
+	const explicitAction: RecoveryClassification | "dismiss" | undefined = rawArg;
 
 	const stuck = scanForStuckSlices(database);
 	if (stuck.length === 0) {

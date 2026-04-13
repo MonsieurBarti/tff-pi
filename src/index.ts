@@ -45,17 +45,11 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}
 
 			const handler = COMMANDS.get(subcommand);
-			if (!handler) {
-				// Should be unreachable thanks to the structural test in
-				// tests/unit/structural/commands.spec.ts, but belt-and-braces for
-				// runtime safety.
-				if (uiCtx.hasUI) {
-					uiCtx.ui.notify(`No handler registered for /tff ${subcommand}.`, "error");
-				}
-				return;
-			}
-
-			await handler(pi, ctx, uiCtx, args);
+			// Every VALID_SUBCOMMANDS entry has a COMMANDS handler — enforced by
+			// tests/unit/structural/commands.spec.ts. If we reach here,
+			// `isValidSubcommand` already succeeded, so `handler` is defined.
+			// biome-ignore lint/style/noNonNullAssertion: covered by the structural test
+			await handler!(pi, ctx, uiCtx, args);
 		},
 	});
 

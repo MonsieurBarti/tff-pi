@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { initSliceDir } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
-import { findMilestoneByLabel } from "../common/db-resolvers.js";
+import { resolveMilestone } from "../common/db-resolvers.js";
 import { getMilestone, getNextSliceNumber, insertSlice } from "../common/db.js";
 import { sliceLabel } from "../common/types.js";
 
@@ -68,9 +68,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							isError: true,
 						};
 					}
-					const milestone =
-						findMilestoneByLabel(database, params.milestoneId) ??
-						getMilestone(database, params.milestoneId);
+					const milestone = resolveMilestone(database, params.milestoneId);
 					if (!milestone) {
 						return {
 							content: [
