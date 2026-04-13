@@ -8,7 +8,9 @@ import * as confirmGate from "./confirm-gate.js";
 import * as createProject from "./create-project.js";
 import * as createSlice from "./create-slice.js";
 import * as queryState from "./query-state.js";
+import * as shipApplyDone from "./ship-apply-done.js";
 import * as shipChanges from "./ship-changes.js";
+import * as shipFix from "./ship-fix.js";
 import * as shipMerged from "./ship-merged.js";
 import * as transition from "./transition.js";
 import * as writePlan from "./write-plan.js";
@@ -35,6 +37,8 @@ export const TOOL_REGISTRARS = [
 	writeReview.register,
 	shipMerged.register,
 	shipChanges.register,
+	shipFix.register,
+	shipApplyDone.register,
 	checkpoint.register,
 ] as const;
 
