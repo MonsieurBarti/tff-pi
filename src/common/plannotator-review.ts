@@ -1,10 +1,29 @@
 import { randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
 	PLANNOTATOR_NOT_READY_ERROR,
 	markHandled,
 	wasEverHandled,
 } from "./plannotator-readiness.js";
+
+const DEBUG_LOG_PATH = join(homedir(), ".pi", "tff-plannotator-debug.log");
+let debugDirEnsured = false;
+
+function debugLog(event: string, fields: Record<string, unknown>): void {
+	try {
+		if (!debugDirEnsured) {
+			mkdirSync(dirname(DEBUG_LOG_PATH), { recursive: true });
+			debugDirEnsured = true;
+		}
+		const line = JSON.stringify({ ts: new Date().toISOString(), event, ...fields });
+		appendFileSync(DEBUG_LOG_PATH, `${line}\n`);
+	} catch {
+		// Diagnostic logging must never break the review flow.
+	}
+}
 
 export interface ReviewResult {
 	approved: boolean;
@@ -102,26 +121,42 @@ export function requestReview(
 		// from the `handled` response and match against it.
 		let plannotatorReviewId: string | null = null;
 
+		debugLog("request_start", { requestId, artifactPath, reviewType, timeoutMs });
+
 		const finish = (result: ReviewResult) => {
 			if (resolved) return;
 			resolved = true;
 			unsubscribe();
 			clearTimeout(timer);
+			debugLog("finish", { requestId, plannotatorReviewId, result });
 			resolve(result);
 		};
 
 		const timer = setTimeout(() => {
+			debugLog("timeout", { requestId, plannotatorReviewId, timeoutMs });
 			finish({ approved: true, feedback: "Review timed out — auto-approved" });
 		}, timeoutMs);
 
 		const unsubscribe = pi.events.on(REVIEW_RESULT_CHANNEL, (data: unknown) => {
 			const event = data as Partial<PlannotatorReviewResultEvent> | null | undefined;
-			if (!event || typeof event.reviewId !== "string") return;
+			if (!event || typeof event.reviewId !== "string") {
+				debugLog("result_ignored_malformed", { requestId, data });
+				return;
+			}
 			// Match against the plannotator-assigned id (learned via `handled` response).
 			// Fall back to our requestId for back-compat with consumers that honor it.
-			const match =
-				(plannotatorReviewId && event.reviewId === plannotatorReviewId) ||
-				event.reviewId === requestId;
+			const matchPlannotator = !!(plannotatorReviewId && event.reviewId === plannotatorReviewId);
+			const matchRequest = event.reviewId === requestId;
+			const match = matchPlannotator || matchRequest;
+			debugLog("result_received", {
+				requestId,
+				plannotatorReviewId,
+				eventReviewId: event.reviewId,
+				approved: event.approved,
+				matchPlannotator,
+				matchRequest,
+				match,
+			});
 			if (!match) return;
 
 			const result: ReviewResult = { approved: event.approved === true };
@@ -130,9 +165,19 @@ export function requestReview(
 		});
 
 		const request = buildReviewRequest(requestId, artifactPath, content, reviewType);
+		debugLog("emit_request", { requestId, channel: REVIEW_REQUEST_CHANNEL });
 		pi.events.emit(REVIEW_REQUEST_CHANNEL, {
 			...request,
 			respond: (response: PlannotatorResponse) => {
+				debugLog("respond_received", {
+					requestId,
+					status: response.status,
+					reviewId: response.status === "handled" ? response.result?.reviewId : undefined,
+					error:
+						response.status === "unavailable" || response.status === "error"
+							? response.error
+							: undefined,
+				});
 				if (response.status === "handled") {
 					markHandled();
 					if (response.result?.reviewId) {
@@ -143,6 +188,13 @@ export function requestReview(
 				if (response.status === "unavailable" || response.status === "error") {
 					const isContextNotReady = response.error === PLANNOTATOR_NOT_READY_ERROR;
 					const plannotatorActive = wasEverHandled() || isContextNotReady;
+					debugLog("respond_unavailable_decision", {
+						requestId,
+						isContextNotReady,
+						wasEverHandled: wasEverHandled(),
+						plannotatorActive,
+						action: plannotatorActive ? "keep_listening" : "auto_approve",
+					});
 					if (plannotatorActive) {
 						// Plannotator is mounted (or about to be) — this is a race.
 						// Keep our listener alive; the user's eventual approval click
