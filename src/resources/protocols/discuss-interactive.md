@@ -48,7 +48,7 @@ so you cannot invent alternatives on the fly.
 
 Lead with recommendation (C6). Explain trade-offs for each option's `description`.
 
-## 5. DEPTH VERIFICATION
+## 5. READINESS CHECK
 Present structured summary using user's exact terminology.
 Ask: "Ready to write the spec?"
 
