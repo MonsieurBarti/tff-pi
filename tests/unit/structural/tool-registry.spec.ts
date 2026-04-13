@@ -1,6 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createTffContext } from "../../../src/common/context.js";
+import { registerAllTools } from "../../../src/tools/index.js";
 
 /**
  * Structural regression tests that prevent the class of bugs exposed by
@@ -120,6 +122,28 @@ describe("tool registry consistency", () => {
 				expect(
 					registered.has(name),
 					`${path} references tool '${name}' but it is not registered in index.ts. Either register it or remove the reference.`,
+				).toBe(true);
+			}
+		}
+	});
+
+	it("every protocol-referenced tool is actually wired into TOOL_REGISTRARS (runtime check)", () => {
+		const registeredRuntime = new Set<string>();
+		const mockPi = {
+			registerTool: (def: { name: string }) => {
+				registeredRuntime.add(def.name);
+			},
+		} as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI;
+		const ctx = createTffContext(mockPi);
+		registerAllTools(mockPi, ctx);
+
+		for (const { path, content } of resources) {
+			const referenced = extractToolNames(content);
+			for (const name of referenced) {
+				if (EXTERNAL_PREFIXES.some((p) => name.startsWith(p))) continue;
+				expect(
+					registeredRuntime.has(name),
+					`${path} references tool '${name}' but it was not registered by registerAllTools. Either add it to src/tools/index.ts's TOOL_REGISTRARS array, or remove the reference.`,
 				).toBe(true);
 			}
 		}
