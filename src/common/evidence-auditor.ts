@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import type { ToolCallEvent } from "./events.js";
 
 export interface ParsedClaim {
 	raw: string;
@@ -131,13 +132,10 @@ interface EventLogRow {
 	payload: string;
 }
 
-interface EventPayload {
-	toolCallId: string;
-	toolName: string;
-	input?: { command?: string };
-	isError: boolean;
-	startedAt: string;
-}
+type EventPayload = Pick<
+	ToolCallEvent,
+	"toolCallId" | "toolName" | "input" | "isError" | "startedAt"
+>;
 
 function queryBashEvents(db: Database.Database, sliceId: string): EventPayload[] {
 	const rows = db
@@ -167,7 +165,7 @@ function commandsOverlap(a: string, b: string): boolean {
 
 function matchClaim(claim: ParsedClaim, events: EventPayload[]): AuditFinding {
 	const candidates = events.filter((e) => {
-		const actual = e.input?.command;
+		const actual = (e.input as { command?: string } | null | undefined)?.command;
 		if (typeof actual !== "string") return false;
 		return commandsOverlap(claim.command, actual);
 	});
@@ -180,7 +178,7 @@ function matchClaim(claim: ParsedClaim, events: EventPayload[]): AuditFinding {
 		};
 	}
 
-	candidates.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+	candidates.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 	const chosen = candidates[0];
 	if (!chosen) {
 		return {
@@ -190,10 +188,11 @@ function matchClaim(claim: ParsedClaim, events: EventPayload[]): AuditFinding {
 		};
 	}
 
+	const chosenCommand = (chosen.input as { command?: string } | null | undefined)?.command ?? "";
 	const actualExit: 0 | 1 = chosen.isError ? 1 : 0;
 	const evidence: AuditEvidence = {
 		toolCallId: chosen.toolCallId,
-		actualCommand: chosen.input?.command ?? "",
+		actualCommand: chosenCommand,
 		actualExit,
 		timestamp: chosen.startedAt,
 	};
