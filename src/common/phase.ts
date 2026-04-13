@@ -1,48 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import type { FffBridge } from "./fff-integration.js";
 import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
 import type { Phase, Slice } from "./types.js";
-
-/**
- * Phase messages are stashed on disk because module-level state is not
- * guaranteed to survive the extension reload triggered by `newSession()`.
- * The session_start handler reads from here when `event.reason === "new"`.
- */
-const PENDING_MESSAGE_FILE = "pending-phase-message.txt";
-
-function pendingMessagePath(root: string): string {
-	return join(root, ".tff", PENDING_MESSAGE_FILE);
-}
-
-export function writePendingMessage(root: string, message: string): void {
-	mkdirSync(join(root, ".tff"), { recursive: true });
-	writeFileSync(pendingMessagePath(root), message, "utf-8");
-}
-
-export function readPendingMessage(root: string): string | null {
-	const p = pendingMessagePath(root);
-	if (!existsSync(p)) return null;
-	try {
-		return readFileSync(p, "utf-8");
-	} catch {
-		return null;
-	}
-}
-
-export function clearPendingMessage(root: string): void {
-	const p = pendingMessagePath(root);
-	if (existsSync(p)) {
-		try {
-			unlinkSync(p);
-		} catch {
-			// best effort
-		}
-	}
-}
 
 export interface PhaseContext {
 	pi: ExtensionAPI;

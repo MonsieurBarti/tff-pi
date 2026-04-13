@@ -17,7 +17,6 @@ import { EventLogger } from "./common/event-logger.js";
 import { initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
-import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
@@ -86,44 +85,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
 	pi.on("session_start", async (event, uiCtx) => {
-		// On startup (fresh PI launch), proactively clear any leftover pending
-		// phase message — it's from a crashed session, not useful anymore.
-		if (event.reason === "startup") {
-			const startupRoot = getGitRoot();
-			if (startupRoot) {
-				clearPendingMessage(startupRoot);
-			}
-		}
-
-		// Deliver any phase message queued on disk before newSession() was called.
-		// The new session's runtime is fully bound by the time session_start fires —
-		// sendMessage before this is a no-op.
-		if (event.reason === "new") {
-			const earlyRoot = getGitRoot();
-			const message = earlyRoot ? readPendingMessage(earlyRoot) : null;
-			if (earlyRoot) clearPendingMessage(earlyRoot);
-
-			if (message) {
-				try {
-					// deliverAs "steer" queues if the new session's agent is already
-					// processing a startup turn (observed: "Agent is already
-					// processing" on phase switch). When idle, triggerTurn fires it
-					// immediately. Covers both races from one call.
-					pi.sendMessage(
-						{ customType: "tff-phase", content: message, display: true },
-						{ triggerTurn: true, deliverAs: "steer" },
-					);
-				} catch (err) {
-					if (uiCtx.hasUI) {
-						uiCtx.ui.notify(
-							`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
-							"error",
-						);
-					}
-				}
-			}
-		}
-
 		const root = getGitRoot();
 		if (!root) {
 			return;
