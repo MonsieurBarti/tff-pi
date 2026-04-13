@@ -112,6 +112,41 @@ describe("computeSliceStatus — rule 1 (closed)", () => {
 	});
 });
 
+describe("computeSliceStatus — rule 3 (rolled back)", () => {
+	it("returns 'executing' when verify phase_run is 'failed'", () => {
+		const runId = insertPhaseRun(db, {
+			sliceId,
+			phase: "verify",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId, { status: "failed", finishedAt: new Date().toISOString() });
+		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
+	});
+
+	it("returns 'executing' when review phase_run is 'failed'", () => {
+		const runId = insertPhaseRun(db, {
+			sliceId,
+			phase: "review",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId, { status: "failed", finishedAt: new Date().toISOString() });
+		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
+	});
+
+	it("returns 'executing' when ship phase_run is 'failed'", () => {
+		const runId = insertPhaseRun(db, {
+			sliceId,
+			phase: "ship",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, runId, { status: "failed", finishedAt: new Date().toISOString() });
+		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
+	});
+});
+
 describe("computeSliceStatus — rule 7 (no phase_runs)", () => {
 	it("returns 'created' when no artifacts and no phase_runs", () => {
 		expect(computeSliceStatus(db, root, sliceId)).toBe("created");

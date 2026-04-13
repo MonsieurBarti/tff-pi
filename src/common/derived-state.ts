@@ -3,6 +3,21 @@ import { readArtifact } from "./artifacts.js";
 import { getMilestone, getSlice } from "./db.js";
 import { type Phase, type SliceStatus, milestoneLabel, sliceLabel } from "./types.js";
 
+// Rollback targets reflect SLICE_TRANSITIONS (state-machine.ts:3): only verify,
+// review, and ship have backward transitions today (all to executing). For
+// phases without a defined rollback, return the phase's own in-progress status
+// so the agent can retry it.
+const ROLLBACK_TARGET: Record<Phase, SliceStatus | null> = {
+	discuss: "discussing",
+	research: "researching",
+	plan: "planning",
+	execute: "executing",
+	verify: "executing",
+	review: "executing",
+	ship: "executing",
+	"ship-fix": null,
+};
+
 const PHASE_TO_IN_PROGRESS_STATUS: Record<Phase, SliceStatus | null> = {
 	discuss: "discussing",
 	research: "researching",
@@ -66,6 +81,12 @@ export function computeSliceStatus(
 	if (latest && (latest.status === "started" || latest.status === "retried")) {
 		const mapped = PHASE_TO_IN_PROGRESS_STATUS[latest.phase as Phase];
 		if (mapped) return mapped;
+	}
+
+	// Rule 3: rolled back — latest phase failed, return rollback target
+	if (latest && latest.status === "failed") {
+		const target = ROLLBACK_TARGET[latest.phase as Phase];
+		if (target) return target;
 	}
 
 	// Rule 7: no phase_runs fallback
