@@ -58,7 +58,7 @@ describe("runPhaseWithFreshContext", () => {
 		expect(mockModule.prepare).not.toHaveBeenCalled();
 	});
 
-	it("awaits newSession then delivers the prompt with triggerTurn and clears the disk stash", async () => {
+	it("stashes the message and awaits newSession, leaving delivery to the new session's session_start hook", async () => {
 		const { readPendingMessage } = await import("../../../src/common/phase.js");
 		const newSessionMock = makeNewSessionMock({ cancelled: false });
 		const cmdCtx = makeCmdCtx(newSessionMock);
@@ -77,16 +77,13 @@ describe("runPhaseWithFreshContext", () => {
 
 		expect(result.success).toBe(true);
 		expect(newSessionMock).toHaveBeenCalledOnce();
-		expect(sendMessage).toHaveBeenCalledWith(
-			{ customType: "tff-phase", content: "phase msg", display: true },
-			{ triggerTurn: true },
-		);
-		// Ordering: newSession must resolve BEFORE sendMessage fires.
-		const newSessionOrder = newSessionMock.mock.invocationCallOrder[0] ?? 0;
-		const sendOrder = sendMessage.mock.invocationCallOrder[0] ?? 0;
-		expect(newSessionOrder).toBeLessThan(sendOrder);
-		// Disk stash cleared on success.
-		expect(readPendingMessage(root)).toBeNull();
+		// Message stays on disk — the new session's session_start hook reads
+		// and delivers it via its fresh `pi` (the phaseCtx.pi here is stale
+		// the moment newSession returns).
+		expect(readPendingMessage(root)).toBe("phase msg");
+		// Old-session pi.sendMessage MUST NOT be called (it routes to the
+		// disposed runtime).
+		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
 	it("stashes the message on disk before awaiting newSession (crash-recovery backstop)", async () => {

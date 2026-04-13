@@ -142,6 +142,11 @@ export async function runPhaseWithFreshContext(
 	// start without holding our lock.
 	releaseLock(phaseCtx.root);
 
+	// Await newSession with a LIVE cmdCtx (no stale-closure freeze). The NEW
+	// session's `session_start` hook (registerLifecycleHooks in lifecycle.ts)
+	// picks up the disk-stashed message and delivers it via its fresh `pi`
+	// handle — the old session's `pi` captured in phaseCtx becomes stale
+	// the moment newSession returns (it routes to the disposed old runtime).
 	const { cancelled } = await cmdCtx.newSession();
 
 	if (cancelled) {
@@ -153,14 +158,8 @@ export async function runPhaseWithFreshContext(
 		};
 	}
 
-	// Deliver the prompt and trigger the agent turn autonomously.
-	phaseCtx.pi.sendMessage(
-		{ customType: "tff-phase", content: message, display: true },
-		{ triggerTurn: true },
-	);
-
-	// Clear the disk stash — delivery succeeded.
-	clearPendingMessage(phaseCtx.root);
+	// Do NOT call phaseCtx.pi.sendMessage here — phaseCtx.pi is stale.
+	// The new session's session_start handler delivers the message.
 
 	return { success: true, retry: false };
 }

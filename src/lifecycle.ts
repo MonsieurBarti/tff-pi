@@ -17,7 +17,7 @@ import { EventLogger } from "./common/event-logger.js";
 import { initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
-import { clearPendingMessage } from "./common/phase.js";
+import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
@@ -92,6 +92,33 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 			const startupRoot = getGitRoot();
 			if (startupRoot) {
 				clearPendingMessage(startupRoot);
+			}
+		}
+
+		// On phase transition (await cmdCtx.newSession() in runPhaseWithFreshContext),
+		// pick up the disk-stashed phase prompt and deliver it using THIS session's
+		// fresh `pi` handle. The command handler can't deliver it directly because
+		// the `pi` it captured is bound to the now-disposed old session's runtime.
+		if (event.reason === "new") {
+			const earlyRoot = getGitRoot();
+			if (earlyRoot) {
+				const message = readPendingMessage(earlyRoot);
+				if (message) {
+					clearPendingMessage(earlyRoot);
+					try {
+						pi.sendMessage(
+							{ customType: "tff-phase", content: message, display: true },
+							{ triggerTurn: true },
+						);
+					} catch (err) {
+						if (uiCtx.hasUI) {
+							uiCtx.ui.notify(
+								`Failed to deliver phase prompt: ${err instanceof Error ? err.message : String(err)}`,
+								"error",
+							);
+						}
+					}
+				}
 			}
 		}
 
