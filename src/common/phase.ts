@@ -117,13 +117,22 @@ export async function runPhaseWithFreshContext(
 		};
 	}
 
-	acquireLock(phaseCtx.root, { phase, sliceId: phaseCtx.slice.id });
 	setCurrentPhase({
 		sliceId: phaseCtx.slice.id,
 		sliceLabel: sliceLabel(phaseCtx.milestoneNumber, phaseCtx.slice.number),
 		milestoneNumber: phaseCtx.milestoneNumber,
 		phase,
 	});
+	try {
+		acquireLock(phaseCtx.root, { phase, sliceId: phaseCtx.slice.id });
+	} catch (err) {
+		clearCurrentPhase();
+		return {
+			success: false,
+			retry: false,
+			error: err instanceof Error ? err.message : String(err),
+		};
+	}
 
 	// Run prepare in the LIVE session — db and pi are valid here.
 	let prepareResult: PhasePrepareResult;
@@ -153,8 +162,9 @@ export async function runPhaseWithFreshContext(
 	writePendingMessage(phaseCtx.root, message);
 
 	// Release the lock before awaiting newSession — the new session must
-	// start without holding our lock. Clear the phase context for the same
-	// reason: the new session re-acquires both via its own lifecycle hooks.
+	// start without holding our lock. Clear the phase context too — the new
+	// session has no in-flight phase until the next /tff command re-enters
+	// this function.
 	clearCurrentPhase();
 	releaseLock(phaseCtx.root);
 
