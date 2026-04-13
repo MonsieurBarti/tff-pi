@@ -5,7 +5,8 @@ import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { getMilestone, getSlice, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
+import { getMilestone, getSlice, resetTasksToOpen } from "../common/db.js";
+import { makeBaseEvent } from "../common/events.js";
 import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { verifyPhaseArtifacts } from "../orchestrator.js";
@@ -25,6 +26,7 @@ export type ReviewVerdict = "approved" | "denied";
  * user can advance to ship via /tff next.
  */
 export function handleWriteReview(
+	pi: ExtensionAPI,
 	db: Database.Database,
 	root: string,
 	sliceId: string,
@@ -54,7 +56,12 @@ export function handleWriteReview(
 
 	if (verdict === "denied") {
 		resetTasksToOpen(db, sliceId);
-		updateSliceStatus(db, sliceId, "executing");
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(sliceId, label, milestone.number),
+			type: "phase_failed",
+			phase: "review",
+			error: "Review verdict: denied",
+		});
 		return {
 			content: [
 				{
@@ -123,6 +130,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						};
 					}
 					const writeResult = handleWriteReview(
+						pi,
 						database,
 						root,
 						slice.id,
