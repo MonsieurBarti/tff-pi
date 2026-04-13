@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { getMilestone, getMilestones, getProject, getSlice, getSlices } from "./db.js";
 import type { EventLogger } from "./event-logger.js";
@@ -16,7 +16,6 @@ import type { Milestone, Slice } from "./types.js";
  * against that case (typically by emitting a "no project" error).
  */
 export interface TffContext {
-	pi: ExtensionAPI;
 	db: Database.Database | null;
 	projectRoot: string | null;
 	settings: Settings | null;
@@ -27,9 +26,8 @@ export interface TffContext {
 	initError: string | null;
 }
 
-export function createTffContext(pi: ExtensionAPI): TffContext {
+export function createTffContext(): TffContext {
 	return {
-		pi,
 		db: null,
 		projectRoot: null,
 		settings: null,

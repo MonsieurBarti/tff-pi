@@ -134,7 +134,7 @@ describe("tool registry consistency", () => {
 				registeredRuntime.add(def.name);
 			},
 		} as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI;
-		const ctx = createTffContext(mockPi);
+		const ctx = createTffContext();
 		registerAllTools(mockPi, ctx);
 
 		for (const { path, content } of resources) {

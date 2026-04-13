@@ -10,7 +10,7 @@ import { registerAllTools } from "./tools/index.js";
 // ---------------------------------------------------------------------------
 
 export default function tffExtension(pi: ExtensionAPI): void {
-	const ctx = createTffContext(pi);
+	const ctx = createTffContext();
 
 	registerLifecycleHooks(pi, ctx);
 
