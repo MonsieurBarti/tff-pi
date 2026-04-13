@@ -10,14 +10,17 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 			name: "tff_ship_changes",
 			label: "TFF Ship: Changes Requested",
 			description:
-				"Call AFTER the user confirms (via tff_ask_user) that the PR needs changes AND provides the reviewer feedback text. Stashes the feedback as REVIEW_FEEDBACK.md under the slice artifact dir and leaves the slice in `shipping`. The user then decides: small edits in the worktree followed by `/tff ship-merged`, or a full `/tff execute` re-entry. Pass the reviewer feedback verbatim — do NOT summarize.",
+				"Call AFTER the user confirms (via tff_ask_user) that the PR needs changes. If `feedback` is omitted, TFF fetches the reviewer feedback automatically from `gh pr view`. Pass `feedback` verbatim only when the user explicitly supplies the text — do NOT summarize. Stashes the feedback as REVIEW_FEEDBACK.md under the slice artifact dir and leaves the slice in `shipping`.",
 			parameters: Type.Object({
 				sliceLabel: Type.String({
 					description: "Slice label (e.g., M01-S01) or slice id",
 				}),
-				feedback: Type.String({
-					description: "Reviewer's change request text, verbatim from the user's message",
-				}),
+				feedback: Type.Optional(
+					Type.String({
+						description:
+							"Optional. Reviewer's change-request text, verbatim. Omit to auto-fetch via gh pr view.",
+					}),
+				),
 			}),
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 				const database = getDb(ctx);
@@ -36,7 +39,13 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						isError: true,
 					};
 				}
-				const result = handleShipChanges(pi, database, ctx.projectRoot, slice.id, params.feedback);
+				const result = await handleShipChanges(
+					pi,
+					database,
+					ctx.projectRoot,
+					slice.id,
+					params.feedback,
+				);
 				if (!result.success) {
 					return {
 						content: [{ type: "text", text: result.message }],
@@ -44,17 +53,20 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						isError: true,
 					};
 				}
-				// Feedback has been stashed under REVIEW_FEEDBACK.md. Slice stays
-				// in `shipping` — the user decides whether to do a small fix
-				// (edit worktree + /tff ship-merged) or re-run /tff execute.
+				const sourceNote = result.autoFetched
+					? "auto-fetched from gh pr view"
+					: "recorded from the text you passed";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `${result.message}\n\nReview feedback saved to REVIEW_FEEDBACK.md. Tell the user: for a small fix, edit the worktree and push to the slice branch then run \`/tff ship-merged ${params.sliceLabel}\`. For a larger fix, run \`/tff execute ${params.sliceLabel}\` to re-enter TDD.`,
+							text: `${result.message} (${sourceNote})\n\nNow call tff_ask_user (id \`apply_${params.sliceLabel}\`) with three options: "Apply inline (you approve patch)", "Edit manually", "Full TDD re-execute". On "Apply inline" → call tff_ship_fix({ sliceLabel: "${params.sliceLabel}" }). On "Edit manually" → tell the user to edit the worktree, push, then run \`/tff ship-merged ${params.sliceLabel}\`. On "Full TDD re-execute" → tell the user to run \`/tff execute ${params.sliceLabel}\`.`,
 						},
 					],
-					details: { sliceLabel: params.sliceLabel, feedback: params.feedback },
+					details: {
+						sliceLabel: params.sliceLabel,
+						autoFetched: result.autoFetched,
+					},
 				};
 			},
 		}),
