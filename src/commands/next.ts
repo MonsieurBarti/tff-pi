@@ -1,7 +1,14 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { type TffContext, getDb } from "../common/context.js";
+import { getMilestone, getSlice } from "../common/db.js";
+import type { PhaseContext } from "../common/phase.js";
+import { DEFAULT_SETTINGS } from "../common/settings.js";
 import type { Phase } from "../common/types.js";
 import { determineNextPhase, findActiveSlice } from "../orchestrator.js";
+import { phaseModules } from "../phases/index.js";
 import { assertPhasePreconditions } from "./phase-guard.js";
+import { runHeavyPhase } from "./run-heavy-phase.js";
 
 export interface NextValidation {
 	valid: boolean;
@@ -21,4 +28,39 @@ export function validateNext(
 	const guard = assertPhasePreconditions(db, projectRoot, slice.id, phase);
 	if (!guard.valid) return { valid: false, error: guard.error ?? "Previous phase incomplete" };
 	return { valid: true, phase, sliceId: slice.id };
+}
+
+export async function runNext(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	uiCtx: ExtensionCommandContext | null,
+	_args: string[],
+): Promise<void> {
+	const database = getDb(ctx);
+	const root = ctx.projectRoot;
+	if (!root) return;
+	const validation = validateNext(database, ctx.projectRoot);
+	if (!validation.valid) {
+		if (uiCtx?.hasUI) uiCtx.ui.notify(validation.error ?? "Unknown error", "error");
+		return;
+	}
+	const sliceId = validation.sliceId;
+	const phase = validation.phase;
+	if (!sliceId || !phase) return;
+	const slice = getSlice(database, sliceId);
+	if (!slice) return;
+	const milestone = getMilestone(database, slice.milestoneId);
+	if (!milestone) return;
+	const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
+	const mod = phaseModules[phase];
+	const phaseCtx: PhaseContext = {
+		pi,
+		db: database,
+		root,
+		slice,
+		milestoneNumber: milestone.number,
+		settings: currentSettings,
+		fffBridge: ctx.fffBridge,
+	};
+	await runHeavyPhase(ctx, phase, mod, phaseCtx);
 }
