@@ -396,8 +396,12 @@ export const shipPhase: PhaseModule = {
 				return { success: true, retry: false };
 			}
 
-			// Squash merge
-			const mergeResult = await prTools.merge({ repo, number: prNumber, method: "squash" });
+			// Merge PR using the configured method (default: squash).
+			const mergeResult = await prTools.merge({
+				repo,
+				number: prNumber,
+				method: settings.ship.merge_method,
+			});
 			if (mergeResult.code !== 0) {
 				return {
 					success: false,

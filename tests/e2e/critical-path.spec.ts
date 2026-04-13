@@ -334,7 +334,7 @@ describe("E2E critical path", () => {
 				root,
 				slice: shipSlice,
 				milestoneNumber: msNumber,
-				settings: makeSettings({ ship: { auto_merge: true } }),
+				settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 			});
 			expect(shipResult.success).toBe(true);
 			const shippedSlice = must(getSlice(db, sliceId));
@@ -391,7 +391,7 @@ describe("E2E critical path", () => {
 				root,
 				slice,
 				milestoneNumber: 1,
-				settings: makeSettings({ ship: { auto_merge: false } }),
+				settings: makeSettings({ ship: { auto_merge: false, merge_method: "squash" } }),
 			});
 
 			expect(result.success).toBe(true);

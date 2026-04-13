@@ -34,7 +34,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						isError: true,
 					};
 				}
-				const result = handleShipMerged(pi, database, root, slice.id);
+				const result = await handleShipMerged(pi, database, root, slice.id);
 				return {
 					content: [{ type: "text", text: result.message }],
 					details: { sliceLabel: params.sliceLabel },

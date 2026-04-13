@@ -186,7 +186,7 @@ describe("settings", () => {
 			const original: Settings = {
 				model_profile: "quality",
 				compress: { user_artifacts: true },
-				ship: { auto_merge: false },
+				ship: { auto_merge: false, merge_method: "squash" },
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);
@@ -206,7 +206,7 @@ describe("settings", () => {
 			const original: Settings = {
 				model_profile: "balanced",
 				compress: { user_artifacts: false, apply_to: ["artifacts", "phase_prompts"] },
-				ship: { auto_merge: false },
+				ship: { auto_merge: false, merge_method: "squash" },
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);

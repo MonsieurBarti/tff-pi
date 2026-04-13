@@ -155,7 +155,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -171,7 +171,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
@@ -188,7 +188,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
@@ -203,7 +203,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		await shipPhase.prepare(ctx);
 		const updated = must(getSlice(db, sliceId));
@@ -219,7 +219,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: false } }),
+			settings: makeSettings({ ship: { auto_merge: false, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -245,7 +245,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		await shipPhase.prepare(ctx);
 		expect(mockCreate).toHaveBeenCalledWith(
@@ -272,7 +272,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -297,7 +297,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);
@@ -316,7 +316,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -332,7 +332,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);
@@ -350,7 +350,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true } }),
+			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);
