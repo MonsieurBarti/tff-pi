@@ -344,7 +344,12 @@ describe("E2E critical path", () => {
 			expect(shipResult.success).toBe(true);
 			const shippedSlice = must(getSlice(db, sliceId));
 			expect(shippedSlice.prUrl).toContain("github.com");
-			expect(shippedSlice.status).toBe("closed");
+			// Reconciler rule 1: ship/completed + pr_url non-null → closed.
+			// Verify phase_complete was emitted; reconciler handles the DB write.
+			expect(shipPi.events.emit).toHaveBeenCalledWith(
+				"tff:phase",
+				expect.objectContaining({ type: "phase_complete", phase: "ship" }),
+			);
 
 			// Step 12: handleCompleteMilestone → milestone PR created
 			const completeResult = await handleCompleteMilestone(db, root, milestoneId, DEFAULT_SETTINGS);
@@ -467,8 +472,12 @@ describe("E2E critical path", () => {
 			});
 
 			expect(result.success).toBe(true);
-			const updated = must(getSlice(db, sliceId));
-			expect(updated.status).toBe("closed");
+			// Reconciler rule 1: ship/completed + pr_url non-null → closed.
+			// Verify phase_complete was emitted; reconciler handles the DB write.
+			expect(pi.events.emit).toHaveBeenCalledWith(
+				"tff:phase",
+				expect.objectContaining({ type: "phase_complete", phase: "ship" }),
+			);
 		});
 	});
 

@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { cleanupCheckpoints } from "../common/checkpoint.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
+import { getSlices, resetTasksToOpen, updateSlicePrUrl } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
@@ -27,7 +27,7 @@ export interface PreflightResult {
  * new `/tff ship-merged` slash command (user-attested merge, no PR fetch).
  */
 export function finalizeMergedSlice(
-	db: Database.Database,
+	_db: Database.Database,
 	root: string,
 	slice: Slice,
 	milestoneNumber: number,
@@ -83,8 +83,6 @@ export function finalizeMergedSlice(
 			env,
 		});
 	}
-
-	updateSliceStatus(db, slice.id, "closed");
 }
 
 export function preflightCheck(
