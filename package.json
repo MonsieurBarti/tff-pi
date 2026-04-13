@@ -17,7 +17,7 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json && cp -r src/resources dist/resources",
+		"build": "tsc -p tsconfig.build.json && rm -rf dist/resources && cp -R src/resources dist/resources",
 		"dev": "tsc -p tsconfig.build.json --watch",
 		"test": "vitest run",
 		"test:watch": "vitest",
