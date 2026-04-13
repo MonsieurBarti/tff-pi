@@ -159,6 +159,33 @@ describe("ToolCallLogger → EventLogger round-trip", () => {
 			payload: string;
 		};
 		expect(row.payload.length).toBeLessThanOrEqual(64 * 1024);
-		expect(row.payload).toContain("truncated");
+		const parsed = JSON.parse(row.payload);
+		expect(parsed.truncated).toBe(true);
+		expect(parsed.output).toContain("truncated");
+	});
+
+	it("truncated payloads remain parseable JSON (not string-spliced)", () => {
+		const bus = makeInProcessBus();
+		const eventLogger = new EventLogger(db, tmp);
+		eventLogger.subscribe(bus);
+
+		const { pi, fire } = makeFakePi();
+		const toolLogger = new ToolCallLogger(pi, bus);
+		toolLogger.subscribe();
+
+		const huge = "x".repeat(128 * 1024);
+		fire("tool_call", { toolCallId: "c-parse", toolName: "bash", input: { command: "huge" } });
+		fire("tool_execution_end", {
+			toolCallId: "c-parse",
+			toolName: "bash",
+			result: huge,
+			isError: false,
+		});
+
+		const row = db.prepare("SELECT payload FROM event_log WHERE channel = 'tff:tool'").get() as {
+			payload: string;
+		};
+		// Must not throw — regression guard against string-spliced invalid JSON.
+		expect(() => JSON.parse(row.payload)).not.toThrow();
 	});
 });

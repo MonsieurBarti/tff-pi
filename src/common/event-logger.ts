@@ -66,9 +66,28 @@ export class EventLogger {
 		return label.replace(/[^a-zA-Z0-9_-]/g, "_");
 	}
 
-	private truncatePayload(json: string): string {
-		if (json.length <= EventLogger.MAX_PAYLOAD_BYTES) return json;
-		return `${json.substring(0, EventLogger.MAX_PAYLOAD_BYTES - 20)}..."truncated"}`;
+	private truncatePayload(event: { type: string } & Record<string, unknown>): string {
+		const full = JSON.stringify(event);
+		if (full.length <= EventLogger.MAX_PAYLOAD_BYTES) return full;
+
+		// Rebuild with stubbed large fields so the payload stays parseable JSON.
+		// Keep all non-payload fields (type, ids, phase, timestamps, etc.) and
+		// replace input/output with markers.
+		const truncated: Record<string, unknown> = { ...event };
+		truncated.input = "[truncated: payload exceeded MAX_PAYLOAD_BYTES]";
+		truncated.output = "[truncated: payload exceeded MAX_PAYLOAD_BYTES]";
+		truncated.truncated = true;
+
+		const retry = JSON.stringify(truncated);
+		if (retry.length <= EventLogger.MAX_PAYLOAD_BYTES) return retry;
+
+		// Extremely pathological case — even the metadata envelope is too large.
+		// Fall back to a minimal valid-JSON envelope.
+		return JSON.stringify({
+			type: event.type,
+			truncated: true,
+			reason: "event envelope exceeded MAX_PAYLOAD_BYTES",
+		});
 	}
 
 	private truncateString(s: string, maxLen = 2000): string {
@@ -79,7 +98,7 @@ export class EventLogger {
 		channel: TffChannel,
 		event: { type: string; sliceId: string | null } & Record<string, unknown>,
 	): void {
-		const payload = this.truncatePayload(JSON.stringify(event));
+		const payload = this.truncatePayload(event);
 		insertEventLog(this.db, {
 			channel,
 			type: event.type,
