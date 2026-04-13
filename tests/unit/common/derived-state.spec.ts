@@ -208,3 +208,40 @@ describe("computeSliceStatus — rule 4 (completed-waiting)", () => {
 		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
 	});
 });
+
+describe("computeSliceStatus — rule 5 (ship-fix ignored)", () => {
+	it("ignores ship-fix when computing status", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date(Date.now() - 60000).toISOString(),
+		});
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "ship-fix",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
+	});
+});
+
+describe("computeSliceStatus — rule 6 (abandoned filtered)", () => {
+	it("ignores abandoned phase_run rows", () => {
+		const staleId = insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date(Date.now() - 120000).toISOString(),
+		});
+		updatePhaseRun(db, staleId, { status: "abandoned" });
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "plan",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		expect(computeSliceStatus(db, root, sliceId)).toBe("planning");
+	});
+});
