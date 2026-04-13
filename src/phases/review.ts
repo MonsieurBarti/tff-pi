@@ -1,5 +1,4 @@
 import { readArtifact } from "../common/artifacts.js";
-import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
@@ -15,7 +14,6 @@ import {
 export const reviewPhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
-		updateSliceStatus(db, slice.id, "reviewing");
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);

@@ -115,12 +115,17 @@ describe("researchPhase", () => {
 		expect(completeCalls).toHaveLength(0);
 	});
 
-	it("transitions to researching during run", async () => {
+	it("emits phase_start for research (reconciler sets status via EventLogger)", async () => {
+		// Status update is now driven by the reconciler when EventLogger handles
+		// the phase_start event on the real event bus. In unit tests the bus is
+		// mocked, so we verify the event was emitted — reconcile coverage lives in
+		// reconciler-integration tests.
 		const slice = must(getSlice(db, sliceId));
+		const mockEmit = vi.fn();
 		const ctx: PhaseContext = {
 			pi: {
 				sendUserMessage: vi.fn(),
-				events: { emit: vi.fn(), on: vi.fn() },
+				events: { emit: mockEmit, on: vi.fn() },
 			} as unknown as PhaseContext["pi"],
 			db,
 			root,
@@ -129,7 +134,9 @@ describe("researchPhase", () => {
 			settings: DEFAULT_SETTINGS,
 		};
 		await researchPhase.prepare(ctx);
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("researching");
+		const startCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "research",
+		);
+		expect(startCalls).toHaveLength(1);
 	});
 });

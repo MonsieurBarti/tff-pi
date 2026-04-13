@@ -2,7 +2,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { readArtifact } from "../common/artifacts.js";
 import { createCheckpoint } from "../common/checkpoint.js";
-import { getTasksByWave, resetTasksToOpen, updateSliceStatus } from "../common/db.js";
+import { getTasksByWave, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
@@ -24,7 +24,6 @@ import {
 export const executePhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
-		updateSliceStatus(db, slice.id, "executing");
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);

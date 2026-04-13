@@ -1,4 +1,3 @@
-import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
@@ -13,7 +12,6 @@ import {
 export const planPhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, slice, milestoneNumber, root, settings } = ctx;
-		updateSliceStatus(db, slice.id, "planning");
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
 		pi.events.emit("tff:phase", {

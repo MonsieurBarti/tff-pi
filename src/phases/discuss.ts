@@ -1,4 +1,3 @@
-import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { type PreparationBrief, buildPreparationBrief } from "../common/preparation.js";
@@ -8,8 +7,6 @@ import { loadPhaseResources } from "../orchestrator.js";
 export const discussPhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, slice, milestoneNumber } = ctx;
-
-		updateSliceStatus(db, slice.id, "discussing");
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
 

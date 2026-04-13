@@ -18,7 +18,6 @@ import { loadPhaseResources, predecessorPhase, verifyPhaseArtifacts } from "../o
 export const verifyPhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
-		updateSliceStatus(db, slice.id, "verifying");
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
