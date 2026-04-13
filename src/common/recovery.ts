@@ -6,6 +6,40 @@ import type { Slice, SliceStatus } from "./types.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
 import { getWorktreePath, worktreeExists } from "./worktree.js";
 
+export const FORENSICS_MAX_COUNT = 10;
+export const FORENSICS_WINDOW_MS = 30 * 60 * 1000;
+
+export interface RecentToolCall {
+	timestamp: string;
+	toolName: string;
+	commandSummary: string;
+	isError: boolean;
+	durationMs: number;
+}
+
+export function summarizeInput(toolName: string, input: unknown): string {
+	if (input === null || typeof input !== "object") return "";
+	const obj = input as Record<string, unknown>;
+	const truncate = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
+
+	if (toolName === "bash") {
+		return typeof obj.command === "string" ? truncate(obj.command) : "";
+	}
+	if (toolName === "write" || toolName === "edit" || toolName === "notebook_edit") {
+		const p = obj.path ?? obj.file_path;
+		return typeof p === "string" ? p : "";
+	}
+	if (toolName.startsWith("tff_write_")) {
+		const artifact = toolName.replace(/^tff_write_/, "").toUpperCase();
+		return `${artifact}.md`;
+	}
+	try {
+		return truncate(JSON.stringify(obj));
+	} catch {
+		return "";
+	}
+}
+
 const TRANSITIONAL_STATUSES: SliceStatus[] = [
 	"discussing",
 	"researching",

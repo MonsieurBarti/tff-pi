@@ -13,7 +13,11 @@ import {
 	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { gitEnv } from "../../../src/common/git.js";
-import { diagnoseRecovery, scanForStuckSlices } from "../../../src/common/recovery.js";
+import {
+	diagnoseRecovery,
+	scanForStuckSlices,
+	summarizeInput,
+} from "../../../src/common/recovery.js";
 
 function getProjectId(db: Database.Database): string {
 	const row = db.prepare("SELECT id FROM project LIMIT 1").get() as { id: string };
@@ -162,6 +166,42 @@ describe("recovery", () => {
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			expect(diag.evidence.artifacts).toContain("SPEC.md");
 			expect(diag.evidence.artifacts).toContain("PLAN.md");
+		});
+	});
+
+	describe("summarizeInput", () => {
+		it("returns empty string for null or non-object input", () => {
+			expect(summarizeInput("bash", null)).toBe("");
+			expect(summarizeInput("bash", undefined)).toBe("");
+			expect(summarizeInput("bash", "not an object")).toBe("");
+			expect(summarizeInput("bash", 42)).toBe("");
+		});
+
+		it("returns the bash command, truncating at 80 chars", () => {
+			expect(summarizeInput("bash", { command: "bun run test" })).toBe("bun run test");
+			const long = "a".repeat(100);
+			const result = summarizeInput("bash", { command: long });
+			expect(result.length).toBeLessThanOrEqual(81);
+			expect(result.endsWith("…")).toBe(true);
+		});
+
+		it("returns path for write/edit/notebook_edit tools", () => {
+			expect(summarizeInput("write", { path: "src/foo.ts" })).toBe("src/foo.ts");
+			expect(summarizeInput("edit", { file_path: "src/bar.ts" })).toBe("src/bar.ts");
+			expect(summarizeInput("notebook_edit", { path: "note.ipynb" })).toBe("note.ipynb");
+		});
+
+		it("returns artifact label for tff_write_* tools", () => {
+			expect(summarizeInput("tff_write_verification", { content: "..." })).toBe("VERIFICATION.md");
+			expect(summarizeInput("tff_write_spec", { content: "..." })).toBe("SPEC.md");
+			expect(summarizeInput("tff_write_plan", { content: "..." })).toBe("PLAN.md");
+		});
+
+		it("falls back to truncated JSON for unknown tools with object input", () => {
+			const result = summarizeInput("mystery_tool", { a: 1, b: 2 });
+			expect(result).toContain("a");
+			expect(result).toContain("1");
+			expect(result.length).toBeLessThanOrEqual(81);
 		});
 	});
 });
