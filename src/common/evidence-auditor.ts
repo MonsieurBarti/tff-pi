@@ -159,8 +159,26 @@ function queryBashEvents(db: Database.Database, sliceId: string): EventPayload[]
 	return out;
 }
 
-function commandsOverlap(a: string, b: string): boolean {
-	return a.includes(b) || b.includes(a);
+function commandsOverlap(claim: string, actual: string): boolean {
+	const claimTokens = claim.trim().split(/\s+/).filter(Boolean);
+	const actualTokens = actual.trim().split(/\s+/).filter(Boolean);
+
+	// Single-token claims (e.g., "bun") are too generic for fuzzy match.
+	// Require exact match when the claim is one token.
+	if (claimTokens.length < 2 || actualTokens.length < 2) {
+		return claim.trim() === actual.trim();
+	}
+
+	// Multi-token: accept exact match OR contiguous-token-prefix in either
+	// direction. This captures legitimate paraphrase cases like
+	// "bun run test" ↔ "bun run test --watch" while rejecting
+	// "bun" matching "bun run test".
+	const shorter = claimTokens.length <= actualTokens.length ? claimTokens : actualTokens;
+	const longer = claimTokens.length <= actualTokens.length ? actualTokens : claimTokens;
+	for (let i = 0; i < shorter.length; i++) {
+		if (shorter[i] !== longer[i]) return false;
+	}
+	return true;
 }
 
 function matchClaim(claim: ParsedClaim, events: EventPayload[]): AuditFinding {

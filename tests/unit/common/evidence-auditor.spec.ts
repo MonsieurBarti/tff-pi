@@ -68,6 +68,47 @@ describe("parseVerificationClaims", () => {
 		expect(claims).toHaveLength(1);
 		expect(claims[0]).toMatchObject({ command: "bun test", expectedExit: 1 });
 	});
+
+	it("short claim 'bun' does not match 'bun run test' (exploit hardening)", () => {
+		// Before: substring-matcher allowed claim 'bun' to silently match any captured bun call.
+		// After: token-based matcher requires full claim-token prefix of actual tokens OR exact string match for single-token claims.
+		// This test pins the parser step only — matcher coverage is in the auditVerification describe.
+		const md = "Ran `bun` — all pass";
+		const claims = parseVerificationClaims(md);
+		// Parsing is permissive (still returns a claim); matcher rejects by token-prefix.
+		// See auditVerification test below for the full integration.
+		expect(claims).toHaveLength(1);
+		expect(claims[0]?.command).toBe("bun");
+	});
+
+	it("cross-pattern dedup: same command in fenced block AND inline verdict only counted once per (command, expectedExit)", () => {
+		const md = "Ran `bun run test` — all pass\n\n```\n$ bun run test\nok\n```";
+		const claims = parseVerificationClaims(md);
+		// Both patterns produce (command: "bun run test", expectedExit: 0).
+		// Dedup key collapses them.
+		expect(claims).toHaveLength(1);
+		expect(claims[0]).toMatchObject({ command: "bun run test", expectedExit: 0 });
+	});
+
+	it("conflicting-verdict dedup: fenced fail + inline pass for same command surface BOTH findings", () => {
+		const md = "Ran `bun run test` — all pass\n\n```\n$ bun run test\nerror: broken\n```";
+		const claims = parseVerificationClaims(md);
+		// Different expectedExit (0 vs 1) → different dedup key → both kept.
+		// A future reviewer can see the agent contradicted itself.
+		expect(claims).toHaveLength(2);
+	});
+
+	it("prose-only verification with no parseable claims returns [] (known limitation)", () => {
+		// Parser is regex-based and only catches three specific shapes. Pure
+		// prose like "I ran the tests and they all pass." has no backticks,
+		// no fenced blocks, no AC checklist line. Result: no claims → auditor
+		// produces no findings → hasMismatches=false → non-blocking. This is
+		// a KNOWN LIMITATION. A future slice can tighten by adding a
+		// structured `claims` param to tff_write_verification.
+		const md = "I ran the tests and they all pass. The code works.";
+		const claims = parseVerificationClaims(md);
+		expect(claims).toHaveLength(0);
+	});
 });
 
 describe("auditVerification", () => {
@@ -140,6 +181,25 @@ describe("auditVerification", () => {
 		const report = auditVerification(db, SLICE_ID, md);
 		expect(report.findings[0]?.verdict).toBe("match");
 		expect(report.findings[0]?.evidence?.actualExit).toBe(0);
+	});
+
+	it("matcher: single-token claim 'bun' does NOT match captured 'bun run test'", () => {
+		seedBashEvent("bun run test", true, "2026-04-13T12:00:01Z");
+		// Hand-craft the MD so the parser actually emits the short claim; if the parser
+		// rejected single-token backticks (min length 3), this would fail at parse.
+		// Pattern: short command still produces a claim because our regex min is 3 chars.
+		const md = "Ran `bun` — all pass";
+		const report = auditVerification(db, SLICE_ID, md);
+		// Short-claim matcher returns unverifiable (no token-prefix match with "bun run test").
+		expect(report.findings[0]?.verdict).toBe("unverifiable");
+		expect(report.summary.unverifiable).toBe(1);
+	});
+
+	it("matcher: token-prefix claim 'bun run test' DOES match captured 'bun run test --watch' (paraphrase allowed)", () => {
+		seedBashEvent("bun run test --watch", false, "2026-04-13T12:00:01Z");
+		const md = "Ran `bun run test` — all pass";
+		const report = auditVerification(db, SLICE_ID, md);
+		expect(report.findings[0]?.verdict).toBe("match");
 	});
 
 	it("formatAuditReport produces markdown with all three sections when findings exist", () => {
