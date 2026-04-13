@@ -1,9 +1,15 @@
 import { execFileSync } from "node:child_process";
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { getLastCheckpoint } from "../common/checkpoint.js";
-import { getSlice, updateSliceStatus } from "../common/db.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { getMilestone, getSlice, updateSliceStatus } from "../common/db.js";
 import { gitEnv } from "../common/git.js";
-import type { RecoveryClassification } from "../common/recovery.js";
+import {
+	type RecoveryClassification,
+	diagnoseRecovery,
+	scanForStuckSlices,
+} from "../common/recovery.js";
 import { releaseLock } from "../common/session-lock.js";
 import { type SliceStatus, sliceLabel } from "../common/types.js";
 import { getWorktreePath, worktreeExists } from "../common/worktree.js";
@@ -127,6 +133,66 @@ function statusToPhase(status: string): string {
 		shipping: "ship",
 	};
 	return map[status] ?? "next";
+}
+
+export async function runRecover(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	_uiCtx: ExtensionCommandContext | null,
+	args: string[],
+): Promise<void> {
+	const database = getDb(ctx);
+	const root = ctx.projectRoot;
+	if (!root) return;
+
+	const VALID_ACTIONS = ["resume", "rollback", "skip", "manual", "dismiss"] as const;
+	const rawArg = args[0];
+	if (rawArg !== undefined && !VALID_ACTIONS.includes(rawArg as (typeof VALID_ACTIONS)[number])) {
+		pi.sendUserMessage(
+			`Invalid recover action: \`${rawArg}\`. Valid actions: ${VALID_ACTIONS.join(", ")}.`,
+		);
+		return;
+	}
+	const explicitAction = rawArg as RecoveryClassification | "dismiss" | undefined;
+
+	const stuck = scanForStuckSlices(database);
+	if (stuck.length === 0) {
+		pi.sendUserMessage("No stuck slices found. Nothing to recover.");
+		releaseLock(root);
+		return;
+	}
+
+	if (stuck.length > 1) {
+		const labels = stuck
+			.map((s) => {
+				const m = getMilestone(database, s.milestoneId);
+				return m ? sliceLabel(m.number, s.number) : s.id;
+			})
+			.join(", ");
+		pi.sendUserMessage(
+			`${stuck.length} stuck slices detected: ${labels}. Recovering the first one only. Re-run \`/tff recover\` to handle the rest.`,
+		);
+	}
+
+	const stuckSlice = stuck[0];
+	if (!stuckSlice) return;
+	const milestone = getMilestone(database, stuckSlice.milestoneId);
+	if (!milestone) {
+		pi.sendUserMessage("Cannot find milestone for stuck slice.");
+		return;
+	}
+
+	// Use explicit action if provided, otherwise fall back to diagnosed classification
+	const diagnosis = diagnoseRecovery(root, database, stuckSlice.id, milestone.number);
+	const action = explicitAction ?? diagnosis.classification;
+
+	const result = executeRecovery(database, root, {
+		action,
+		sliceId: stuckSlice.id,
+		milestoneNumber: milestone.number,
+	});
+
+	pi.sendUserMessage(result.message);
 }
 
 function skipForwardStatus(status: string): SliceStatus | null {

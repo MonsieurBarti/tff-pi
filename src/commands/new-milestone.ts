@@ -1,7 +1,9 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { initMilestoneDir, writeArtifact } from "../common/artifacts.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { getNextMilestoneNumber, insertMilestone } from "../common/db.js";
+import { type TffContext, getDb } from "../common/context.js";
+import { getNextMilestoneNumber, getProject, insertMilestone } from "../common/db.js";
 import { branchExists, createBranch, getCurrentBranch, pushBranch } from "../common/git.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel } from "../common/types.js";
@@ -41,4 +43,34 @@ export function createMilestone(
 		compressIfEnabled(reqContent, "artifacts", settings),
 	);
 	return { milestoneId, number, branch };
+}
+
+export async function runNewMilestone(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	uiCtx: ExtensionCommandContext | null,
+	args: string[],
+): Promise<void> {
+	const database = getDb(ctx);
+	const root = ctx.projectRoot;
+	if (!root) {
+		if (uiCtx?.hasUI) uiCtx.ui.notify("Not inside a git repository.", "error");
+		return;
+	}
+	const project = getProject(database);
+	if (!project) {
+		if (uiCtx?.hasUI) uiCtx.ui.notify("No project found. Run /tff new first.", "error");
+		return;
+	}
+	const milestoneName = args[0] ?? "New Milestone";
+	const result = createMilestone(
+		database,
+		root,
+		project.id,
+		milestoneName,
+		ctx.settings ?? DEFAULT_SETTINGS,
+	);
+	pi.sendUserMessage(
+		`Milestone ${milestoneLabel(result.number)} "${milestoneName}" created on branch ${result.branch}.\n\nNow brainstorm requirements and decompose into slices. Use the tff_create_slice tool to create each slice.`,
+	);
 }

@@ -1,19 +1,15 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
 import { validateExecute } from "./commands/execute.js";
-import { createMilestone } from "./commands/new-milestone.js";
 import { validateNext } from "./commands/next.js";
 import { validatePlan } from "./commands/plan.js";
-import { executeRecovery } from "./commands/recover.js";
 import { validateResearch } from "./commands/research.js";
 import { handleShipChanges } from "./commands/ship-changes.js";
 import { handleShipMerged } from "./commands/ship-merged.js";
 import { validateShip } from "./commands/ship.js";
 import { validateVerify } from "./commands/verify.js";
-import { initTffDirectory, tffPath } from "./common/artifacts.js";
 import { createCheckpoint } from "./common/checkpoint.js";
 import {
 	type TffContext,
@@ -24,35 +20,15 @@ import {
 	resolveMilestone,
 	resolveSlice,
 } from "./common/context.js";
-import {
-	applyMigrations,
-	getActiveMilestone,
-	getMilestone,
-	getProject,
-	getSlice,
-	openDatabase,
-} from "./common/db.js";
+import { getMilestone, getSlice } from "./common/db.js";
 import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
-import {
-	addRemote,
-	createGitignore,
-	getGitRoot,
-	hasRemote,
-	initRepo,
-	initialCommitAndPush,
-} from "./common/git.js";
+import { addRemote, initialCommitAndPush } from "./common/git.js";
 import { emitPhaseCompleteIfArtifactsReady } from "./common/phase-completion.js";
 import { type PhaseContext, type PhaseModule, runPhaseWithFreshContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
-import {
-	type RecoveryClassification,
-	diagnoseRecovery,
-	scanForStuckSlices,
-} from "./common/recovery.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
-import { releaseLock } from "./common/session-lock.js";
-import { DEFAULT_SETTINGS, loadSettings } from "./common/settings.js";
-import { type Phase, SLICE_STATUSES, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
+import { DEFAULT_SETTINGS } from "./common/settings.js";
+import { type Phase, SLICE_STATUSES, TIERS, sliceLabel } from "./common/types.js";
 import { getWorktreePath } from "./common/worktree.js";
 import { registerLifecycleHooks } from "./lifecycle.js";
 import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
@@ -72,13 +48,6 @@ import { handleWriteVerification } from "./tools/write-verification.js";
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
-
-function initDb(ctx: TffContext, root: string): void {
-	initTffDirectory(root);
-	const dbPath = tffPath(root, "state.db");
-	ctx.db = openDatabase(dbPath);
-	applyMigrations(ctx.db);
-}
 
 async function runHeavyPhase(
 	ctx: TffContext,
@@ -141,53 +110,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}
 
 			switch (subcommand) {
-				case "new": {
-					let root = getGitRoot() ?? ctx.projectRoot;
-					if (!root) {
-						initRepo(process.cwd());
-						root = getGitRoot() ?? process.cwd();
-					}
-					createGitignore(root);
-					ctx.projectRoot = root;
-					initDb(ctx, root);
-					loadSettings(ctx, root);
-
-					const projectName = rest[0] ?? "New Project";
-					const remoteInstruction = hasRemote(root)
-						? ""
-						: "\n\nIMPORTANT: No git remote is configured. Ask the user for their GitHub repository URL and call the tff_add_remote tool with it. This is required for the ship phase to create PRs.";
-					pi.sendUserMessage(
-						`You are setting up a new TFF project. The user wants to create a project called "${projectName}".\n\nPlease help them brainstorm:\n1. A clear vision statement for the project\n\nOnce agreed, call the tff_create_project tool with the project name and vision. After creating the project, suggest the user run /tff new-milestone.${remoteInstruction}`,
-					);
-					break;
-				}
-
-				case "new-milestone": {
-					const database = getDb(ctx);
-					const root = ctx.projectRoot;
-					if (!root) {
-						if (uiCtx.hasUI) uiCtx.ui.notify("Not inside a git repository.", "error");
-						return;
-					}
-					const project = getProject(database);
-					if (!project) {
-						if (uiCtx.hasUI) uiCtx.ui.notify("No project found. Run /tff new first.", "error");
-						return;
-					}
-					const milestoneName = rest[0] ?? "New Milestone";
-					const result = createMilestone(
-						database,
-						root,
-						project.id,
-						milestoneName,
-						ctx.settings ?? DEFAULT_SETTINGS,
-					);
-					pi.sendUserMessage(
-						`Milestone ${milestoneLabel(result.number)} "${milestoneName}" created on branch ${result.branch}.\n\nNow brainstorm requirements and decompose into slices. Use the tff_create_slice tool to create each slice.`,
-					);
-					break;
-				}
-
 				case "discuss": {
 					const database = getDb(ctx);
 					const root = ctx.projectRoot;
@@ -550,103 +472,6 @@ export default function tffExtension(pi: ExtensionAPI): void {
 					};
 					pi.sendUserMessage(result.message);
 					await runHeavyPhase(ctx, "execute", phaseModules.execute, execCtx);
-					break;
-				}
-
-				case "complete-milestone": {
-					const database = getDb(ctx);
-					const root = ctx.projectRoot;
-					if (!root) {
-						if (uiCtx.hasUI) uiCtx.ui.notify("Not inside a git repository.", "error");
-						return;
-					}
-					const label = rest[0] ?? "";
-					const project = getProject(database);
-					if (!project) {
-						if (uiCtx.hasUI) uiCtx.ui.notify("No project found. Run /tff new first.", "error");
-						return;
-					}
-					const milestone = label
-						? resolveMilestone(database, label)
-						: getActiveMilestone(database, project.id);
-					if (!milestone) {
-						const msg = label ? `Milestone not found: ${label}` : "No active milestone found.";
-						if (uiCtx.hasUI) uiCtx.ui.notify(msg, "error");
-						return;
-					}
-					const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
-					const result = await handleCompleteMilestone(
-						database,
-						root,
-						milestone.id,
-						currentSettings,
-					);
-					if (result.success) {
-						pi.sendUserMessage(
-							`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
-						);
-					} else {
-						pi.sendUserMessage(`Cannot complete milestone: ${result.error}`);
-					}
-					break;
-				}
-
-				case "recover": {
-					const database = getDb(ctx);
-					const root = ctx.projectRoot;
-					if (!root) return;
-
-					const VALID_ACTIONS = ["resume", "rollback", "skip", "manual", "dismiss"] as const;
-					const rawArg = rest[0];
-					if (
-						rawArg !== undefined &&
-						!VALID_ACTIONS.includes(rawArg as (typeof VALID_ACTIONS)[number])
-					) {
-						pi.sendUserMessage(
-							`Invalid recover action: \`${rawArg}\`. Valid actions: ${VALID_ACTIONS.join(", ")}.`,
-						);
-						break;
-					}
-					const explicitAction = rawArg as RecoveryClassification | "dismiss" | undefined;
-
-					const stuck = scanForStuckSlices(database);
-					if (stuck.length === 0) {
-						pi.sendUserMessage("No stuck slices found. Nothing to recover.");
-						releaseLock(root);
-						break;
-					}
-
-					if (stuck.length > 1) {
-						const labels = stuck
-							.map((s) => {
-								const m = getMilestone(database, s.milestoneId);
-								return m ? sliceLabel(m.number, s.number) : s.id;
-							})
-							.join(", ");
-						pi.sendUserMessage(
-							`${stuck.length} stuck slices detected: ${labels}. Recovering the first one only. Re-run \`/tff recover\` to handle the rest.`,
-						);
-					}
-
-					const stuckSlice = stuck[0];
-					if (!stuckSlice) break;
-					const milestone = getMilestone(database, stuckSlice.milestoneId);
-					if (!milestone) {
-						pi.sendUserMessage("Cannot find milestone for stuck slice.");
-						break;
-					}
-
-					// Use explicit action if provided, otherwise fall back to diagnosed classification
-					const diagnosis = diagnoseRecovery(root, database, stuckSlice.id, milestone.number);
-					const action = explicitAction ?? diagnosis.classification;
-
-					const result = executeRecovery(database, root, {
-						action,
-						sliceId: stuckSlice.id,
-						milestoneNumber: milestone.number,
-					});
-
-					pi.sendUserMessage(result.message);
 					break;
 				}
 

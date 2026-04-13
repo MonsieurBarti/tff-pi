@@ -1,11 +1,20 @@
 import { execFileSync } from "node:child_process";
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { readArtifact } from "../common/artifacts.js";
-import { getMilestone, getSlices, updateMilestoneStatus, updateSliceStatus } from "../common/db.js";
+import { type TffContext, getDb, resolveMilestone } from "../common/context.js";
+import {
+	getActiveMilestone,
+	getMilestone,
+	getProject,
+	getSlices,
+	updateMilestoneStatus,
+	updateSliceStatus,
+} from "../common/db.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
 import { getDefaultBranch, gitEnv } from "../common/git.js";
-import type { Settings } from "../common/settings.js";
+import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface CompleteMilestoneResult {
@@ -134,5 +143,42 @@ export async function handleCompleteMilestone(
 			success: false,
 			error: `Failed to create milestone PR: ${err instanceof Error ? err.message : String(err)}`,
 		};
+	}
+}
+
+export async function runCompleteMilestone(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	uiCtx: ExtensionCommandContext | null,
+	args: string[],
+): Promise<void> {
+	const database = getDb(ctx);
+	const root = ctx.projectRoot;
+	if (!root) {
+		if (uiCtx?.hasUI) uiCtx.ui.notify("Not inside a git repository.", "error");
+		return;
+	}
+	const label = args[0] ?? "";
+	const project = getProject(database);
+	if (!project) {
+		if (uiCtx?.hasUI) uiCtx.ui.notify("No project found. Run /tff new first.", "error");
+		return;
+	}
+	const milestone = label
+		? resolveMilestone(database, label)
+		: getActiveMilestone(database, project.id);
+	if (!milestone) {
+		const msg = label ? `Milestone not found: ${label}` : "No active milestone found.";
+		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");
+		return;
+	}
+	const currentSettings = ctx.settings ?? DEFAULT_SETTINGS;
+	const result = await handleCompleteMilestone(database, root, milestone.id, currentSettings);
+	if (result.success) {
+		pi.sendUserMessage(
+			`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
+		);
+	} else {
+		pi.sendUserMessage(`Cannot complete milestone: ${result.error}`);
 	}
 }
