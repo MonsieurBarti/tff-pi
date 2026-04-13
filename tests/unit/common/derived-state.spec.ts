@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
@@ -37,6 +38,40 @@ beforeEach(() => {
 afterEach(() => {
 	db.close();
 	rmSync(root, { recursive: true, force: true });
+});
+
+describe("computeSliceStatus — rule 2 (in-flight)", () => {
+	const cases: Array<[string, string]> = [
+		["discuss", "discussing"],
+		["research", "researching"],
+		["plan", "planning"],
+		["execute", "executing"],
+		["verify", "verifying"],
+		["review", "reviewing"],
+		["ship", "shipping"],
+	];
+
+	for (const [phase, expectedStatus] of cases) {
+		it(`returns '${expectedStatus}' when ${phase} phase_run is 'started'`, () => {
+			insertPhaseRun(db, {
+				sliceId,
+				phase,
+				status: "started",
+				startedAt: new Date().toISOString(),
+			});
+			expect(computeSliceStatus(db, root, sliceId)).toBe(expectedStatus);
+		});
+	}
+
+	it("treats 'retried' the same as 'started'", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "retried",
+			startedAt: new Date().toISOString(),
+		});
+		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
+	});
 });
 
 describe("computeSliceStatus — rule 7 (no phase_runs)", () => {
