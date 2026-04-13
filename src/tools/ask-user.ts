@@ -1,6 +1,8 @@
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { TffContext } from "../common/context.js";
+import { formatForLLM } from "./ask-user/format.js";
+import { type Question, showInterviewRound } from "./ask-user/interview-ui.js";
 
 export interface AskUserOption {
 	label: string;
@@ -26,15 +28,10 @@ const MAX_OPTIONS_SINGLE = 3;
 const MAX_HEADER_LEN = 12;
 
 /**
- * Validates and formats a curated-choice question to present to the user.
- * Mirrors GSD-2's `ask_user_questions` pattern: agents cannot hallucinate
- * extra choices because the schema enforces 2-3 bounded options per question
- * (single-select) and mutually exclusive labels.
- *
- * For single-select questions, an extra "None of the above" option is
- * auto-injected so the user always has an escape hatch.
+ * Returns null if questions are valid, otherwise an error ToolResult the LLM can
+ * read and self-correct from.
  */
-export function handleAskUser(questions: AskUserQuestion[]): ToolResult {
+export function validateQuestions(questions: AskUserQuestion[]): ToolResult | null {
 	if (questions.length === 0) {
 		return {
 			content: [{ type: "text", text: "tff_ask_user requires at least one question." }],
@@ -112,46 +109,7 @@ export function handleAskUser(questions: AskUserQuestion[]): ToolResult {
 		}
 	}
 
-	const sections: string[] = [];
-	// Agent-directed stop instruction. Without this the agent tends to keep
-	// calling tools (confirm_gate, write_spec, next tff_ask_user) immediately
-	// after displaying a question, bypassing the user entirely. PI cannot
-	// pause the agent loop, so the instruction has to live in the tool
-	// result the agent reads next.
-	sections.push(
-		"[AGENT-STOP] You have just shown the user a question. End your turn NOW — emit no further tool calls, no summary, no restatement. Wait for the user's next message (their numeric reply). Only after receiving that reply may you proceed.",
-	);
-	sections.push("");
-	for (const q of questions) {
-		const finalOptions = q.allowMultiple
-			? q.options
-			: [...q.options, { label: "None of the above", description: "Request a different option." }];
-		const mode = q.allowMultiple ? "choose any that apply" : "choose one";
-		sections.push(`## ${q.header} — ${mode}`);
-		sections.push("");
-		sections.push(q.question);
-		sections.push("");
-		for (let i = 0; i < finalOptions.length; i++) {
-			const opt = finalOptions[i];
-			if (!opt) continue;
-			// Label and description on separate lines so narrow terminals and
-			// raw-text renderers both keep them readable. No bold markers —
-			// they render as literal `**` in plain-text TUI contexts.
-			sections.push(`  ${i + 1}) ${opt.label}`);
-			sections.push(`     ${opt.description}`);
-		}
-		sections.push("");
-		sections.push(`Reply with the option number(s) for "${q.id}".`);
-		sections.push("");
-	}
-
-	return {
-		content: [{ type: "text", text: sections.join("\n") }],
-		details: {
-			questionCount: questions.length,
-			questionIds: questions.map((q) => q.id),
-		},
-	};
+	return null;
 }
 
 export function register(pi: ExtensionAPI, _ctx: TffContext): void {
@@ -160,13 +118,14 @@ export function register(pi: ExtensionAPI, _ctx: TffContext): void {
 			name: "tff_ask_user",
 			label: "TFF Ask User",
 			description:
-				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-3 bounded options (single-select) or 2+ (multi-select). Use this INSTEAD of free-form questions to prevent agent-invented options.",
+				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-3 bounded options (single-select) or 2+ (multi-select). The tool blocks until the user submits via the TUI; you do not need to wait or stop manually. Use this INSTEAD of free-form questions to prevent agent-invented options.",
 			promptGuidelines: [
 				"Use for any user decision that has a discrete set of valid answers",
-				"Single-select questions: 2-3 options; 'None of the above' is auto-injected",
+				"Single-select questions: 2-3 options; an escape hatch ('None of the above') is auto-injected",
 				"Multi-select: set allowMultiple=true; any number of options",
 				"Headers must be ≤12 characters (TUI label)",
 				"Do not paraphrase user input into your own options — if the user gave a free-form answer, reflect it back literally",
+				"This tool blocks until the user submits — you will receive their actual answer in the result; never assume an answer",
 			],
 			parameters: Type.Object({
 				questions: Type.Array(
@@ -201,13 +160,41 @@ export function register(pi: ExtensionAPI, _ctx: TffContext): void {
 					{ description: "One or more questions to ask the user" },
 				),
 			}),
-			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 				try {
-					return handleAskUser(params.questions as AskUserQuestion[]);
+					const questions = params.questions as AskUserQuestion[];
+					const validationError = validateQuestions(questions);
+					if (validationError) return validationError;
+
+					if (!ctx.hasUI) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "tff_ask_user requires an interactive PI session — no UI context available.",
+								},
+							],
+							details: { questionIds: questions.map((q) => q.id) },
+							isError: true,
+						};
+					}
+
+					const result = await showInterviewRound(questions as Question[], {}, ctx);
+
+					return {
+						content: [{ type: "text", text: formatForLLM(result) }],
+						details: {
+							questionIds: questions.map((q) => q.id),
+							answers: result.answers,
+						},
+					};
 				} catch (err) {
 					return {
 						content: [
-							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+							{
+								type: "text",
+								text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+							},
 						],
 						details: {},
 						isError: true,
