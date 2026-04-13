@@ -35,7 +35,7 @@ describe("formatForLLM", () => {
 		);
 	});
 
-	it("renders empty answers as 'No answers'", () => {
+	it("renders empty answers as '(none)'", () => {
 		const result: RoundResult = { endInterview: false, answers: {} };
 		expect(formatForLLM(result)).toBe("User answers: (none)");
 	});
