@@ -6,13 +6,13 @@ import { validateExecute } from "./commands/execute.js";
 import { validateNext } from "./commands/next.js";
 import { validatePlan } from "./commands/plan.js";
 import { validateResearch } from "./commands/research.js";
+import { runHeavyPhase } from "./commands/run-heavy-phase.js";
 import { handleShipChanges } from "./commands/ship-changes.js";
 import { handleShipMerged } from "./commands/ship-merged.js";
 import { validateShip } from "./commands/ship.js";
 import { validateVerify } from "./commands/verify.js";
 import { createCheckpoint } from "./common/checkpoint.js";
 import {
-	type TffContext,
 	createTffContext,
 	findMilestoneByLabel,
 	findSliceByLabel,
@@ -24,11 +24,11 @@ import { getMilestone, getSlice } from "./common/db.js";
 import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
 import { addRemote, initialCommitAndPush } from "./common/git.js";
 import { emitPhaseCompleteIfArtifactsReady } from "./common/phase-completion.js";
-import { type PhaseContext, type PhaseModule, runPhaseWithFreshContext } from "./common/phase.js";
+import { type PhaseContext, runPhaseWithFreshContext } from "./common/phase.js";
 import { requestReview } from "./common/plannotator-review.js";
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { DEFAULT_SETTINGS } from "./common/settings.js";
-import { type Phase, SLICE_STATUSES, TIERS, sliceLabel } from "./common/types.js";
+import { SLICE_STATUSES, TIERS, sliceLabel } from "./common/types.js";
 import { getWorktreePath } from "./common/worktree.js";
 import { registerLifecycleHooks } from "./lifecycle.js";
 import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
@@ -44,31 +44,6 @@ import { handleWriteResearch } from "./tools/write-research.js";
 import { type ReviewVerdict, handleWriteReview } from "./tools/write-review.js";
 import { handleWriteRequirements, handleWriteSpec } from "./tools/write-spec.js";
 import { handleWriteVerification } from "./tools/write-verification.js";
-
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
-
-async function runHeavyPhase(
-	ctx: TffContext,
-	phase: Phase,
-	mod: PhaseModule,
-	phaseCtx: PhaseContext,
-): Promise<void> {
-	const result = await runPhaseWithFreshContext({
-		phaseModule: mod,
-		phaseCtx,
-		cmdCtx: ctx.cmdCtx,
-		phase,
-	});
-	if (!result.success && result.error) {
-		if (ctx.cmdCtx?.hasUI) {
-			ctx.cmdCtx.ui.notify(`Phase ${phase} failed: ${result.error}`, "error");
-		} else {
-			phaseCtx.pi.sendUserMessage(`Phase ${phase} failed: ${result.error}`);
-		}
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Extension entry point
