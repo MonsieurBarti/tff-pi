@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import {
+	PLANNOTATOR_NOT_READY_ERROR,
+	markHandled,
+	wasEverHandled,
+} from "./plannotator-readiness.js";
 
 export interface ReviewResult {
 	approved: boolean;
@@ -128,12 +133,24 @@ export function requestReview(
 		pi.events.emit(REVIEW_REQUEST_CHANNEL, {
 			...request,
 			respond: (response: PlannotatorResponse) => {
-				if (response.status === "unavailable" || response.status === "error") {
-					finish({ approved: true, feedback: "Plannotator unavailable — auto-approved" });
+				if (response.status === "handled") {
+					markHandled();
+					if (response.result?.reviewId) {
+						plannotatorReviewId = response.result.reviewId;
+					}
 					return;
 				}
-				if (response.status === "handled" && response.result?.reviewId) {
-					plannotatorReviewId = response.result.reviewId;
+				if (response.status === "unavailable" || response.status === "error") {
+					const isContextNotReady = response.error === PLANNOTATOR_NOT_READY_ERROR;
+					const plannotatorActive = wasEverHandled() || isContextNotReady;
+					if (plannotatorActive) {
+						// Plannotator is mounted (or about to be) — this is a race.
+						// Keep our listener alive; the user's eventual approval click
+						// will fire plannotator:review-result and we'll pick it up.
+						return;
+					}
+					finish({ approved: true, feedback: "Plannotator unavailable — auto-approved" });
+					return;
 				}
 			},
 		});

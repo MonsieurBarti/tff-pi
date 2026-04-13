@@ -1,6 +1,14 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	PLANNOTATOR_NOT_READY_ERROR,
+	resetForTest,
+} from "../../../src/common/plannotator-readiness.js";
 import { buildReviewRequest, requestReview } from "../../../src/common/plannotator-review.js";
+
+beforeEach(() => {
+	resetForTest();
+});
 
 describe("buildReviewRequest", () => {
 	it("builds a plan-review request payload", () => {
@@ -180,6 +188,111 @@ describe("requestReview", () => {
 		const result = await pending;
 		expect(result.approved).toBe(true);
 		expect(result.feedback).toBe("lgtm");
+	});
+
+	it("auto-approves on unavailable when plannotator was never handled and error isn't the race string", async () => {
+		const { pi, emissions } = createFakePi();
+		const pending = requestReview(pi, "/SPEC.md", "content", "spec");
+
+		const emitted = emissions.find((e) => e.channel === "plannotator:request");
+		const respond = (emitted?.data as { respond: (r: unknown) => void }).respond;
+		respond({ status: "unavailable", error: "some other reason" });
+
+		const result = await pending;
+		expect(result.approved).toBe(true);
+		expect(result.feedback).toContain("unavailable");
+	});
+
+	it("does NOT auto-approve when plannotator emits the race-window error", async () => {
+		vi.useFakeTimers();
+		try {
+			const { pi, emissions, fire } = createFakePi();
+			let settled = false;
+			const pending = requestReview(pi, "/SPEC.md", "content", "spec").then((r) => {
+				settled = true;
+				return r;
+			});
+
+			const emitted = emissions.find((e) => e.channel === "plannotator:request");
+			const request = emitted?.data as {
+				requestId: string;
+				respond: (r: unknown) => void;
+			};
+			request.respond({
+				status: "unavailable",
+				error: "Plannotator context is not ready yet.",
+			});
+
+			// Should NOT auto-approve — race window error means plannotator is mounting.
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(settled).toBe(false);
+
+			// Later, user clicks approve; the review-result fires against our requestId
+			// (since we never learned a plannotator-assigned reviewId).
+			fire("plannotator:review-result", {
+				reviewId: request.requestId,
+				approved: true,
+				feedback: "ok",
+			});
+
+			const result = await pending;
+			expect(result.approved).toBe(true);
+			expect(result.feedback).toBe("ok");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does NOT auto-approve when plannotator was previously handled in this session", async () => {
+		vi.useFakeTimers();
+		try {
+			const { pi, emissions, fire } = createFakePi();
+
+			// First request — completes successfully via handled response + review-result.
+			const first = requestReview(pi, "/SPEC.md", "content", "spec");
+			const firstEmit = emissions.find((e) => e.channel === "plannotator:request");
+			const firstRequest = firstEmit?.data as {
+				requestId: string;
+				respond: (r: unknown) => void;
+			};
+			firstRequest.respond({
+				status: "handled",
+				result: { status: "pending", reviewId: "r1" },
+			});
+			fire("plannotator:review-result", { reviewId: "r1", approved: true });
+			await first;
+
+			// Second request — plannotator transiently reports unavailable (remount race).
+			let secondSettled = false;
+			const second = requestReview(pi, "/PLAN.md", "content", "plan").then((r) => {
+				secondSettled = true;
+				return r;
+			});
+			const secondEmit = emissions.filter((e) => e.channel === "plannotator:request").at(-1);
+			const secondRequest = secondEmit?.data as {
+				requestId: string;
+				respond: (r: unknown) => void;
+			};
+			secondRequest.respond({ status: "unavailable", error: "anything" });
+
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(secondSettled).toBe(false);
+
+			// User's eventual click resolves it.
+			fire("plannotator:review-result", {
+				reviewId: secondRequest.requestId,
+				approved: true,
+			});
+
+			const result = await second;
+			expect(result.approved).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("PLANNOTATOR_NOT_READY_ERROR matches upstream string verbatim", () => {
+		expect(PLANNOTATOR_NOT_READY_ERROR).toBe("Plannotator context is not ready yet.");
 	});
 
 	it("ignores review-result events before plannotator has assigned an id", async () => {
