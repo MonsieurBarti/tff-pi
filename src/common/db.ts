@@ -555,6 +555,21 @@ export function insertPhaseRun(
 	db: Database.Database,
 	params: { sliceId: string; phase: string; status: string; startedAt: string },
 ): string {
+	// Duplicate-started guard: if a 'started' or 'retried' row exists for
+	// (sliceId, phase), treat insert as idempotent and return its id.
+	// Allows phase re-entry (e.g. execute after verify failure) without
+	// creating duplicate in-flight rows.
+	if (params.status === "started" || params.status === "retried") {
+		const existing = db
+			.prepare(
+				`SELECT id FROM phase_run
+			 WHERE slice_id = ? AND phase = ? AND status IN ('started', 'retried')
+			 ORDER BY rowid DESC LIMIT 1`,
+			)
+			.get(params.sliceId, params.phase) as { id: string } | undefined;
+		if (existing) return existing.id;
+	}
+
 	const id = randomUUID();
 	db.prepare(
 		"INSERT INTO phase_run (id, slice_id, phase, status, started_at) VALUES (?, ?, ?, ?, ?)",
