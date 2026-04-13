@@ -1,9 +1,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import type { TffContext } from "../common/context.js";
-import { getEventLog, getMilestones, getProject, getSlices } from "../common/db.js";
+import { type TffContext, findSliceByLabel, getDb } from "../common/context.js";
+import { getEventLog } from "../common/db.js";
 import { formatDuration } from "../common/format.js";
-import type { Slice } from "../common/types.js";
 import { findActiveSlice } from "../orchestrator.js";
 
 export function handleLogs(
@@ -38,30 +37,13 @@ export function handleLogs(
 	return lines.join("\n");
 }
 
-function findSliceByLabel(db: Database.Database, label: string): Slice | null {
-	const match = label.match(/^M(\d+)-S(\d+)$/i);
-	if (!match || !match[1] || !match[2]) return null;
-	const mNum = Number.parseInt(match[1], 10);
-	const sNum = Number.parseInt(match[2], 10);
-	const project = getProject(db);
-	if (!project) return null;
-	const milestones = getMilestones(db, project.id);
-	const milestone = milestones.find((m) => m.number === mNum);
-	if (!milestone) return null;
-	const slices = getSlices(db, milestone.id);
-	return slices.find((s) => s.number === sNum) ?? null;
-}
-
 export async function runLogs(
 	pi: ExtensionAPI,
 	ctx: TffContext,
 	_uiCtx: ExtensionCommandContext | null,
 	args: string[],
 ): Promise<void> {
-	if (!ctx.db) {
-		throw new Error("TFF database not initialized. Run `/tff new` to set up the project.");
-	}
-	const db = ctx.db;
+	const db = getDb(ctx);
 	const rawArgs = args.join(" ").trim();
 	const jsonFlag = rawArgs.includes("--json");
 	const label = rawArgs.replace("--json", "").trim();

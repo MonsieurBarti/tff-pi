@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import type { TffContext } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
 import { getMilestones, getProject, getSlices } from "../common/db.js";
 
 export function handleHealth(db: Database.Database): string {
@@ -26,10 +26,7 @@ export async function runHealth(
 ): Promise<void> {
 	let msg: string;
 	try {
-		if (!ctx.db) {
-			throw new Error("TFF database not initialized. Run `/tff new` to set up the project.");
-		}
-		msg = handleHealth(ctx.db);
+		msg = handleHealth(getDb(ctx));
 	} catch (err) {
 		msg = `TFF health: NOT OK — ${err instanceof Error ? err.message : String(err)}`;
 	}

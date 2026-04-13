@@ -1,7 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import type Database from "better-sqlite3";
 import { handleCompleteMilestone } from "./commands/complete-milestone.js";
 import { validateDiscuss } from "./commands/discuss.js";
 import { validateExecute } from "./commands/execute.js";
@@ -16,15 +15,21 @@ import { validateShip } from "./commands/ship.js";
 import { validateVerify } from "./commands/verify.js";
 import { initTffDirectory, tffPath } from "./common/artifacts.js";
 import { createCheckpoint } from "./common/checkpoint.js";
-import { type TffContext, createTffContext } from "./common/context.js";
+import {
+	type TffContext,
+	createTffContext,
+	findMilestoneByLabel,
+	findSliceByLabel,
+	getDb,
+	resolveMilestone,
+	resolveSlice,
+} from "./common/context.js";
 import {
 	applyMigrations,
 	getActiveMilestone,
 	getMilestone,
-	getMilestones,
 	getProject,
 	getSlice,
-	getSlices,
 	openDatabase,
 } from "./common/db.js";
 import { DISCUSS_GATES, unlockGate } from "./common/discuss-gates.js";
@@ -47,14 +52,7 @@ import {
 import { VALID_SUBCOMMANDS, isValidSubcommand, parseSubcommand } from "./common/router.js";
 import { releaseLock } from "./common/session-lock.js";
 import { DEFAULT_SETTINGS, loadSettings } from "./common/settings.js";
-import {
-	type Phase,
-	SLICE_STATUSES,
-	type Slice,
-	TIERS,
-	milestoneLabel,
-	sliceLabel,
-} from "./common/types.js";
+import { type Phase, SLICE_STATUSES, TIERS, milestoneLabel, sliceLabel } from "./common/types.js";
 import { getWorktreePath } from "./common/worktree.js";
 import { registerLifecycleHooks } from "./lifecycle.js";
 import { findActiveSlice, verifyPhaseArtifacts } from "./orchestrator.js";
@@ -75,56 +73,11 @@ import { handleWriteVerification } from "./tools/write-verification.js";
 // Helper functions
 // ---------------------------------------------------------------------------
 
-function getDb(ctx: TffContext): Database.Database {
-	if (!ctx.db) {
-		throw new Error("TFF database not initialized. Run `/tff new` to set up the project.");
-	}
-	return ctx.db;
-}
-
 function initDb(ctx: TffContext, root: string): void {
 	initTffDirectory(root);
 	const dbPath = tffPath(root, "state.db");
 	ctx.db = openDatabase(dbPath);
 	applyMigrations(ctx.db);
-}
-
-function findSliceByLabel(db: Database.Database, label: string): Slice | null {
-	const match = label.match(/^M(\d+)-S(\d+)$/i);
-	if (!match || !match[1] || !match[2]) return null;
-	const mNum = Number.parseInt(match[1], 10);
-	const sNum = Number.parseInt(match[2], 10);
-	const project = getProject(db);
-	if (!project) return null;
-	const milestones = getMilestones(db, project.id);
-	const milestone = milestones.find((m) => m.number === mNum);
-	if (!milestone) return null;
-	const slices = getSlices(db, milestone.id);
-	return slices.find((s) => s.number === sNum) ?? null;
-}
-
-function findMilestoneByLabel(
-	db: Database.Database,
-	label: string,
-): ReturnType<typeof getMilestones>[number] | null {
-	const match = label.match(/^M(\d+)$/i);
-	if (!match || !match[1]) return null;
-	const mNum = Number.parseInt(match[1], 10);
-	const project = getProject(db);
-	if (!project) return null;
-	const milestones = getMilestones(db, project.id);
-	return milestones.find((m) => m.number === mNum) ?? null;
-}
-
-function resolveSlice(db: Database.Database, ref: string): ReturnType<typeof getSlice> {
-	return findSliceByLabel(db, ref) ?? getSlice(db, ref);
-}
-
-function resolveMilestone(
-	db: Database.Database,
-	ref: string,
-): ReturnType<typeof getMilestones>[number] | null {
-	return findMilestoneByLabel(db, ref) ?? getMilestone(db, ref);
 }
 
 async function runHeavyPhase(

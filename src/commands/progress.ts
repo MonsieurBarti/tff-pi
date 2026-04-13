@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import type { TffContext } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
 import { getMilestones, getPhaseRuns, getProject, getSlices, getTasks } from "../common/db.js";
 import { formatDuration } from "../common/format.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
@@ -69,9 +69,6 @@ export async function runProgress(
 	_uiCtx: ExtensionCommandContext | null,
 	_args: string[],
 ): Promise<void> {
-	if (!ctx.db) {
-		throw new Error("TFF database not initialized. Run `/tff new` to set up the project.");
-	}
-	const result = handleProgress(ctx.db);
+	const result = handleProgress(getDb(ctx));
 	pi.sendUserMessage(result);
 }

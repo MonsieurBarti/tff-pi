@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import type { TffContext } from "../common/context.js";
+import { type TffContext, getDb } from "../common/context.js";
 import {
 	type PhaseRun,
 	getMilestones,
@@ -134,11 +134,8 @@ export async function runDoctor(
 ): Promise<void> {
 	let msg: string;
 	try {
-		if (!ctx.db) {
-			throw new Error("TFF database not initialized. Run `/tff new` to set up the project.");
-		}
 		const recover = args.includes("--recover");
-		const report = handleDoctor(ctx.db, { recover });
+		const report = handleDoctor(getDb(ctx), { recover });
 		msg = report.message;
 	} catch (err) {
 		msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
