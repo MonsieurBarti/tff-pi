@@ -1,7 +1,7 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { createCheckpoint } from "../common/checkpoint.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { resetTasksToOpen, updateSliceStatus } from "../common/db.js";
+import { resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
 import {
@@ -117,8 +117,6 @@ export const verifyPhase: PhaseModule = {
 					)
 					.join("\n");
 
-				// Roll back status so /tff next routes back to execute for retry
-				updateSliceStatus(db, slice.id, "executing");
 				resetTasksToOpen(db, slice.id);
 
 				pi.events.emit("tff:phase", {
