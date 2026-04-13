@@ -5,6 +5,7 @@ import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
+	getSlice,
 	insertMilestone,
 	insertPhaseRun,
 	insertProject,
@@ -13,7 +14,10 @@ import {
 	updatePhaseRun,
 	updateSlicePrUrl,
 } from "../../../src/common/db.js";
-import { computeSliceStatus } from "../../../src/common/derived-state.js";
+import {
+	computeSliceStatus,
+	reconcileSliceStatus,
+} from "../../../src/common/derived-state.js";
 
 let db: Database.Database;
 let root: string;
@@ -245,3 +249,30 @@ describe("computeSliceStatus — rule 6 (abandoned filtered)", () => {
 		expect(computeSliceStatus(db, root, sliceId)).toBe("planning");
 	});
 });
+
+describe("reconcileSliceStatus", () => {
+	it("writes the computed value to slice.status and returns it", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "plan",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		const result = reconcileSliceStatus(db, root, sliceId);
+		expect(result).toBe("planning");
+		expect(getSlice(db, sliceId)?.status).toBe("planning");
+	});
+
+	it("is a no-op when computed equals current cache", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "plan",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
+		const result = reconcileSliceStatus(db, root, sliceId);
+		expect(result).toBe("planning");
+	});
+});
+

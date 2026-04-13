@@ -176,3 +176,22 @@ export function computeSliceStatus(
 
 	return "created";
 }
+
+export function reconcileSliceStatus(
+	db: Database.Database,
+	root: string,
+	sliceId: string,
+): SliceStatus {
+	const current = getSlice(db, sliceId);
+	if (!current) throw new Error(`Slice not found: ${sliceId}`);
+	const computed = computeSliceStatus(db, root, sliceId);
+	if (computed !== current.status) {
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(computed, sliceId);
+		// Event emission happens in caller contexts that hold an event bus
+		// (event-logger for phase-driven writes, recover/migration for explicit
+		// reconciles). Keeping derived-state free of bus dependencies preserves
+		// testability as a pure DB+FS function.
+	}
+	return computed;
+}
+

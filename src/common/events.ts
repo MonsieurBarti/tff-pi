@@ -7,6 +7,8 @@ export const TFF_CHANNELS = [
 	"tff:review",
 	"tff:pipeline",
 	"tff:tool",
+	"tff:derived",
+	"tff:override",
 ] as const;
 
 export type TffChannel = (typeof TFF_CHANNELS)[number];
