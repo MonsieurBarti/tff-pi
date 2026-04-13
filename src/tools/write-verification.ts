@@ -5,6 +5,7 @@ import { writeArtifact } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
+import { auditVerification, formatAuditReport } from "../common/evidence-auditor.js";
 import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { verifyPhaseArtifacts } from "../orchestrator.js";
@@ -88,17 +89,54 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							isError: true,
 						};
 					}
-					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
-					if (!writeResult.isError) {
-						emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							root,
-							slice,
-							"verify",
-							verifyPhaseArtifacts,
-						);
+
+					const milestone = getMilestone(database, slice.milestoneId);
+					if (!milestone) {
+						return {
+							content: [{ type: "text", text: `Milestone not found for slice: ${slice.id}` }],
+							details: { sliceId: slice.id },
+							isError: true,
+						};
 					}
+
+					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
+					if (writeResult.isError) return writeResult;
+
+					const auditReport = auditVerification(database, slice.id, params.content);
+
+					const mLabel = milestoneLabel(milestone.number);
+					const sLabel = sliceLabel(milestone.number, slice.number);
+					const auditPath = `milestones/${mLabel}/slices/${sLabel}/VERIFICATION-AUDIT.md`;
+
+					if (auditReport.findings.length > 0) {
+						writeArtifact(root, auditPath, formatAuditReport(auditReport));
+					}
+
+					if (auditReport.hasMismatches) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `VERIFICATION.md written, but AUDIT found ${auditReport.summary.mismatch} mismatch(es). phase_complete NOT emitted. Correct the claims that don't match captured tool-call evidence and call tff_write_verification again.\n\n${formatAuditReport(auditReport)}`,
+								},
+							],
+							details: {
+								sliceId: slice.id,
+								path: auditPath,
+								mismatches: auditReport.summary.mismatch,
+							},
+							isError: true,
+						};
+					}
+
+					emitPhaseCompleteIfArtifactsReady(
+						pi,
+						database,
+						root,
+						slice,
+						"verify",
+						verifyPhaseArtifacts,
+					);
 					return writeResult;
 				} catch (err) {
 					return {
