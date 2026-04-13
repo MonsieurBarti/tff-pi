@@ -171,7 +171,7 @@ export function register(pi: ExtensionAPI, _ctx: TffContext): void {
 							content: [
 								{
 									type: "text",
-									text: "tff_ask_user requires an interactive PI session — no UI context available.",
+									text: "tff_ask_user requires an interactive PI session — no UI context available. Do not retry; tell the user that interactive input requires a terminal session.",
 								},
 							],
 							details: { questionIds: questions.map((q) => q.id) },
