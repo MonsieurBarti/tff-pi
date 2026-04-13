@@ -89,7 +89,7 @@ describe("computeSliceStatus — rule 1 (closed)", () => {
 		expect(computeSliceStatus(db, root, sliceId)).toBe("closed");
 	});
 
-	it("does NOT return 'closed' when ship completed but pr_url is null", () => {
+	it("returns 'shipping' when ship completed but pr_url is null", () => {
 		const runId = insertPhaseRun(db, {
 			sliceId,
 			phase: "ship",
@@ -97,7 +97,7 @@ describe("computeSliceStatus — rule 1 (closed)", () => {
 			startedAt: new Date().toISOString(),
 		});
 		updatePhaseRun(db, runId, { status: "completed", finishedAt: new Date().toISOString() });
-		expect(computeSliceStatus(db, root, sliceId)).not.toBe("closed");
+		expect(computeSliceStatus(db, root, sliceId)).toBe("shipping");
 	});
 
 	it("does NOT return 'closed' when pr_url is set but ship is not completed", () => {

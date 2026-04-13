@@ -14,6 +14,9 @@ import {
 // review, and ship have backward transitions today (all to executing). For
 // phases without a defined rollback, return the phase's own in-progress status
 // so the agent can retry it.
+
+// Mirrors the phase-ordering portion of `forwardPath` in
+// `./state-machine.ts:nextSliceStatus`. If that sequence changes, update both.
 const FORWARD_ORDER: Phase[] = [
 	"discuss",
 	"research",
@@ -25,6 +28,7 @@ const FORWARD_ORDER: Phase[] = [
 ];
 
 function nextPhaseFor(current: Phase, tier: Tier | null): Phase | null {
+	if (current === "ship-fix") return null; // side channel, not on the pipeline
 	if (current === "discuss") return tier === "S" ? "plan" : "research";
 	const idx = FORWARD_ORDER.indexOf(current);
 	if (idx < 0 || idx === FORWARD_ORDER.length - 1) return null;
@@ -55,6 +59,11 @@ function nextPhaseArtifactsReady(
 		case "execute":
 			return need("PLAN.md");
 		case "verify":
+			// Execute produces no dedicated artifact — the evidence that execute ran
+			// lives in phase_run + git changes, not a file. We use PLAN.md as the
+			// readiness signal because it is the precondition for BOTH execute and
+			// verify, and rule 2 (in-flight) covers the "execute actively running"
+			// case. This is not a copy-paste of the execute case.
 			return need("PLAN.md");
 		case "review":
 			return need("VERIFICATION.md");
