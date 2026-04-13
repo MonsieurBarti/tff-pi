@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { insertEventLog, insertPhaseRun, updatePhaseRun } from "./db.js";
+import { reconcileSliceStatus } from "./derived-state.js";
 import { type EventBus, type PhaseEvent, TFF_CHANNELS, type TffChannel } from "./events.js";
 
 export class EventLogger {
@@ -15,6 +16,7 @@ export class EventLogger {
 	constructor(
 		private db: Database.Database,
 		private logsDir: string,
+		private root: string,
 	) {
 		mkdirSync(logsDir, { recursive: true });
 	}
@@ -120,6 +122,30 @@ export class EventLogger {
 		appendFileSync(filePath, `${line}\n`);
 	}
 
+	private reconcileAndLog(sliceId: string): void {
+		try {
+			const before = this.db.prepare("SELECT status FROM slice WHERE id = ?").get(sliceId) as
+				| { status: string }
+				| undefined;
+			const after = reconcileSliceStatus(this.db, this.root, sliceId);
+			if (before && before.status !== after) {
+				insertEventLog(this.db, {
+					channel: "tff:derived",
+					type: "status_changed",
+					sliceId,
+					payload: JSON.stringify({
+						sliceId,
+						from: before.status,
+						to: after,
+						timestamp: new Date().toISOString(),
+					}),
+				});
+			}
+		} catch {
+			// Monitoring must not fail the pipeline.
+		}
+	}
+
 	private handlePhaseRun(event: PhaseEvent): void {
 		const key = `${event.sliceId}:${event.phase}`;
 
@@ -131,6 +157,7 @@ export class EventLogger {
 				startedAt: event.timestamp,
 			});
 			this.activePhaseRuns.set(key, id);
+			this.reconcileAndLog(event.sliceId);
 			return;
 		}
 
@@ -156,6 +183,7 @@ export class EventLogger {
 		if (Object.keys(metadata).length > 0) update.metadata = JSON.stringify(metadata);
 
 		updatePhaseRun(this.db, runId, update);
+		this.reconcileAndLog(event.sliceId);
 
 		if (event.type !== "phase_retried") {
 			this.activePhaseRuns.delete(key);

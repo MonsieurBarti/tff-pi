@@ -162,7 +162,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 
 				// Initialize monitoring
 				const logsDir = tffPath(root, "logs");
-				ctx.eventLogger = new EventLogger(ctx.db, logsDir);
+				ctx.eventLogger = new EventLogger(ctx.db, logsDir, root);
 				ctx.eventLogger.subscribe(pi.events);
 
 				if (uiCtx.hasUI) {

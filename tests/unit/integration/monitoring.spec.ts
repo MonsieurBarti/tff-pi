@@ -93,7 +93,7 @@ describe("monitoring integration", () => {
 	});
 
 	it("full pipeline: events flow through logger → DB + JSONL", () => {
-		const logger = new EventLogger(db, logsDir);
+		const logger = new EventLogger(db, logsDir, logsDir);
 		logger.subscribe(bus);
 
 		const base = makeBaseEvent(sliceId, sliceLabel, 1);
@@ -121,8 +121,8 @@ describe("monitoring integration", () => {
 		expect(run.status).toBe("completed");
 		expect(run.durationMs).toBe(4200);
 
-		// DB: event_log has 2 entries
-		const entries = getEventLog(db, sliceId);
+		// DB: event_log has 2 tff:phase entries (tff:derived entries from reconciler are also written)
+		const entries = getEventLog(db, sliceId, "tff:phase");
 		expect(entries).toHaveLength(2);
 		expect(entries[0]?.type).toBe("phase_start");
 		expect(entries[1]?.type).toBe("phase_complete");
