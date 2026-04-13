@@ -1,12 +1,70 @@
 import type Database from "better-sqlite3";
 import { readArtifact } from "./artifacts.js";
 import { getMilestone, getSlice } from "./db.js";
-import { type Phase, type SliceStatus, milestoneLabel, sliceLabel } from "./types.js";
+import {
+	type Phase,
+	type Slice,
+	type SliceStatus,
+	type Tier,
+	milestoneLabel,
+	sliceLabel,
+} from "./types.js";
 
 // Rollback targets reflect SLICE_TRANSITIONS (state-machine.ts:3): only verify,
 // review, and ship have backward transitions today (all to executing). For
 // phases without a defined rollback, return the phase's own in-progress status
 // so the agent can retry it.
+const FORWARD_ORDER: Phase[] = [
+	"discuss",
+	"research",
+	"plan",
+	"execute",
+	"verify",
+	"review",
+	"ship",
+];
+
+function nextPhaseFor(current: Phase, tier: Tier | null): Phase | null {
+	if (current === "discuss") return tier === "S" ? "plan" : "research";
+	const idx = FORWARD_ORDER.indexOf(current);
+	if (idx < 0 || idx === FORWARD_ORDER.length - 1) return null;
+	return FORWARD_ORDER[idx + 1] ?? null;
+}
+
+function nextPhaseArtifactsReady(
+	root: string,
+	slice: Slice,
+	milestoneNumber: number,
+	nextPhase: Phase,
+): boolean {
+	const mLabel = milestoneLabel(milestoneNumber);
+	const sLabel = sliceLabel(milestoneNumber, slice.number);
+	const base = `milestones/${mLabel}/slices/${sLabel}`;
+	const need = (n: string) => readArtifact(root, `${base}/${n}`) !== null;
+	const needMilestoneReq = () =>
+		readArtifact(root, `milestones/${mLabel}/REQUIREMENTS.md`) !== null;
+
+	switch (nextPhase) {
+		case "research":
+			return need("SPEC.md") && (need("REQUIREMENTS.md") || needMilestoneReq()) && !!slice.tier;
+		case "plan":
+			if (slice.tier === "S") {
+				return need("SPEC.md") && (need("REQUIREMENTS.md") || needMilestoneReq()) && !!slice.tier;
+			}
+			return need("SPEC.md") && (slice.tier === "SSS" ? need("RESEARCH.md") : true);
+		case "execute":
+			return need("PLAN.md");
+		case "verify":
+			return need("PLAN.md");
+		case "review":
+			return need("VERIFICATION.md");
+		case "ship":
+			return need("REVIEW.md");
+		default:
+			return false;
+	}
+}
+
 const ROLLBACK_TARGET: Record<Phase, SliceStatus | null> = {
 	discuss: "discussing",
 	research: "researching",
@@ -87,6 +145,19 @@ export function computeSliceStatus(
 	if (latest && latest.status === "failed") {
 		const target = ROLLBACK_TARGET[latest.phase as Phase];
 		if (target) return target;
+	}
+
+	// Rule 4: completed-waiting — forward if next phase preconditions satisfied,
+	// otherwise stay in current phase's in-progress state
+	if (latest && latest.status === "completed") {
+		const currentPhase = latest.phase as Phase;
+		const nextPhase = nextPhaseFor(currentPhase, slice.tier);
+		if (nextPhase && nextPhaseArtifactsReady(root, slice, milestone.number, nextPhase)) {
+			const mapped = PHASE_TO_IN_PROGRESS_STATUS[nextPhase];
+			if (mapped) return mapped;
+		}
+		const currentMapped = PHASE_TO_IN_PROGRESS_STATUS[currentPhase];
+		if (currentMapped) return currentMapped;
 	}
 
 	// Rule 7: no phase_runs fallback

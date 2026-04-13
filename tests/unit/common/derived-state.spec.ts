@@ -166,3 +166,45 @@ describe("computeSliceStatus — rule 7 (no phase_runs)", () => {
 		expect(computeSliceStatus(db, root, sliceId)).toBe("discussing");
 	});
 });
+
+function writeSliceArtifact(name: string, content = "content"): void {
+	const dir = join(root, ".tff", "milestones", mLabel, "slices", sLabel);
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, name), content);
+}
+
+function completePhase(phase: string): void {
+	const runId = insertPhaseRun(db, {
+		sliceId,
+		phase,
+		status: "started",
+		startedAt: new Date().toISOString(),
+	});
+	updatePhaseRun(db, runId, { status: "completed", finishedAt: new Date().toISOString() });
+}
+
+describe("computeSliceStatus — rule 4 (completed-waiting)", () => {
+	it("returns 'researching' when discuss completed + SPEC.md + REQUIREMENTS.md + tier set", () => {
+		writeSliceArtifact("SPEC.md");
+		writeSliceArtifact("REQUIREMENTS.md");
+		db.prepare("UPDATE slice SET tier = 'SS' WHERE id = ?").run(sliceId);
+		completePhase("discuss");
+		expect(computeSliceStatus(db, root, sliceId)).toBe("researching");
+	});
+
+	it("returns 'discussing' when discuss completed but SPEC.md is missing (walks back)", () => {
+		db.prepare("UPDATE slice SET tier = 'SS' WHERE id = ?").run(sliceId);
+		completePhase("discuss");
+		expect(computeSliceStatus(db, root, sliceId)).toBe("discussing");
+	});
+
+	it("returns 'executing' when plan completed + PLAN.md present", () => {
+		writeSliceArtifact("SPEC.md");
+		writeSliceArtifact("REQUIREMENTS.md");
+		writeSliceArtifact("PLAN.md");
+		db.prepare("UPDATE slice SET tier = 'S' WHERE id = ?").run(sliceId);
+		completePhase("discuss");
+		completePhase("plan");
+		expect(computeSliceStatus(db, root, sliceId)).toBe("executing");
+	});
+});
