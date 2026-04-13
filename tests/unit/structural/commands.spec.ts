@@ -11,4 +11,9 @@ describe("COMMANDS registry", () => {
 		const invalid = [...COMMANDS.keys()].filter((key) => !validSet.has(key));
 		expect(invalid).toEqual([]);
 	});
+
+	it("has a handler for every VALID_SUBCOMMANDS entry", () => {
+		const missing = VALID_SUBCOMMANDS.filter((sub) => !COMMANDS.has(sub));
+		expect(missing).toEqual([]);
+	});
 });

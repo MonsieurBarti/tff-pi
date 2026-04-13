@@ -1,6 +1,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { COMMANDS } from "./commands/registry.js";
 import { handleShipChanges } from "./commands/ship-changes.js";
 import { handleShipMerged } from "./commands/ship-merged.js";
 import { createCheckpoint } from "./common/checkpoint.js";
@@ -59,9 +60,9 @@ export default function tffExtension(pi: ExtensionAPI): void {
 			}));
 			return items.length > 0 ? items : null;
 		},
-		handler: async (args, uiCtx) => {
+		handler: async (input, uiCtx) => {
 			ctx.cmdCtx = uiCtx;
-			const { subcommand, args: _rest } = parseSubcommand(args);
+			const { subcommand, args } = parseSubcommand(input);
 
 			if (!isValidSubcommand(subcommand)) {
 				if (uiCtx.hasUI) {
@@ -73,14 +74,18 @@ export default function tffExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-			switch (subcommand) {
-				default: {
-					pi.sendUserMessage(
-						`\`/tff ${subcommand}\` is not yet implemented in this version of TFF.`,
-					);
-					break;
+			const handler = COMMANDS.get(subcommand);
+			if (!handler) {
+				// Should be unreachable thanks to the structural test in
+				// tests/unit/structural/commands.spec.ts, but belt-and-braces for
+				// runtime safety.
+				if (uiCtx.hasUI) {
+					uiCtx.ui.notify(`No handler registered for /tff ${subcommand}.`, "error");
 				}
+				return;
 			}
+
+			await handler(pi, ctx, uiCtx, args);
 		},
 	});
 
