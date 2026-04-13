@@ -6,28 +6,30 @@ import {
 
 let handle: MemoryServiceHandle | null = null;
 
-export async function initMemory(cwd: string): Promise<MemoryService | null> {
-	try {
-		if (!handle) {
-			handle = await createMemoryService({ cwd });
-		}
-		return handle.service;
-	} catch {
-		return null;
+/**
+ * Initialize hippo-memory for this project. hippo-memory is a required peer
+ * dependency — if `createMemoryService` throws, let the error propagate so
+ * session_start fails loudly rather than silently running without memory.
+ */
+export async function initMemory(cwd: string): Promise<MemoryService> {
+	if (!handle) {
+		handle = await createMemoryService({ cwd });
 	}
+	return handle.service;
 }
 
+/**
+ * Returns the memory service. Null only before `initMemory` has run
+ * (i.e., during module load, before session_start fires). After
+ * session_start completes, callers can treat this as non-null.
+ */
 export function getMemory(): MemoryService | null {
 	return handle?.service ?? null;
 }
 
 export async function shutdownMemory(): Promise<void> {
 	if (handle) {
-		try {
-			await handle.release();
-		} catch {
-			// best-effort
-		}
+		await handle.release();
 		handle = null;
 	}
 }

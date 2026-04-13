@@ -48,10 +48,11 @@ describe("memory singleton", () => {
 		expect(mockCreate).toHaveBeenCalledOnce();
 	});
 
-	it("returns null when createMemoryService throws", async () => {
+	it("propagates errors when createMemoryService throws", async () => {
+		// hippo-memory is a required peer dep — if init fails, session_start
+		// should fail loudly rather than running without memory.
 		mockCreate.mockRejectedValueOnce(new Error("no db"));
-		const m = await initMemory("/tmp/proj");
-		expect(m).toBeNull();
+		await expect(initMemory("/tmp/proj")).rejects.toThrow("no db");
 		expect(getMemory()).toBeNull();
 	});
 
@@ -68,7 +69,8 @@ describe("memory singleton", () => {
 		expect(mockRelease).toHaveBeenCalledOnce();
 	});
 
-	it("shutdownMemory swallows release errors", async () => {
+	it("shutdownMemory propagates release errors", async () => {
+		// No more defensive swallowing — if release fails, callers should see it.
 		const fakeService = { remember: vi.fn() };
 		mockRelease.mockRejectedValueOnce(new Error("release fail"));
 		mockCreate.mockResolvedValueOnce({
@@ -77,8 +79,7 @@ describe("memory singleton", () => {
 			shared: false,
 		});
 		await initMemory("/tmp/proj");
-		await expect(shutdownMemory()).resolves.toBeUndefined();
-		expect(getMemory()).toBeNull();
+		await expect(shutdownMemory()).rejects.toThrow("release fail");
 	});
 
 	it("works correctly with shared handle (shared: true, release is no-op)", async () => {

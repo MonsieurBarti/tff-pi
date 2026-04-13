@@ -131,7 +131,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 		}
 		ctx.projectRoot = root;
 
-		// Initialize hippo-memory (best-effort; null if not installed)
+		// hippo-memory is a required peer dep — initialize it eagerly.
 		await initMemory(root);
 
 		// Refresh ultra-compress active level from user's state store
