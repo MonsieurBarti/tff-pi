@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.2...tff-pi-v0.1.3) (2026-04-13)
+
+
+### Features
+
+* swap lightpanda-pi for camoufox-pi ([70031a9](https://github.com/MonsieurBarti/tff-pi/commit/70031a94cc2bebfae1fd881c254e4fcfdab58eab))
+* swap lightpanda-pi for camoufox-pi ([8830d20](https://github.com/MonsieurBarti/tff-pi/commit/8830d20aef215cda9f8e46b9a51b81ee25c2f84b))
+
 ## [0.1.2](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.1...tff-pi-v0.1.2) (2026-04-13)
 
 
