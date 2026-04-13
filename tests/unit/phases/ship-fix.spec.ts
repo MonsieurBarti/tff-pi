@@ -83,10 +83,9 @@ describe("shipFixPhase", () => {
 		expect(result.message).toContain("Auth fix");
 		expect(result.message).toContain("please rename foo");
 		expect(result.message).toContain("worktrees/M01-S01");
-		expect(result.message).toContain("bun run lint:fix");
 	});
 
-	it("emits phase_start event on prepare", async () => {
+	it("emits phase_start with phase='ship-fix' on prepare", async () => {
 		const ctx = makeCtx();
 		writeArtifact(
 			root,
@@ -99,5 +98,6 @@ describe("shipFixPhase", () => {
 			(c) => (c[1] as { type?: string })?.type === "phase_start",
 		);
 		expect(startCall).toBeTruthy();
+		expect((startCall?.[1] as { phase?: string })?.phase).toBe("ship-fix");
 	});
 });

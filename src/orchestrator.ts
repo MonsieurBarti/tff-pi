@@ -70,6 +70,7 @@ const PHASE_AGENT: Record<Phase, string> = {
 	verify: "verifier",
 	review: "code-reviewer",
 	ship: "executor",
+	"ship-fix": "inline-fixer",
 };
 
 const PHASE_TOOLS: Record<Phase, string[]> = {
@@ -93,6 +94,7 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 	verify: ["tff_write_verification", "tff_query_state", "tff-fff_find", "tff-fff_grep"],
 	review: ["tff_write_review", "tff_query_state", "tff-fff_find", "tff-fff_grep"],
 	ship: ["tff_query_state"],
+	"ship-fix": ["tff_ask_user", "tff_ship_apply_done"],
 };
 
 export function loadAgentResource(agentName: string): string {
@@ -285,6 +287,10 @@ export function predecessorPhase(target: Phase, tier?: Tier | null): Phase | nul
 			return "verify";
 		case "ship":
 			return "review";
+		case "ship-fix":
+			// Side-channel phase — not part of the discuss→ship pipeline, so it
+			// has no predecessor in the state machine sense.
+			return null;
 		default:
 			return null;
 	}

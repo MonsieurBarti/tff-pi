@@ -67,10 +67,10 @@ describe("handleShipApplyDone", () => {
 		const call = must(
 			emit.mock.calls.find((c) => (c[1] as { type?: string })?.type === "phase_complete"),
 		);
-		expect((call[1] as { phase?: string }).phase).toBe("ship");
+		expect((call[1] as { phase?: string }).phase).toBe("ship-fix");
 	});
 
-	it("emits phase_failed when rejected=true", () => {
+	it("emits phase_failed with phase='ship-fix' when rejected=true", () => {
 		const pi = makePi();
 		const result = handleShipApplyDone(pi, db, root, { sliceLabel: sliceId, rejected: true });
 		expect(result.success).toBe(true);
@@ -78,10 +78,10 @@ describe("handleShipApplyDone", () => {
 		expect(existsSync(feedbackPath)).toBe(false);
 
 		const emit = pi.events.emit as ReturnType<typeof vi.fn>;
-		const failedCall = emit.mock.calls.find(
-			(c) => (c[1] as { type?: string })?.type === "phase_failed",
+		const failedCall = must(
+			emit.mock.calls.find((c) => (c[1] as { type?: string })?.type === "phase_failed"),
 		);
-		expect(failedCall).toBeTruthy();
+		expect((failedCall[1] as { phase?: string }).phase).toBe("ship-fix");
 	});
 
 	it("returns not-found for unknown slice", () => {

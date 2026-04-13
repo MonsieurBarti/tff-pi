@@ -5,7 +5,6 @@ import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone } from "../common/db.js";
 import { type PhaseContext, runPhaseWithFreshContext } from "../common/phase.js";
 import { DEFAULT_SETTINGS } from "../common/settings.js";
-import type { Phase } from "../common/types.js";
 import { shipFixPhase } from "../phases/ship-fix.js";
 
 export function register(pi: ExtensionAPI, ctx: TffContext): void {
@@ -59,9 +58,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 					phaseModule: shipFixPhase,
 					phaseCtx,
 					cmdCtx: ctx.cmdCtx,
-					// ship-fix is a side-channel phase; reuse "ship" for the
-					// session lock so recovery tooling recognizes it.
-					phase: "ship" as Phase,
+					phase: "ship-fix",
 				});
 				if (!result.success) {
 					return {

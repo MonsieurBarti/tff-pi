@@ -7,7 +7,7 @@ import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import { type Phase, milestoneLabel, sliceLabel } from "../common/types.js";
+import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface ShipApplyDoneInput {
 	sliceLabel: string;
@@ -44,12 +44,10 @@ export function handleShipApplyDone(
 		}
 	}
 
-	// ship-fix is a side-channel phase; reuse the "ship" phase slot in events
-	// so recovery/monitoring tooling doesn't need a new value.
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(slice.id, sLabel, milestone.number),
 		type: input.rejected ? "phase_failed" : "phase_complete",
-		phase: "ship" as Phase,
+		phase: "ship-fix",
 	});
 
 	return {

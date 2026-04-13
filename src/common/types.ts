@@ -20,7 +20,15 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TIERS = ["S", "SS", "SSS"] as const;
 export type Tier = (typeof TIERS)[number];
 
-export type Phase = "discuss" | "research" | "plan" | "execute" | "verify" | "review" | "ship";
+export type Phase =
+	| "discuss"
+	| "research"
+	| "plan"
+	| "execute"
+	| "verify"
+	| "review"
+	| "ship"
+	| "ship-fix";
 export const ALL_PHASES: Phase[] = [
 	"discuss",
 	"research",
@@ -29,6 +37,7 @@ export const ALL_PHASES: Phase[] = [
 	"verify",
 	"review",
 	"ship",
+	"ship-fix",
 ];
 
 export interface Project {
