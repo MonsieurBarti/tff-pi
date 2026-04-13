@@ -88,9 +88,9 @@ describe("tool registry consistency", () => {
 	const registered = extractRegisteredTools(REGISTRATION_SRC);
 	const resources = collectMarkdown(RESOURCES_DIR);
 
-	// tff-fff_* tools come from an external extension (fff) and are never
+	// Tools from external PI extensions (fff, camoufox) are never
 	// registered in this repo's index.ts. Exclude them from the assertion.
-	const EXTERNAL_PREFIXES = ["tff-fff_"];
+	const EXTERNAL_PREFIXES = ["tff-fff_", "tff-search_", "tff-fetch_"];
 
 	it("registers at least the core writer tools", () => {
 		const expected = [
