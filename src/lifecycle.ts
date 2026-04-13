@@ -20,10 +20,59 @@ import { getGitRoot } from "./common/git.js";
 import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
-import { isLockStale, readLock } from "./common/session-lock.js";
+import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import { checkForUpdates } from "./update-check.js";
+
+/**
+ * Crash-recovery scan executed on cold startup. If the previous session left a
+ * stale (or missing) lock and there is a stuck slice in the DB, surface a
+ * recovery briefing to the user and log the crash to hippo-memory. Invoked
+ * only when `event.reason === "startup"` so phase transitions (reason="new")
+ * don't misflag in-flight slices. Best-effort: any internal failure is
+ * swallowed so a broken scan can't block the rest of session_start.
+ */
+async function maybeRunCrashRecoveryScan(
+	pi: ExtensionAPI,
+	ctx: TffContext,
+	root: string,
+	lock: SessionLock | null,
+): Promise<void> {
+	try {
+		const lockIsStale = lock && isLockStale(lock);
+		const needsScan = lockIsStale || !lock;
+		if (!needsScan || !ctx.db) return;
+
+		const stuck = scanForStuckSlices(ctx.db);
+		if (stuck.length === 0) return;
+		const stuckSlice = stuck[0];
+		if (!stuckSlice) return;
+
+		const milestone = getMilestone(ctx.db, stuckSlice.milestoneId);
+		if (!milestone) return;
+
+		const diagnosis = diagnoseRecovery(root, ctx.db, stuckSlice.id, milestone.number);
+		const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
+		pi.sendUserMessage(briefing, { deliverAs: "steer" });
+
+		// Log crash to hippo-memory (best-effort)
+		const memory = getMemory();
+		if (memory) {
+			try {
+				await memory.remember({
+					content: `Crash during ${diagnosis.status} phase on ${diagnosis.sliceLabel}. Classification: ${diagnosis.classification}. Lock timestamp: ${lock?.timestamp ?? "unknown"}.`,
+					tags: ["tff-crash", "recovery", diagnosis.status],
+					kind: "observed",
+				});
+			} catch {
+				// best-effort
+			}
+		}
+	} catch {
+		// Best-effort — don't crash on recovery scan failure
+	}
+}
 
 /**
  * Wires all three session lifecycle hooks: session_start (project init,
@@ -111,48 +160,14 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				// fff-pi bridge: enriches plan/execute phase prompts with related files.
 				ctx.fffBridge = await initFffBridge(root);
 
-				// --- Crash recovery scan (cold startup only) ---
-				// Phase transitions fire session_start with reason="new" while a
-				// slice is legitimately mid-flow (status=planning/executing/etc.)
-				// and the lock was just released. Running the scan here would
-				// flag the in-flight slice as stuck AND call sendUserMessage
-				// after we just triggered a turn via sendMessage — the agent is
-				// now streaming, sendUserMessage has no deliverAs, and PI
-				// reports "Extension <runtime> error: Agent is already processing".
-				try {
-					const lock = readLock(root);
-					const lockIsStale = lock && isLockStale(lock);
-					const needsScan = event.reason === "startup" && (lockIsStale || !lock);
-					if (needsScan && ctx.db) {
-						const stuck = scanForStuckSlices(ctx.db);
-						if (stuck.length > 0) {
-							const stuckSlice = stuck[0];
-							if (stuckSlice) {
-								const milestone = getMilestone(ctx.db, stuckSlice.milestoneId);
-								if (milestone) {
-									const diagnosis = diagnoseRecovery(root, ctx.db, stuckSlice.id, milestone.number);
-									const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
-									pi.sendUserMessage(briefing, { deliverAs: "steer" });
-
-									// Log crash to hippo-memory (best-effort)
-									const memory = getMemory();
-									if (memory) {
-										try {
-											await memory.remember({
-												content: `Crash during ${diagnosis.status} phase on ${diagnosis.sliceLabel}. Classification: ${diagnosis.classification}. Lock timestamp: ${lock?.timestamp ?? "unknown"}.`,
-												tags: ["tff-crash", "recovery", diagnosis.status],
-												kind: "observed",
-											});
-										} catch {
-											// best-effort
-										}
-									}
-								}
-							}
-						}
-					}
-				} catch {
-					// Best-effort — don't crash on recovery scan failure
+				// Crash-recovery scan runs only on cold startup. Phase transitions
+				// fire session_start with reason="new" while a slice is legitimately
+				// mid-flow (status=planning/executing/etc.); running the scan there
+				// would flag the in-flight slice as stuck AND call sendUserMessage
+				// after we just triggered a turn via sendMessage — PI would then
+				// report "Agent is already processing".
+				if (event.reason === "startup") {
+					await maybeRunCrashRecoveryScan(pi, ctx, root, readLock(root));
 				}
 			} catch (err) {
 				ctx.initError = err instanceof Error ? err.message : String(err);
