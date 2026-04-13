@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,6 +50,64 @@ describe("runPhaseWithFreshContext", () => {
 		expect(mockModule.prepare).not.toHaveBeenCalled();
 	});
 
+	it("writes pending message to disk BEFORE scheduling newSession", async () => {
+		const { readPendingMessage } = await import("../../../src/common/phase.js");
+
+		const newSessionMock = makeNewSessionMock({ cancelled: false });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
+		let messageAtNewSession: string | null = null;
+		newSessionMock.mockImplementation(async () => {
+			// Snapshot disk state at the moment newSession is called
+			messageAtNewSession = readPendingMessage(root);
+			return { cancelled: false };
+		});
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
+		};
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
+
+		const result = await runPhaseWithFreshContext({
+			phaseModule: mockModule,
+			phaseCtx: mockCtx,
+			cmdCtx: mockCmdCtx,
+			phase: "execute",
+		});
+
+		expect(mockModule.prepare).toHaveBeenCalledOnce();
+		// Return must be synchronous wrt newSession — the whole point of the
+		// fire-and-forget fix is that the handler returns BEFORE newSession
+		// actually fires, so PI can settle the current session.
+		expect(newSessionMock).not.toHaveBeenCalled();
+		expect(result.success).toBe(true);
+		// Wait one tick for the scheduled setImmediate to fire.
+		await new Promise((r) => setImmediate(r));
+		expect(newSessionMock).toHaveBeenCalledOnce();
+		expect(messageAtNewSession).toBe("phase msg");
+	});
+
+	it("returns success optimistically even if newSession would report cancelled", async () => {
+		// Fire-and-forget means we can't observe cancellation. Pending message
+		// survives for /tff doctor to diagnose + clean up.
+		const { readPendingMessage } = await import("../../../src/common/phase.js");
+		const newSessionMock = makeNewSessionMock({ cancelled: true });
+		const mockCmdCtx = makeCmdCtx(newSessionMock);
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "phase msg" }),
+		};
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
+
+		const result = await runPhaseWithFreshContext({
+			phaseModule: mockModule,
+			phaseCtx: mockCtx,
+			cmdCtx: mockCmdCtx,
+			phase: "plan",
+		});
+
+		expect(result.success).toBe(true);
+		// Message stays on disk — doctor command owns recovery.
+		expect(readPendingMessage(root)).toBe("phase msg");
+	});
+
 	it("skips newSession when prepare returns no message", async () => {
 		const newSessionMock = makeNewSessionMock({ cancelled: false });
 		const mockCmdCtx = makeCmdCtx(newSessionMock);
@@ -95,6 +153,34 @@ describe("runPhaseWithFreshContext", () => {
 		expect(result.error).toBe("bad validation");
 	});
 
+	it("does NOT deadlock even if newSession never resolves (regression guard)", async () => {
+		// This is the core regression this module exists to prevent:
+		// awaiting newSession() inside a command handler deadlocks because
+		// PI cannot start a new session until the handler returns, but
+		// awaiting newSession here prevents returning. We proved this
+		// hung every `/tff next` post-plan in the wild. The fire-and-forget
+		// design guarantees the handler returns regardless.
+		const neverResolves = vi
+			.fn<NewSessionFn>()
+			.mockImplementation(() => new Promise<NewSessionResult>(() => {}));
+		const mockCmdCtx = makeCmdCtx(neverResolves);
+		const mockModule: PhaseModule = {
+			prepare: vi.fn().mockResolvedValue({ success: true, retry: false, message: "hi" }),
+		};
+		const mockCtx = { root, slice: { id: "s1" } } as unknown as PhaseContext;
+
+		const result = await runPhaseWithFreshContext({
+			phaseModule: mockModule,
+			phaseCtx: mockCtx,
+			cmdCtx: mockCmdCtx,
+			phase: "execute",
+		});
+
+		// Handler returns synchronously with success — pending message is on
+		// disk, newSession is scheduled, doctor handles any hang recovery.
+		expect(result.success).toBe(true);
+	});
+
 	it("releases lock even when prepare throws", async () => {
 		const { readLock } = await import("../../../src/common/session-lock.js");
 		const newSessionMock = makeNewSessionMock({ cancelled: false });
@@ -114,67 +200,5 @@ describe("runPhaseWithFreshContext", () => {
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("boom");
 		expect(readLock(root)).toBeNull();
-	});
-
-	it("awaits cmdCtx.newSession and delivers the prepared message via pi.sendUserMessage", async () => {
-		const testRoot = mkdtempSync(join(tmpdir(), "tff-await-"));
-		mkdirSync(join(testRoot, ".tff"), { recursive: true });
-		const newSessionMock = vi.fn<NewSessionFn>().mockResolvedValue({ cancelled: false });
-		const sendUserMessageMock = vi.fn();
-		const fakeCmdCtx = { newSession: newSessionMock, hasUI: false };
-		const fakePi = { sendUserMessage: sendUserMessageMock };
-		const phaseModule = {
-			prepare: async () => ({ success: true, retry: false, message: "go execute" }),
-		};
-
-		const result = await runPhaseWithFreshContext({
-			phaseModule,
-			// biome-ignore lint/suspicious/noExplicitAny: test stub
-			phaseCtx: { root: testRoot, slice: { id: "s1" }, pi: fakePi } as any,
-			// biome-ignore lint/suspicious/noExplicitAny: test stub
-			cmdCtx: fakeCmdCtx as any,
-			phase: "execute",
-		});
-
-		expect(result.success).toBe(true);
-		expect(newSessionMock).toHaveBeenCalledOnce();
-		expect(sendUserMessageMock).toHaveBeenCalledWith("go execute");
-		// newSession must complete BEFORE sendUserMessage fires (the order that
-		// triggers a turn in the new session, not the old one).
-		const newSessionOrder = newSessionMock.mock.invocationCallOrder[0] ?? 0;
-		const sendOrder = sendUserMessageMock.mock.invocationCallOrder[0] ?? 0;
-		expect(newSessionOrder).toBeLessThan(sendOrder);
-
-		rmSync(testRoot, { recursive: true, force: true });
-	});
-
-	it("propagates cancelled: true from newSession as a retryable failure and does not send the message", async () => {
-		const testRoot = mkdtempSync(join(tmpdir(), "tff-cancel-"));
-		mkdirSync(join(testRoot, ".tff"), { recursive: true });
-		const sendUserMessageMock = vi.fn();
-		const fakeCmdCtx = {
-			newSession: async () => ({ cancelled: true }),
-			hasUI: false,
-		};
-		const fakePi = { sendUserMessage: sendUserMessageMock };
-		const phaseModule = {
-			prepare: async () => ({ success: true, retry: false, message: "go" }),
-		};
-
-		const result = await runPhaseWithFreshContext({
-			phaseModule,
-			// biome-ignore lint/suspicious/noExplicitAny: test stub
-			phaseCtx: { root: testRoot, slice: { id: "s1" }, pi: fakePi } as any,
-			// biome-ignore lint/suspicious/noExplicitAny: test stub
-			cmdCtx: fakeCmdCtx as any,
-			phase: "execute",
-		});
-
-		expect(result.success).toBe(false);
-		expect(result.retry).toBe(true);
-		expect(result.error).toContain("cancelled");
-		expect(sendUserMessageMock).not.toHaveBeenCalled();
-
-		rmSync(testRoot, { recursive: true, force: true });
 	});
 });

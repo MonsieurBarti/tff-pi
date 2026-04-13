@@ -1,9 +1,48 @@
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import type { FffBridge } from "./fff-integration.js";
 import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
 import type { Phase, Slice } from "./types.js";
+
+/**
+ * Phase messages are stashed on disk because module-level state is not
+ * guaranteed to survive the extension reload triggered by `newSession()`.
+ * The session_start handler reads from here when `event.reason === "new"`.
+ */
+const PENDING_MESSAGE_FILE = "pending-phase-message.txt";
+
+function pendingMessagePath(root: string): string {
+	return join(root, ".tff", PENDING_MESSAGE_FILE);
+}
+
+export function writePendingMessage(root: string, message: string): void {
+	mkdirSync(join(root, ".tff"), { recursive: true });
+	writeFileSync(pendingMessagePath(root), message, "utf-8");
+}
+
+export function readPendingMessage(root: string): string | null {
+	const p = pendingMessagePath(root);
+	if (!existsSync(p)) return null;
+	try {
+		return readFileSync(p, "utf-8");
+	} catch {
+		return null;
+	}
+}
+
+export function clearPendingMessage(root: string): void {
+	const p = pendingMessagePath(root);
+	if (existsSync(p)) {
+		try {
+			unlinkSync(p);
+		} catch {
+			// best effort
+		}
+	}
+}
 
 export interface PhaseContext {
 	pi: ExtensionAPI;
@@ -45,26 +84,22 @@ interface FreshContextOpts {
 }
 
 /**
- * Runs a phase's prepare() in the current session, then opens a fresh PI
- * session and delivers the prepared prompt as the first user message, which
- * triggers the agent turn automatically.
+ * Runs a phase's prepare() in the current session, stashes the resulting
+ * prompt to disk, and schedules a fresh PI session to deliver it.
  *
- * Two-step handoff:
- *   1. `await cmdCtx.newSession()` — swaps to a clean session. Pi rebinds
- *      the extension instance during the await; module-level state in this
- *      extension is gone after resolve. Re-establish anything you need in
- *      the `session_start` hook.
- *   2. `phaseCtx.pi.sendUserMessage(message)` — `pi` is the ExtensionAPI
- *      handle that survives the rebind. `sendUserMessage` always triggers
- *      a new turn (unlike `SessionManager.appendMessage` inside a `setup`
- *      callback, which only pre-populates history and leaves the agent
- *      waiting for user input).
+ * **Critical: newSession() is fire-and-forget.** Awaiting it inside this
+ * command handler deadlocks — PI cannot tear down the current session
+ * until our handler returns, but awaiting newSession here prevents us
+ * from returning. Prior versions used `Promise.race(newSession, timeout)`
+ * which hung every `/tff next` post-plan in the wild (session.lock stayed
+ * held, pending-phase-message.txt stashed, no new jsonl, no timeout ever
+ * firing because the event loop was blocked by the unresolved handler
+ * promise).
  *
- * Earlier versions stashed the message to disk and fired newSession via
- * `setImmediate` to avoid a presumed deadlock — that workaround caused
- * silent no-ops when the captured ExtensionRunner was torn down before
- * setImmediate fired. The `setup` callback variant that followed it left
- * the agent waiting because `appendMessage` doesn't trigger a turn.
+ * Trade-off: we cannot surface newSession's cancellation/failure to the
+ * user directly — the current session is gone by the time newSession
+ * resolves. Failure recovery flows through `/tff doctor`, which reads
+ * the orphaned session.lock + pending-phase-message.txt.
  */
 export async function runPhaseWithFreshContext(
 	opts: FreshContextOpts,
@@ -82,6 +117,7 @@ export async function runPhaseWithFreshContext(
 
 	acquireLock(phaseCtx.root, { phase, sliceId: phaseCtx.slice.id });
 
+	// Run prepare in the LIVE session — db and pi are valid here.
 	let prepareResult: PhasePrepareResult;
 	try {
 		prepareResult = await phaseModule.prepare(phaseCtx);
@@ -94,29 +130,28 @@ export async function runPhaseWithFreshContext(
 		};
 	}
 
+	// If prepare failed or produced no message, we're done — no fresh
+	// session needed, release the lock and return.
 	if (!prepareResult.success || !prepareResult.message) {
 		releaseLock(phaseCtx.root);
 		return prepareResult;
 	}
 
-	// Release the lock before awaiting newSession — the new session must
-	// start without holding our lock.
+	// Stash the message on disk (module-level state is not guaranteed to
+	// survive the extension reload triggered by newSession). The
+	// session_start handler for the new session reads it back.
+	writePendingMessage(phaseCtx.root, prepareResult.message);
+
+	// Release the lock before scheduling — the new session starts without
+	// holding a lock (acquireLock happens only inside command handlers),
+	// and /tff doctor handles any rare orphaned state.
 	releaseLock(phaseCtx.root);
 
-	const message = prepareResult.message;
-	const { cancelled } = await cmdCtx.newSession();
-
-	if (cancelled) {
-		return {
-			success: false,
-			retry: true,
-			error: "New session was cancelled by a session_before_switch handler",
-		};
-	}
-
-	// Delivers + triggers a turn. Use pi (ExtensionAPI, survives rebind)
-	// rather than cmdCtx (ExtensionCommandContext, dies with the old session).
-	phaseCtx.pi.sendUserMessage(message);
+	// Schedule newSession to fire AFTER this handler returns. void discards
+	// the promise: we intentionally do not await it (see docblock).
+	setImmediate(() => {
+		void cmdCtx.newSession();
+	});
 
 	return { success: true, retry: false };
 }
