@@ -25,7 +25,7 @@ Record: question -> finding -> source file path
 
 ### 3. Search Web (if needed)
 For questions not answered by codebase:
-- Use lightpanda for docs, examples, best practices
+- Use camoufox for docs, examples, best practices (search + URL fetch)
 - Focus on library APIs, migration guides, known issues
 
 Record: question -> finding -> URL
