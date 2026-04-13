@@ -62,6 +62,7 @@
 		"@mariozechner/pi-ai": "*",
 		"@mariozechner/pi-coding-agent": "*",
 		"@mariozechner/pi-tui": "*",
+		"@plannotator/pi-extension": "*",
 		"@sinclair/typebox": "*",
 		"@the-forge-flow/fff-pi": "*",
 		"@the-forge-flow/gh-pi": "*",
