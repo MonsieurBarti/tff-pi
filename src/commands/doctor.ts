@@ -9,7 +9,8 @@ import {
 	getSlices,
 	recoverOrphanedPhaseRuns,
 } from "../common/db.js";
-import { sliceLabel } from "../common/types.js";
+import { computeSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
+import { type SliceStatus, sliceLabel } from "../common/types.js";
 
 /**
  * Milliseconds after which a phase_run still in 'started' state is considered
@@ -26,9 +27,17 @@ export interface StalledPhase {
 	ageMs: number;
 }
 
+export interface SliceDrift {
+	sliceId: string;
+	sliceLabel: string;
+	from: SliceStatus;
+	to: SliceStatus;
+}
+
 export interface DoctorReport {
 	ok: boolean;
 	stalledPhases: StalledPhase[];
+	drifts: SliceDrift[];
 	message: string;
 }
 
@@ -39,13 +48,14 @@ export interface DoctorReport {
  */
 export function handleDoctor(
 	db: Database.Database,
-	options: { recover?: boolean; now?: number } = {},
+	options: { recover?: boolean; now?: number; root?: string } = {},
 ): DoctorReport {
 	const project = getProject(db);
 	if (!project) {
 		return {
 			ok: true,
 			stalledPhases: [],
+			drifts: [],
 			message: "No project yet. Run `/tff new` to create one.",
 		};
 	}
@@ -71,11 +81,43 @@ export function handleDoctor(
 		}
 	}
 
+	const drifts: SliceDrift[] = [];
+	if (options.root) {
+		for (const m of milestones) {
+			const slices = getSlices(db, m.id);
+			for (const s of slices) {
+				if (s.status === "closed") continue;
+				const computed = computeSliceStatus(db, options.root, s.id);
+				if (computed !== s.status) {
+					drifts.push({
+						sliceId: s.id,
+						sliceLabel: sliceLabel(m.number, s.number),
+						from: s.status,
+						to: computed,
+					});
+					reconcileSliceStatus(db, options.root, s.id);
+				}
+			}
+		}
+	}
+
 	if (stalled.length === 0) {
+		const lines: string[] = [
+			`TFF doctor: ${drifts.length === 0 ? "OK" : "reconciled drift"}`,
+			`- ${milestones.length} milestone(s), no stalled phases.`,
+			`- Stall threshold: ${Math.round(STALLED_THRESHOLD_MS / 60000)} minutes.`,
+		];
+		if (drifts.length > 0) {
+			lines.push(`- Reconciled ${drifts.length} slice(s) with drifted status:`);
+			for (const d of drifts) {
+				lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
+			}
+		}
 		return {
 			ok: true,
 			stalledPhases: [],
-			message: `TFF doctor: OK\n- ${milestones.length} milestone(s), no stalled phases.\n- Stall threshold: ${Math.round(STALLED_THRESHOLD_MS / 60000)} minutes.`,
+			drifts,
+			message: lines.join("\n"),
 		};
 	}
 
@@ -84,14 +126,16 @@ export function handleDoctor(
 		return {
 			ok: true,
 			stalledPhases: stalled,
-			message: formatStalledReport(stalled, { recovered: count }),
+			drifts,
+			message: formatStalledReport(stalled, { recovered: count, drifts }),
 		};
 	}
 
 	return {
 		ok: false,
 		stalledPhases: stalled,
-		message: formatStalledReport(stalled),
+		drifts,
+		message: formatStalledReport(stalled, { drifts }),
 	};
 }
 
@@ -102,7 +146,10 @@ function isStalled(run: PhaseRun, now: number): boolean {
 	return now - started > STALLED_THRESHOLD_MS;
 }
 
-function formatStalledReport(stalled: StalledPhase[], opts: { recovered?: number } = {}): string {
+function formatStalledReport(
+	stalled: StalledPhase[],
+	opts: { recovered?: number; drifts?: SliceDrift[] } = {},
+): string {
 	const lines: string[] = [];
 	if (opts.recovered !== undefined) {
 		lines.push(`TFF doctor: recovered ${opts.recovered} stalled phase_run(s).`);
@@ -123,6 +170,16 @@ function formatStalledReport(stalled: StalledPhase[], opts: { recovered?: number
 	if (opts.recovered === undefined) {
 		lines.push("Run `/tff doctor --recover` to mark these as abandoned.");
 	}
+
+	const drifts = opts.drifts ?? [];
+	if (drifts.length > 0) {
+		lines.push("");
+		lines.push(`Reconciled ${drifts.length} slice(s) with drifted status:`);
+		for (const d of drifts) {
+			lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
+		}
+	}
+
 	return lines.join("\n");
 }
 
@@ -135,7 +192,8 @@ export async function runDoctor(
 	let msg: string;
 	try {
 		const recover = args.includes("--recover");
-		const report = handleDoctor(getDb(ctx), { recover });
+		const root = ctx.projectRoot ?? undefined;
+		const report = handleDoctor(getDb(ctx), root !== undefined ? { recover, root } : { recover });
 		msg = report.message;
 	} catch (err) {
 		msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
