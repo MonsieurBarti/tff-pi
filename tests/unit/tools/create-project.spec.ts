@@ -1,8 +1,10 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { handleInit } from "../../../src/commands/init.js";
 import { readArtifact } from "../../../src/common/artifacts.js";
 import { compressIfEnabled } from "../../../src/common/compress.js";
 import { applyMigrations, getProject, openDatabase } from "../../../src/common/db.js";
@@ -22,14 +24,24 @@ function createTestDb(): Database.Database {
 describe("handleCreateProject", () => {
 	let db: Database.Database;
 	let root: string;
+	let tffHome: string;
+	let savedTffHome: string | undefined;
 
 	beforeEach(() => {
+		savedTffHome = process.env.TFF_HOME;
+		tffHome = mkdtempSync(join(tmpdir(), "tff-home-create-test-"));
+		process.env.TFF_HOME = tffHome;
 		db = createTestDb();
 		root = mkdtempSync(join(tmpdir(), "tff-create-test-"));
+		execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+		handleInit(root);
 	});
 
 	afterEach(() => {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(tffHome, { recursive: true, force: true });
+		if (savedTffHome !== undefined) process.env.TFF_HOME = savedTffHome;
+		else process.env.TFF_HOME = undefined;
 	});
 
 	it("creates a project and returns success", () => {

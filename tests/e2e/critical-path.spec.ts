@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCompleteMilestone } from "../../src/commands/complete-milestone.js";
+import { handleInit } from "../../src/commands/init.js";
 import { createMilestone } from "../../src/commands/new-milestone.js";
 import { handleNew } from "../../src/commands/new.js";
 import { initTffDirectory, readArtifact, writeArtifact } from "../../src/common/artifacts.js";
@@ -78,6 +79,7 @@ vi.mock("../../src/common/git.js", () => ({
 	remoteBranchExists: vi.fn().mockReturnValue(true),
 	getDiff: vi.fn().mockReturnValue("diff --git a/foo.ts b/foo.ts\n+added line"),
 	gitEnv: vi.fn().mockReturnValue({}),
+	ensureGitignoreEntries: vi.fn(),
 }));
 
 vi.mock("../../src/orchestrator.js", async (importOriginal) => {
@@ -118,8 +120,14 @@ function makePi() {
 describe("E2E critical path", () => {
 	let db: Database.Database;
 	let root: string;
+	let tffHome: string;
+	let savedTffHome: string | undefined;
 
 	beforeEach(() => {
+		savedTffHome = process.env.TFF_HOME;
+		tffHome = mkdtempSync(join(tmpdir(), "tff-home-e2e-"));
+		process.env.TFF_HOME = tffHome;
+
 		mockExec.mockReset();
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
@@ -159,6 +167,9 @@ describe("E2E critical path", () => {
 
 	afterEach(() => {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(tffHome, { recursive: true, force: true });
+		if (savedTffHome !== undefined) process.env.TFF_HOME = savedTffHome;
+		else process.env.TFF_HOME = undefined;
 	});
 
 	// -----------------------------------------------------------------------
@@ -167,6 +178,7 @@ describe("E2E critical path", () => {
 	describe("full lifecycle", () => {
 		it("walks from project creation to milestone completion", async () => {
 			// Step 1: handleNew → creates project
+			handleInit(root);
 			const { projectId } = handleNew(db, root, {
 				projectName: "TestApp",
 				vision: "Build a test application",
