@@ -8,6 +8,7 @@ import { runDoctor } from "./doctor.js";
 import { runExecute } from "./execute.js";
 import { runHealth } from "./health.js";
 import { runHelp } from "./help.js";
+import { runInit } from "./init.js";
 import { runLogs } from "./logs.js";
 import { runNewMilestone } from "./new-milestone.js";
 import { runNew } from "./new.js";
@@ -40,6 +41,7 @@ export type CommandHandler = (
  */
 export const COMMANDS: Map<Subcommand, CommandHandler> = new Map();
 
+COMMANDS.set("init", runInit);
 COMMANDS.set("status", runStatus);
 COMMANDS.set("progress", runProgress);
 COMMANDS.set("logs", runLogs);

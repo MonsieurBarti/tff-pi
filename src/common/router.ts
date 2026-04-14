@@ -1,4 +1,5 @@
 export const VALID_SUBCOMMANDS = [
+	"init",
 	"new",
 	"new-milestone",
 	"discuss",

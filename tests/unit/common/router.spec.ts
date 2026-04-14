@@ -11,6 +11,7 @@ describe("router", () => {
 	describe("VALID_SUBCOMMANDS", () => {
 		it("contains all required subcommands", () => {
 			expect(VALID_SUBCOMMANDS).toEqual([
+				"init",
 				"new",
 				"new-milestone",
 				"discuss",
