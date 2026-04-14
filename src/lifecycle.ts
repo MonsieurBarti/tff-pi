@@ -156,7 +156,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
 			try {
 				ctx.db = openDatabase(dbPath);
-				applyMigrations(ctx.db);
+				applyMigrations(ctx.db, { root: ctx.projectRoot });
 				loadSettings(ctx, root);
 				ctx.initError = null;
 

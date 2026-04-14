@@ -34,7 +34,7 @@ function initDb(ctx: TffContext, root: string): void {
 	initTffDirectory(root);
 	const dbPath = tffPath(root, "state.db");
 	ctx.db = openDatabase(dbPath);
-	applyMigrations(ctx.db);
+	applyMigrations(ctx.db, { root });
 }
 
 export async function runNew(
