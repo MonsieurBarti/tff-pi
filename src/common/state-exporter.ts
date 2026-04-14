@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type Database from "better-sqlite3";
 import type { PhaseRun } from "./db.js";
 import type { Dependency, Milestone, Project, Slice, Task } from "./types.js";
@@ -171,4 +173,41 @@ export function exportSnapshot(db: Database.Database, opts?: { now?: () => Date 
 		dependency,
 		phase_run,
 	};
+}
+
+function sortedKeysReplacer(_key: string, value: unknown): unknown {
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const obj = value as Record<string, unknown>;
+		const sorted: Record<string, unknown> = {};
+		for (const k of Object.keys(obj).sort()) sorted[k] = obj[k];
+		return sorted;
+	}
+	return value;
+}
+
+export function serializeSnapshot(snap: Snapshot): string {
+	return `${JSON.stringify(snap, sortedKeysReplacer, 2)}\n`;
+}
+
+export function writeSnapshot(db: Database.Database, homeDir: string): string {
+	const path = join(homeDir, SNAPSHOT_FILENAME);
+	writeFileSync(path, serializeSnapshot(exportSnapshot(db)), "utf-8");
+	return path;
+}
+
+export function readSnapshot(path: string): Snapshot {
+	const raw = readFileSync(path, "utf-8");
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (e) {
+		throw new SnapshotSchemaError(`state-snapshot.json is not valid JSON: ${(e as Error).message}`);
+	}
+	const obj = parsed as Partial<Snapshot>;
+	if (obj.schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
+		throw new SnapshotSchemaError(
+			`state-snapshot.json schema v${obj.schemaVersion} not supported by this TFF build (v${SNAPSHOT_SCHEMA_VERSION}). Run: /tff init --rehydrate`,
+		);
+	}
+	return obj as Snapshot;
 }
