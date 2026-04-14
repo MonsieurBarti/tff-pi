@@ -157,15 +157,30 @@ export function applyMigrations(db: Database.Database, opts?: { root?: string })
 		// Without `root` we bump the version but skip the reconcile pass — this
 		// path exists for tests that seed their own state. Runtime callers
 		// (lifecycle.ts, commands/new.ts) always pass root.
-		if (opts?.root) {
-			const rows = db.prepare("SELECT id FROM slice WHERE status != 'closed'").all() as {
-				id: string;
-			}[];
-			for (const { id } of rows) {
-				reconcileSliceStatus(db, opts.root, id);
+		const root = opts?.root;
+		const runMigration = db.transaction(() => {
+			if (root) {
+				const rows = db.prepare("SELECT id FROM slice WHERE status != 'closed'").all() as {
+					id: string;
+				}[];
+				for (const { id } of rows) {
+					try {
+						reconcileSliceStatus(db, root, id);
+					} catch (err) {
+						// One slice failing to reconcile (e.g., missing milestone, corrupt
+						// artifact path) must not stall the whole migration. Log and
+						// continue; the next /tff doctor run will catch any remaining drift.
+						console.error(
+							`[m09-s4 migration] reconcile failed for slice ${id}: ${
+								err instanceof Error ? err.message : String(err)
+							}`,
+						);
+					}
+				}
 			}
-		}
-		db.prepare("INSERT INTO schema_version (version) VALUES (4)").run();
+			db.prepare("INSERT INTO schema_version (version) VALUES (4)").run();
+		});
+		runMigration();
 	}
 }
 

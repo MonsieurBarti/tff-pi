@@ -76,4 +76,46 @@ describe("schema v4 migration — reconcile all non-closed slices", () => {
 		const v = db.prepare("SELECT MAX(version) as v FROM schema_version").get() as { v: number };
 		expect(v.v).toBe(4);
 	});
+
+	it("survives per-slice reconcile failures and still bumps version", () => {
+		applyMigrations(db);
+		const projectId = insertProject(db, { name: "p", vision: "v" });
+		const milestoneId = insertMilestone(db, {
+			projectId,
+			number: 1,
+			name: "m",
+			branch: "m01",
+		});
+		const goodSliceId = insertSlice(db, { milestoneId, number: 1, title: "ok" });
+		const badSliceId = insertSlice(db, { milestoneId, number: 2, title: "bad" });
+
+		// Seed good slice with stale status (will reconcile to "executing")
+		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(goodSliceId);
+		insertPhaseRun(db, {
+			sliceId: goodSliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		// Corrupt bad slice so reconcile throws (invalid tier)
+		db.prepare("UPDATE slice SET tier = 'INVALID' WHERE id = ?").run(badSliceId);
+
+		// Downgrade to trigger re-migration
+		db.prepare("DELETE FROM schema_version WHERE version = 4").run();
+
+		// Silence the expected console.error during this test
+		const origError = console.error;
+		console.error = () => {};
+		try {
+			applyMigrations(db, { root });
+		} finally {
+			console.error = origError;
+		}
+
+		expect(getSlice(db, goodSliceId)?.status).toBe("executing");
+		// Bad slice row is still present (migration didn't rollback); its tier is invalid
+		// so getSlice would throw — just assert schema_version = 4
+		const v = db.prepare("SELECT MAX(version) as v FROM schema_version").get() as { v: number };
+		expect(v.v).toBe(4);
+	});
 });
