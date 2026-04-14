@@ -413,7 +413,7 @@ export async function pushWithRebaseRetry(
 ): Promise<PushOutcome> {
 	if (!hasOriginRemote(worktreeDir)) return "skipped-no-remote";
 
-	let hitUnresolvable = false;
+	let backupKind: "conflict" | "churn" | null = null;
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const push = runGit(worktreeDir, ["push", "origin", stateBranch]);
 		if (push.ok) return "pushed";
@@ -436,23 +436,23 @@ export async function pushWithRebaseRetry(
 		const rebase = runGit(worktreeDir, ["rebase", `origin/${stateBranch}`]);
 		if (!rebase.ok) {
 			runGit(worktreeDir, ["rebase", "--abort"]);
-			hitUnresolvable = true;
+			backupKind = "conflict";
 			break;
 		}
 		// loop and retry push
 	}
 
-	if (!hitUnresolvable) {
+	if (backupKind === null) {
 		// 3 attempts exhausted without a true conflict — remote is a moving target.
 		console.warn(`pushWithRebaseRetry: retry cap reached on ${stateBranch}`);
-		hitUnresolvable = true;
+		backupKind = "churn";
 	}
 
 	const ts = new Date().toISOString().replace(/[:.]/g, "-");
-	// Use "--conflict-" (double dash) instead of "/conflict-" to avoid a git ref
+	// Use "--<kind>-" (double dash) instead of "/<kind>-" to avoid a git ref
 	// namespace collision: refs/heads/tff-state/main and refs/heads/tff-state/main/*
 	// cannot coexist in the same repo.
-	const backupRef = `${stateBranch}--conflict-${ts}`;
+	const backupRef = `${stateBranch}--${backupKind}-${ts}`;
 	const saveRemoteTip = runGit(worktreeDir, [
 		"push",
 		"origin",
@@ -462,11 +462,19 @@ export async function pushWithRebaseRetry(
 		console.warn(`pushWithRebaseRetry: failed to save remote tip: ${saveRemoteTip.stderr}`);
 		// Still attempt force-push below so local progress is preserved.
 	}
+	// Default lease compares against refs/remotes/origin/<branch>, which we just
+	// refreshed via the fetch above.
 	const force = runGit(worktreeDir, ["push", "--force-with-lease", "origin", stateBranch]);
 	if (!force.ok) {
-		console.warn(`pushWithRebaseRetry: force-push failed: ${force.stderr}`);
-		return "skipped-no-remote";
+		console.warn(
+			`pushWithRebaseRetry: force-push failed but backup ref ${backupRef} holds the remote tip: ${force.stderr}`,
+		);
+		return "conflict-backup";
 	}
-	console.warn(`State conflict preserved at ${backupRef}. Local state pushed.`);
+	if (backupKind === "conflict") {
+		console.warn(`State conflict preserved at ${backupRef}. Local state pushed.`);
+	} else {
+		console.warn(`Remote churn; backup preserved at ${backupRef}. Local state pushed.`);
+	}
 	return "conflict-backup";
 }

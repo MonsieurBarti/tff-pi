@@ -780,6 +780,12 @@ describe("pushWithRebaseRetry — non-ff with clean rebase", () => {
 		const log = execSync("git log --oneline tff-state/main", { cwd: bob, encoding: "utf-8" });
 		expect(log).toContain("plan: M01-S03");
 		expect(log).toContain("plan: M01-S02");
+		// Rebase produces linear history: HEAD should have exactly one parent (not two).
+		const parents = execSync("git log -1 --format=%P tff-state/main", {
+			cwd: bob,
+			encoding: "utf-8",
+		}).trim();
+		expect(parents.split(" ")).toHaveLength(1);
 	});
 });
 
@@ -821,7 +827,7 @@ describe("pushWithRebaseRetry — backup branch on unresolvable conflict", () =>
 		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
 	});
 
-	it("creates tff-state/main/conflict-<ts> and force-pushes local", async () => {
+	it("creates tff-state/main--conflict-<ts> and force-pushes local", async () => {
 		// Both clones write conflicting non-JSON files (settings.yaml) so the
 		// default text merge conflicts (the snapshot merge driver handles JSON
 		// cleanly, so to force an unresolvable we use a non-JSON file).
