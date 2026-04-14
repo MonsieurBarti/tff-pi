@@ -31,7 +31,12 @@ export function sliceDir(root: string, milestoneNumber: number, sliceNumber: num
 }
 
 export function initTffDirectory(root: string): void {
-	mkdirSync(tffPath(root), { recursive: true });
+	// .tff/ itself is owned by handleInit (symlink to ~/.tff/{projectId}/).
+	// This function only initializes the subdirs and settings.yaml through the
+	// symlink. It is a no-op if the symlink (or dir) doesn't exist yet, so
+	// handleInit can safely call it after creating the symlink.
+	const tffRoot = tffPath(root);
+	if (!existsSync(tffRoot)) return;
 	mkdirSync(tffPath(root, "milestones"), { recursive: true });
 	mkdirSync(tffPath(root, "worktrees"), { recursive: true });
 	const settingsPath = tffPath(root, "settings.yaml");

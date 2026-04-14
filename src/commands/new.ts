@@ -4,9 +4,10 @@ import { initTffDirectory, tffPath, writeArtifact } from "../common/artifacts.js
 import { compressIfEnabled } from "../common/compress.js";
 import type { TffContext } from "../common/context.js";
 import { applyMigrations, getProject, insertProject, openDatabase } from "../common/db.js";
-import { createGitignore, getGitRoot, hasRemote, initRepo } from "../common/git.js";
+import { getGitRoot, hasRemote, initRepo } from "../common/git.js";
 import { initMonitoring } from "../common/monitoring-setup.js";
 import { DEFAULT_SETTINGS, type Settings, loadSettings } from "../common/settings.js";
+import { handleInit } from "./init.js";
 
 export interface NewProjectInput {
 	projectName: string;
@@ -49,7 +50,7 @@ export async function runNew(
 		initRepo(process.cwd());
 		root = getGitRoot() ?? process.cwd();
 	}
-	createGitignore(root);
+	handleInit(root); // M10-S01: bootstrap project home + symlink
 	ctx.projectRoot = root;
 	initDb(ctx, root);
 	loadSettings(ctx, root);
