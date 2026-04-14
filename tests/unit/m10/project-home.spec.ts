@@ -2,10 +2,12 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	readlinkSync,
 	rmSync,
 	statSync,
 	symlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +18,10 @@ import {
 	ensureProjectHomeDir,
 	isUuidV4,
 	projectHomeDir,
+	projectIdFilePath,
+	readProjectIdFile,
 	tffHomeRoot,
+	writeProjectIdFile,
 } from "../../../src/common/project-home.js";
 
 describe("project-home", () => {
@@ -168,5 +173,48 @@ describe("createTffSymlink", () => {
 		} finally {
 			rmSync(otherTarget, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("project-id file", () => {
+	let repo: string;
+
+	beforeEach(() => {
+		repo = mkdtempSync(join(tmpdir(), "tff-pid-test-"));
+	});
+
+	afterEach(() => {
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	it("projectIdFilePath returns <repo>/.tff-project-id", () => {
+		expect(projectIdFilePath(repo)).toBe(join(repo, ".tff-project-id"));
+	});
+
+	it("readProjectIdFile returns null when the file is missing", () => {
+		expect(readProjectIdFile(repo)).toBeNull();
+	});
+
+	it("writeProjectIdFile then readProjectIdFile round-trips", () => {
+		const id = "018f4a2b-3c5d-4e8f-9012-345678901234";
+		writeProjectIdFile(repo, id);
+		expect(readProjectIdFile(repo)).toBe(id);
+	});
+
+	it("writeProjectIdFile writes exactly one trailing newline", () => {
+		const id = "018f4a2b-3c5d-4e8f-9012-345678901234";
+		writeProjectIdFile(repo, id);
+		expect(readFileSync(join(repo, ".tff-project-id"), "utf-8")).toBe(`${id}\n`);
+	});
+
+	it("readProjectIdFile trims surrounding whitespace", () => {
+		writeFileSync(join(repo, ".tff-project-id"), "  018f4a2b-3c5d-4e8f-9012-345678901234  \n");
+		expect(readProjectIdFile(repo)).toBe("018f4a2b-3c5d-4e8f-9012-345678901234");
+	});
+
+	it("readProjectIdFile throws ProjectHomeError on invalid UUID content", () => {
+		writeFileSync(join(repo, ".tff-project-id"), "not-a-uuid\n");
+		expect(() => readProjectIdFile(repo)).toThrow(ProjectHomeError);
+		expect(() => readProjectIdFile(repo)).toThrow(/valid UUID v4/);
 	});
 });

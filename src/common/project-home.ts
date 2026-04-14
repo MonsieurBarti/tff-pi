@@ -1,4 +1,12 @@
-import { existsSync, lstatSync, mkdirSync, readlinkSync, symlinkSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	readlinkSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -56,6 +64,31 @@ export function createTffSymlink(repoRoot: string, projectId: string): void {
 		return;
 	}
 	symlinkSync(target, linkPath, "dir");
+}
+
+export function projectIdFilePath(repoRoot: string): string {
+	return join(repoRoot, ".tff-project-id");
+}
+
+export function readProjectIdFile(repoRoot: string): string | null {
+	let raw: string;
+	try {
+		raw = readFileSync(projectIdFilePath(repoRoot), "utf-8");
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw e;
+	}
+	const trimmed = raw.trim();
+	if (!isUuidV4(trimmed)) {
+		throw new ProjectHomeError(
+			`.tff-project-id does not contain a valid UUID v4: ${trimmed.slice(0, 40)}…`,
+		);
+	}
+	return trimmed;
+}
+
+export function writeProjectIdFile(repoRoot: string, projectId: string): void {
+	writeFileSync(projectIdFilePath(repoRoot), `${projectId}\n`, "utf-8");
 }
 
 function isDanglingLink(p: string): boolean {
