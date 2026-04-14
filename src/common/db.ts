@@ -309,9 +309,9 @@ function rowToDependency(row: DependencyRow): Dependency {
 
 export function insertProject(
 	db: Database.Database,
-	params: { name: string; vision: string },
+	params: { name: string; vision: string; id?: string },
 ): string {
-	const id = randomUUID();
+	const id = params.id ?? randomUUID();
 	db.prepare("INSERT INTO project (id, name, vision) VALUES (?, ?, ?)").run(
 		id,
 		params.name,
