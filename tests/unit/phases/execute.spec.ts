@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -21,10 +21,14 @@ import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
 
+// execute.prepare() no longer calls createWorktree/createCheckpoint directly —
+// those are deferred to session_start via the marker file. We still mock the
+// module so any accidental call is caught, and to provide getWorktreePath.
 vi.mock("../../../src/common/worktree.js", () => ({
 	createWorktree: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	worktreeExists: vi.fn().mockReturnValue(false),
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
+	ensureSliceWorktree: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 }));
 
 vi.mock("../../../src/common/checkpoint.js", () => ({
@@ -45,7 +49,13 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
 
-import { executePhase } from "../../../src/phases/execute.js";
+import { createCheckpoint } from "../../../src/common/checkpoint.js";
+import { createWorktree } from "../../../src/common/worktree.js";
+import {
+	type PendingWorktreeMarker,
+	executePhase,
+	pendingWorktreeMarkerPath,
+} from "../../../src/phases/execute.js";
 
 describe("executePhase", () => {
 	let db: Database.Database;
@@ -127,6 +137,47 @@ describe("executePhase", () => {
 		expect(msg).toContain("/tmp/fake-worktree"); // the mocked createWorktree path
 		expect(msg).toMatch(/cd\s+\/tmp\/fake-worktree/);
 		expect(msg).toMatch(/Do NOT write to the project root/i);
+	});
+
+	it("prepare() does NOT call createWorktree or createCheckpoint synchronously", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.prepare(ctx);
+		expect(vi.mocked(createWorktree)).not.toHaveBeenCalled();
+		expect(vi.mocked(createCheckpoint)).not.toHaveBeenCalled();
+	});
+
+	it("prepare() writes pending-execute-worktree.json marker", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.prepare(ctx);
+		const markerPath = pendingWorktreeMarkerPath(root);
+		expect(existsSync(markerPath)).toBe(true);
+		const marker = JSON.parse(readFileSync(markerPath, "utf-8")) as PendingWorktreeMarker;
+		expect(marker.sliceLabel).toBe("M01-S01");
+		expect(marker.milestoneBranch).toBe("milestone/M01");
 	});
 
 	it("fails with phase_failed when no tasks exist in DB", async () => {

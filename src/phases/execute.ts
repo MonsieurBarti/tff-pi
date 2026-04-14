@@ -1,7 +1,6 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readArtifact } from "../common/artifacts.js";
-import { createCheckpoint } from "../common/checkpoint.js";
 import { getTasksByWave, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
@@ -13,13 +12,29 @@ import {
 	sliceLabel,
 	taskLabel,
 } from "../common/types.js";
-import { createWorktree } from "../common/worktree.js";
+import { getWorktreePath } from "../common/worktree.js";
 import {
 	enrichContextWithFff,
 	loadPhaseResources,
 	predecessorPhase,
 	verifyPhaseArtifacts,
 } from "../orchestrator.js";
+
+export const PENDING_WORKTREE_MARKER = "pending-execute-worktree.json";
+
+export interface PendingWorktreeMarker {
+	sliceLabel: string;
+	milestoneBranch: string;
+}
+
+export function pendingWorktreeMarkerPath(root: string): string {
+	return join(root, ".tff", PENDING_WORKTREE_MARKER);
+}
+
+export function writePendingWorktreeMarker(root: string, marker: PendingWorktreeMarker): void {
+	mkdirSync(join(root, ".tff"), { recursive: true });
+	writeFileSync(pendingWorktreeMarkerPath(root), JSON.stringify(marker), "utf-8");
+}
 
 export const executePhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
@@ -36,8 +51,12 @@ export const executePhase: PhaseModule = {
 		closePredecessorIfReady(pi, db, root, slice, "execute", predecessorPhase, verifyPhaseArtifacts);
 
 		const milestoneBranch = `milestone/${mLabel}`;
-		const wtPath = createWorktree(root, sLabel, milestoneBranch);
-		createCheckpoint(wtPath, sLabel, "pre-execute");
+		// Worktree creation is deferred to the new session's session_start handler
+		// (via ensureSliceWorktree) so synchronous git work does not block the
+		// prepare() → newSession() transition. The path is deterministic and can
+		// be embedded in the message before the worktree materialises.
+		const wtPath = getWorktreePath(root, sLabel);
+		writePendingWorktreeMarker(root, { sliceLabel: sLabel, milestoneBranch });
 
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
 		const planMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PLAN.md`) ?? "";

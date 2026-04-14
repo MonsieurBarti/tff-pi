@@ -1,8 +1,9 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readPendingMessage, writePendingMessage } from "../../../src/common/phase.js";
+import { pendingWorktreeMarkerPath } from "../../../src/phases/execute.js";
 
 // ---------------------------------------------------------------------------
 // Heavy lifecycle dependencies — stubbed so the test can import lifecycle.ts
@@ -53,8 +54,13 @@ vi.mock("../../../src/common/session-lock.js", () => ({
 	isLockStale: vi.fn(() => false),
 }));
 
+vi.mock("../../../src/common/worktree.js", () => ({
+	ensureSliceWorktree: vi.fn(),
+}));
+
 import { getGitRoot } from "../../../src/common/git.js";
 import { scanForStuckSlices } from "../../../src/common/recovery.js";
+import { ensureSliceWorktree } from "../../../src/common/worktree.js";
 import { registerLifecycleHooks } from "../../../src/lifecycle.js";
 
 // ---------------------------------------------------------------------------
@@ -215,5 +221,96 @@ describe("lifecycle — session_start pending message delivery", () => {
 
 		// Called exactly once (via the "new" path, not twice)
 		expect(sendMessage).toHaveBeenCalledOnce();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Worktree marker handling
+// ---------------------------------------------------------------------------
+
+describe("lifecycle — pending-execute-worktree marker", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = join(
+			tmpdir(),
+			`tff-lifecycle-wt-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+		);
+		mkdirSync(join(root, ".tff"), { recursive: true });
+		vi.mocked(getGitRoot).mockReturnValue(root);
+		vi.mocked(scanForStuckSlices).mockReturnValue([]);
+		vi.mocked(ensureSliceWorktree).mockReturnValue("/fake/wt");
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+		vi.clearAllMocks();
+	});
+
+	function writeMarker(r: string, sliceLabel: string, milestoneBranch: string): void {
+		writeFileSync(
+			pendingWorktreeMarkerPath(r),
+			JSON.stringify({ sliceLabel, milestoneBranch }),
+			"utf-8",
+		);
+	}
+
+	it("session_start 'new' calls ensureSliceWorktree and deletes the marker", async () => {
+		writeMarker(root, "M01-S01", "milestone/M01");
+		writePendingMessage(root, "execute-prompt");
+
+		const { pi, trigger } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+
+		await trigger("session_start", { reason: "new" }, uiCtx);
+
+		expect(ensureSliceWorktree).toHaveBeenCalledWith(root, "M01-S01", "milestone/M01");
+		expect(existsSync(pendingWorktreeMarkerPath(root))).toBe(false);
+	});
+
+	it("session_start 'startup' calls ensureSliceWorktree when pending message present", async () => {
+		writeMarker(root, "M02-S03", "milestone/M02");
+		writePendingMessage(root, "execute-prompt-startup");
+
+		const { pi, trigger } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+
+		await trigger("session_start", { reason: "startup" }, uiCtx);
+
+		expect(ensureSliceWorktree).toHaveBeenCalledWith(root, "M02-S03", "milestone/M02");
+		expect(existsSync(pendingWorktreeMarkerPath(root))).toBe(false);
+	});
+
+	it("session_start 'new' leaves marker when ensureSliceWorktree throws", async () => {
+		writeMarker(root, "M01-S01", "milestone/M01");
+		writePendingMessage(root, "execute-prompt");
+
+		vi.mocked(ensureSliceWorktree).mockImplementationOnce(() => {
+			throw new Error("git failure");
+		});
+
+		const { pi, trigger } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+
+		await trigger("session_start", { reason: "new" }, uiCtx);
+
+		// Marker left intact for the next session to retry
+		expect(existsSync(pendingWorktreeMarkerPath(root))).toBe(true);
+	});
+
+	it("session_start 'new' ignores missing marker gracefully", async () => {
+		// No marker file
+		writePendingMessage(root, "plan-prompt");
+
+		const { pi, trigger } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+
+		await trigger("session_start", { reason: "new" }, uiCtx);
+
+		expect(ensureSliceWorktree).not.toHaveBeenCalled();
 	});
 });

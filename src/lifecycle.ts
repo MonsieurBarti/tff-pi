@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { tffPath } from "./common/artifacts.js";
@@ -22,7 +22,42 @@ import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
 import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
+import { ensureSliceWorktree } from "./common/worktree.js";
+import { type PendingWorktreeMarker, pendingWorktreeMarkerPath } from "./phases/execute.js";
 import { checkForUpdates } from "./update-check.js";
+
+/**
+ * If `execute.prepare()` wrote a pending-execute-worktree.json marker, consume
+ * it: call `ensureSliceWorktree` (idempotent) then delete the file. Best-effort
+ * — a failure here is logged but never blocks session_start.
+ */
+function maybeEnsureWorktreeFromMarker(root: string): void {
+	const markerPath = pendingWorktreeMarkerPath(root);
+	if (!existsSync(markerPath)) return;
+	let marker: PendingWorktreeMarker;
+	try {
+		marker = JSON.parse(readFileSync(markerPath, "utf-8")) as PendingWorktreeMarker;
+	} catch {
+		// Malformed marker — delete and move on
+		try {
+			unlinkSync(markerPath);
+		} catch {
+			// ignore
+		}
+		return;
+	}
+	try {
+		ensureSliceWorktree(root, marker.sliceLabel, marker.milestoneBranch);
+	} catch {
+		// best-effort: leave marker so next session can retry
+		return;
+	}
+	try {
+		unlinkSync(markerPath);
+	} catch {
+		// ignore
+	}
+}
 
 /**
  * Crash-recovery scan executed on cold startup. If the previous session left a
@@ -115,6 +150,9 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 			if (startupRoot) {
 				const pendingMessage = readPendingMessage(startupRoot);
 				if (pendingMessage) {
+					// Materialise the worktree before the agent sees the message so the
+					// path referenced in the prompt already exists on disk.
+					maybeEnsureWorktreeFromMarker(startupRoot);
 					clearPendingMessage(startupRoot);
 					try {
 						pi.sendMessage(
@@ -141,6 +179,9 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 		if (event.reason === "new") {
 			const earlyRoot = getGitRoot();
 			if (earlyRoot) {
+				// Materialise the worktree before the agent sees the message so the
+				// path referenced in the prompt already exists on disk.
+				maybeEnsureWorktreeFromMarker(earlyRoot);
 				const message = readPendingMessage(earlyRoot);
 				if (message) {
 					clearPendingMessage(earlyRoot);
