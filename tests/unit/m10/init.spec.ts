@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleInit } from "../../../src/commands/init.js";
+import { openDatabase } from "../../../src/common/db.js";
 import { ProjectHomeError, isUuidV4 } from "../../../src/common/project-home.js";
 
 describe("handleInit", () => {
@@ -92,5 +93,65 @@ describe("handleInit", () => {
 		} finally {
 			if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
 		}
+	});
+});
+
+describe("handleInit DB setup", () => {
+	let repo: string;
+	let home: string;
+	const savedTffHome = process.env.TFF_HOME;
+
+	beforeEach(() => {
+		repo = mkdtempSync(join(tmpdir(), "tff-init-db-repo-"));
+		home = mkdtempSync(join(tmpdir(), "tff-init-db-home-"));
+		process.env.TFF_HOME = home;
+		execSync("git init", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+	});
+
+	afterEach(() => {
+		rmSync(repo, { recursive: true, force: true });
+		rmSync(home, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+	});
+
+	it("creates state.db at the project home with migrations applied", () => {
+		const result = handleInit(repo);
+		const dbPath = join(result.projectHome, "state.db");
+		expect(existsSync(dbPath)).toBe(true);
+
+		const db = openDatabase(dbPath);
+		const tables = db
+			.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+			.all() as { name: string }[];
+		db.close();
+
+		const tableNames = tables.map((t) => t.name);
+		expect(tableNames).toContain("project");
+		expect(tableNames).toContain("milestone");
+		expect(tableNames).toContain("slice");
+	});
+
+	it("re-running handleInit does not destroy DB content", () => {
+		const first = handleInit(repo);
+		const dbPath = join(first.projectHome, "state.db");
+		const db = openDatabase(dbPath);
+		db.prepare("INSERT INTO project (id, name, vision) VALUES (?, ?, ?)").run(
+			"p-1",
+			"Test",
+			"Vision",
+		);
+		db.close();
+
+		handleInit(repo);
+
+		const db2 = openDatabase(dbPath);
+		const row = db2.prepare("SELECT name FROM project WHERE id = ?").get("p-1") as
+			| { name: string }
+			| undefined;
+		db2.close();
+		expect(row?.name).toBe("Test");
 	});
 });

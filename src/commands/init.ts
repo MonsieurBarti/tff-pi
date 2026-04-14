@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { initTffDirectory } from "../common/artifacts.js";
 import type { TffContext } from "../common/context.js";
+import { applyMigrations, openDatabase } from "../common/db.js";
 import { ensureGitignoreEntries, getGitRoot, initRepo } from "../common/git.js";
 import {
 	ProjectHomeError,
@@ -34,6 +36,14 @@ export function handleInit(repoRoot: string): InitResult {
 	if (created) writeProjectIdFile(repoRoot, projectId);
 	initTffDirectory(repoRoot);
 	ensureGitignoreEntries(repoRoot);
+
+	const dbPath = join(home, "state.db");
+	const db = openDatabase(dbPath);
+	try {
+		applyMigrations(db, { root: repoRoot });
+	} finally {
+		db.close();
+	}
 
 	return { projectId, projectHome: home, created };
 }
