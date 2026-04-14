@@ -105,3 +105,69 @@ describe("mergeSnapshots row-level", () => {
 		if (r.ok) expect(r.merged.project.map((p) => p.id)).toEqual(["a", "b", "c"]);
 	});
 });
+
+describe("mergeSnapshots field-level", () => {
+	const mkProj = (id: string, name = "A", vision = "V") => ({ id, name, vision, createdAt: "t" });
+
+	it("only-ours changes field — takes ours", () => {
+		const base = mkProj("p1", "A", "V");
+		const ours = { ...base, name: "B" };
+		const theirs = { ...base };
+		const r = mergeSnapshots(
+			makeSnap({ project: [base] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [ours] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [theirs] as unknown as Snapshot["project"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			const p = r.merged.project[0];
+			expect(p).toBeDefined();
+			expect(p?.name).toBe("B");
+		}
+	});
+
+	it("only-theirs changes field — takes theirs", () => {
+		const base = mkProj("p1", "A", "V");
+		const r = mergeSnapshots(
+			makeSnap({ project: [base] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [base] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [{ ...base, name: "B" }] as unknown as Snapshot["project"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			const p = r.merged.project[0];
+			expect(p).toBeDefined();
+			expect(p?.name).toBe("B");
+		}
+	});
+
+	it("both change to same value — take it, no conflict", () => {
+		const base = mkProj("p1", "A");
+		const r = mergeSnapshots(
+			makeSnap({ project: [base] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [{ ...base, name: "B" }] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [{ ...base, name: "B" }] as unknown as Snapshot["project"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			const p = r.merged.project[0];
+			expect(p).toBeDefined();
+			expect(p?.name).toBe("B");
+		}
+	});
+
+	it("both change to different free-text values — conflict", () => {
+		const base = mkProj("p1", "A");
+		const r = mergeSnapshots(
+			makeSnap({ project: [base] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [{ ...base, name: "B" }] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [{ ...base, name: "C" }] as unknown as Snapshot["project"] }),
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.conflicts).toEqual([
+				{ table: "project", id: "p1", field: "name", base: "A", ours: "B", theirs: "C" },
+			]);
+		}
+	});
+});

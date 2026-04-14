@@ -62,7 +62,7 @@ export function mergeSnapshots(base: Snapshot, ours: Snapshot, theirs: Snapshot)
 				}
 				const { row, rowConflicts } = mergeRow(t, id, rb, ro, rt);
 				conflicts.push(...rowConflicts);
-				out.push(row);
+				out.push(row as Row);
 			}
 		}
 		(merged[t] as unknown[]) = out;
@@ -72,12 +72,34 @@ export function mergeSnapshots(base: Snapshot, ours: Snapshot, theirs: Snapshot)
 }
 
 function mergeRow(
-	_table: Table,
-	_id: string,
-	_base: Record<string, unknown> | undefined,
-	ours: { id: string } & Record<string, unknown>,
-	_theirs: { id: string } & Record<string, unknown>,
-): { row: { id: string } & Record<string, unknown>; rowConflicts: Conflict[] } {
-	// Placeholder for Task 6 — real per-field merge logic lands next.
-	return { row: ours, rowConflicts: [] };
+	table: Table,
+	id: string,
+	base: Record<string, unknown> | undefined,
+	ours: Record<string, unknown>,
+	theirs: Record<string, unknown>,
+): { row: Record<string, unknown>; rowConflicts: Conflict[] } {
+	const fields = new Set<string>([...Object.keys(ours), ...Object.keys(theirs)]);
+	const merged: Record<string, unknown> = {};
+	const rowConflicts: Conflict[] = [];
+	for (const f of fields) {
+		const bo = base?.[f];
+		const oo = ours[f];
+		const to = theirs[f];
+		if (oo === to) {
+			merged[f] = oo;
+			continue;
+		}
+		if (base !== undefined && oo === bo) {
+			merged[f] = to;
+			continue;
+		}
+		if (base !== undefined && to === bo) {
+			merged[f] = oo;
+			continue;
+		}
+		// Status rule slot — implemented in Task 7.
+		rowConflicts.push({ table, id, field: f, base: bo, ours: oo, theirs: to });
+		merged[f] = oo; // keep something placeable; caller bails on conflict anyway
+	}
+	return { row: merged, rowConflicts };
 }
