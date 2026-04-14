@@ -11,7 +11,10 @@ pre-commit:
     typecheck:
       run: bun run typecheck
     test:
-      # Scrub GIT_* env so tests that do `execSync("git config ...", {cwd: tmpRepo})`
-      # can't leak writes into the outer repo (lefthook sets GIT_DIR at invocation).
-      # `env -u` fully unsets (empty-string is ambiguous for libgit).
-      run: env -u GIT_DIR -u GIT_WORK_TREE bun run test
+      # Scrub GIT_* env so tests that do `execFileSync("git ...", {cwd: tmpRepo})`
+      # can't leak writes into the outer repo. GIT_INDEX_FILE alone reproduces
+      # "ghost staging" (index entry in outer worktree, blob in temp repo's
+      # objects that vanishes on cleanup). The scrub list lives in
+      # scripts/scrub-git-env.sh; tests/setup.ts scrubs again at worker
+      # startup as a second line of defense.
+      run: scripts/scrub-git-env.sh bun run test

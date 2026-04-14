@@ -2,8 +2,31 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+// Strip every GIT_* variable that can redirect git's view of the repository.
+// Pre-commit hooks run with GIT_DIR, GIT_INDEX_FILE, GIT_PREFIX, GIT_AUTHOR_*
+// and GIT_EXEC_PATH set by the parent git process; a child `git add` with
+// cwd=tempRepo that inherits these will happily write the blob to the temp
+// repo's objects but the index entry to the *outer* worktree's index, which
+// manifests as "ghost staging" (index hash not in objects). Scrubbing only
+// GIT_DIR/GIT_WORK_TREE is insufficient — GIT_INDEX_FILE alone reproduces it.
+//
+// Keep in sync with:
+//   - scripts/scrub-git-env.sh (shell-layer scrub for lefthook)
+//   - tests/unit/common/git-env-scrub.spec.ts (regression guard with canary)
+const GIT_REDIRECT_ENV_VARS = [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_COMMON_DIR",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_PREFIX",
+] as const;
+
 export function gitEnv(): Record<string, string | undefined> {
-	return { ...process.env, GIT_DIR: undefined, GIT_WORK_TREE: undefined };
+	const env: Record<string, string | undefined> = { ...process.env };
+	for (const key of GIT_REDIRECT_ENV_VARS) delete env[key];
+	return env;
 }
 
 export function getGitRoot(cwd?: string): string | null {
@@ -119,6 +142,7 @@ export function ensureGitignoreEntries(cwd: string): void {
 	execFileSync("git", ["rm", "-r", "--cached", "--ignore-unmatch", ".tff", ".pi"], {
 		cwd,
 		stdio: "pipe",
+		env: gitEnv(),
 	});
 }
 
@@ -148,20 +172,24 @@ export function addRemote(url: string, cwd?: string): void {
 
 export function initialCommitAndPush(cwd?: string): void {
 	const dir = cwd ?? process.cwd();
+	const env = gitEnv();
 	execFileSync("git", ["add", ".gitignore"], {
 		cwd: dir,
 		encoding: "utf-8",
 		stdio: "pipe",
+		env,
 	});
 	execFileSync("git", ["commit", "-m", "chore: initial commit"], {
 		cwd: dir,
 		encoding: "utf-8",
 		stdio: "pipe",
+		env,
 	});
 	execFileSync("git", ["push", "-u", "origin", "HEAD"], {
 		cwd: dir,
 		encoding: "utf-8",
 		stdio: "pipe",
+		env,
 	});
 }
 
