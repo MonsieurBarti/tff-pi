@@ -103,12 +103,34 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
 	pi.on("session_start", async (event, uiCtx) => {
-		// On startup (fresh PI launch), proactively clear any leftover pending
-		// phase message — it's from a crashed session, not useful anymore.
+		// On startup (fresh PI launch), check for a disk-stashed pending phase
+		// message first. A pending message means PI froze during a newSession()
+		// call and was manually restarted — the message is still valid and must
+		// be delivered. If no pending message exists, fall through to the
+		// crash-recovery scan below. Delivering the pending message takes
+		// precedence over the generic recovery scan.
+		let pendingDelivered = false;
 		if (event.reason === "startup") {
 			const startupRoot = getGitRoot();
 			if (startupRoot) {
-				clearPendingMessage(startupRoot);
+				const pendingMessage = readPendingMessage(startupRoot);
+				if (pendingMessage) {
+					clearPendingMessage(startupRoot);
+					try {
+						pi.sendMessage(
+							{ customType: "tff-phase", content: pendingMessage, display: true },
+							{ triggerTurn: true },
+						);
+						pendingDelivered = true;
+					} catch (err) {
+						if (uiCtx.hasUI) {
+							uiCtx.ui.notify(
+								`Failed to deliver pending phase prompt: ${err instanceof Error ? err.message : String(err)}`,
+								"error",
+							);
+						}
+					}
+				}
 			}
 		}
 
@@ -172,7 +194,9 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				// would flag the in-flight slice as stuck AND call sendUserMessage
 				// after we just triggered a turn via sendMessage — PI would then
 				// report "Agent is already processing".
-				if (event.reason === "startup") {
+				// Skip the scan when we already delivered a pending-phase message:
+				// the pending message is a stronger signal than a generic stall.
+				if (event.reason === "startup" && !pendingDelivered) {
 					await maybeRunCrashRecoveryScan(pi, ctx, root, readLock(root));
 				}
 			} catch (err) {
