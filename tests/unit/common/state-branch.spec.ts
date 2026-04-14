@@ -525,6 +525,34 @@ describe("commitStateAtPhaseEnd — happy path", () => {
 		expect(msg).toBe("review: M01-S01 (slice complete)");
 	});
 
+	it("preserves committed snapshot bytes when only exportedAt differs", async () => {
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		const bytesBefore = execSync("git show tff-state/main:state-snapshot.json", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		// Second call with no DB change — the regex idempotency path must restore the
+		// original bytes so exportedAt (and therefore the full file) is unchanged.
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		const bytesAfter = execSync("git show tff-state/main:state-snapshot.json", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		expect(bytesAfter).toBe(bytesBefore);
+	});
+
 	it("missing log file is warned + skipped without failing the commit", async () => {
 		// no logs/ dir at all
 		await commitStateAtPhaseEnd({

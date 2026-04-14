@@ -299,6 +299,7 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 		}
 		// If the only change is exportedAt (a timestamp), restore the prior snapshot so
 		// git sees no diff and we avoid an empty commit.
+		// NOTE: covered by "preserves committed snapshot bytes when only exportedAt differs" test.
 		if (existingSnapshotRaw !== null) {
 			try {
 				const newRaw = readFileSync(snapshotPath, "utf-8");
