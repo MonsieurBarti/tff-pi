@@ -1,9 +1,34 @@
 // tests/helpers/git-state-fixtures.ts
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleInit } from "../../src/commands/init.js";
+
+/**
+ * Patch the tff-snapshot merge driver command in a repo so that `.ts` driver
+ * paths are invoked with `bun` instead of `node`. This is required in the test
+ * environment where the TypeScript source is executed directly by bun rather
+ * than from a compiled `.js` dist — `node` cannot load `.ts` files.
+ */
+function patchMergeDriverForBun(repoRoot: string): void {
+	let current: string;
+	try {
+		current = execFileSync(
+			"git",
+			["-C", repoRoot, "config", "--local", "merge.tff-snapshot.driver"],
+			{ encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+		).trim();
+	} catch {
+		return; // not configured — nothing to patch
+	}
+	// Only patch when the path ends with .ts (dev/test environment)
+	if (!current.includes(".ts'")) return;
+	const patched = current.replace(/^node /, "bun ");
+	execFileSync("git", ["-C", repoRoot, "config", "--local", "merge.tff-snapshot.driver", patched], {
+		stdio: "pipe",
+	});
+}
 
 export interface TwoClone {
 	home: string;
@@ -41,6 +66,7 @@ export async function makeTwoClone(): Promise<TwoClone> {
 	execSync("git commit --allow-empty -m 'initial'", { cwd: alice, stdio: "pipe" });
 	execSync(`git remote add origin ${origin}`, { cwd: alice, stdio: "pipe" });
 	const aliceRes = handleInit(alice);
+	patchMergeDriverForBun(alice);
 	execSync("git add -A", { cwd: alice, stdio: "pipe" });
 	execSync("git commit -m 'chore: init tff'", { cwd: alice, stdio: "pipe" });
 	execSync("git push -u origin main", { cwd: alice, stdio: "pipe" });
@@ -49,6 +75,7 @@ export async function makeTwoClone(): Promise<TwoClone> {
 	execSync('git config user.email "b@b.com"', { cwd: bob, stdio: "pipe" });
 	execSync('git config user.name "B"', { cwd: bob, stdio: "pipe" });
 	const bobRes = handleInit(bob);
+	patchMergeDriverForBun(bob);
 
 	const cleanup = () => {
 		rmSync(home, { recursive: true, force: true });
