@@ -493,4 +493,55 @@ describe("commitStateAtPhaseEnd — happy path", () => {
 		});
 		expect(worktrees).not.toContain("state-wt-");
 	});
+
+	it("freezeLogForSlice copies log file into tree and tags the commit message", async () => {
+		mkdirSync(join(home, projectId, "logs"), { recursive: true });
+		writeFileSync(join(home, projectId, "logs", "M01-S01.jsonl"), '{"phase":"plan"}\n');
+
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "review",
+			sliceLabel: "M01-S01",
+			freezeLogForSlice: "M01-S01",
+		});
+		const files = execSync("git ls-tree -r --name-only tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		})
+			.trim()
+			.split("\n");
+		expect(files).toContain("logs/M01-S01.jsonl");
+		const content = execSync("git show tff-state/main:logs/M01-S01.jsonl", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		expect(content).toBe('{"phase":"plan"}\n');
+		const msg = execSync("git log -1 --format=%s tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(msg).toBe("review: M01-S01 (slice complete)");
+	});
+
+	it("missing log file is warned + skipped without failing the commit", async () => {
+		// no logs/ dir at all
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "review",
+			sliceLabel: "M01-S01",
+			freezeLogForSlice: "M01-S01",
+		});
+		const files = execSync("git ls-tree -r --name-only tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		})
+			.trim()
+			.split("\n");
+		expect(files).not.toContain("logs/M01-S01.jsonl");
+		expect(files).toContain("state-snapshot.json");
+	});
 });
