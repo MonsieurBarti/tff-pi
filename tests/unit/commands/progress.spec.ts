@@ -137,9 +137,56 @@ describe("handleProgress", () => {
 		const result = handleProgress(db);
 		expect(result).toContain("Phases");
 		expect(result).toContain("Time");
-		expect(result).toContain("1/1");
+		// 1 distinct completed phase / 7 expected (null tier → full pipeline)
+		expect(result).toContain("1/7");
 		expect(result).toContain("1m30s");
 		expect(result).toContain("Pipeline:");
 		expect(result).toContain("elapsed");
+	});
+
+	it("does not inflate numerator when a phase is retried", () => {
+		insertProject(db, { name: "TFF", vision: "Vision" });
+		const project = must(getProject(db));
+		insertMilestone(db, {
+			projectId: project.id,
+			number: 1,
+			name: "Foundation",
+			branch: "milestone/M01",
+		});
+		const milestones = getMilestones(db, project.id);
+		insertSlice(db, { milestoneId: must(milestones[0]).id, number: 1, title: "Auth" });
+		const slices = getSlices(db, must(milestones[0]).id);
+		const sliceId = must(slices[0]).id;
+		// Set S tier so denominator is 6
+		db.prepare("UPDATE slice SET tier = 'S' WHERE id = ?").run(sliceId);
+
+		// Simulate execute retried twice — only 1 distinct completed phase
+		const run1Id = insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, run1Id, {
+			status: "completed",
+			finishedAt: new Date().toISOString(),
+			durationMs: 1000,
+		});
+		const run2Id = insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, run2Id, {
+			status: "completed",
+			finishedAt: new Date().toISOString(),
+			durationMs: 1000,
+		});
+
+		const result = handleProgress(db);
+		// 1 distinct completed phase (execute, deduplicated) / 6 expected for S tier
+		expect(result).toContain("1/6");
+		expect(result).not.toContain("2/6");
 	});
 });

@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { getMilestones, getPhaseRuns, getProject, getSlices, getTasks } from "../common/db.js";
 import { formatDuration } from "../common/format.js";
-import { milestoneLabel, sliceLabel } from "../common/types.js";
+import { PIPELINE_PHASE_ORDER, milestoneLabel, sliceLabel } from "../common/types.js";
 
 const NO_PROJECT_MSG = "No project found. Run `/tff new` to create one.";
 
@@ -37,8 +37,17 @@ export function handleProgress(db: Database.Database): string {
 						? "—"
 						: `${tasks.filter((t) => t.status === "closed").length}/${tasks.length}`;
 				const runs = getPhaseRuns(db, slice.id);
-				const completedPhases = runs.filter((r) => r.status === "completed").length;
-				const phaseStr = runs.length > 0 ? `${completedPhases}/${runs.length}` : "—";
+				// Numerator: distinct phases with at least one completed run (retries
+				// of the same phase don't inflate the count).
+				const completedPhaseSet = new Set(
+					runs.filter((r) => r.status === "completed").map((r) => r.phase),
+				);
+				const completedPhases = completedPhaseSet.size;
+				// Denominator: S-tier skips research (6 phases); all others use 7.
+				// Null tier (not yet set) defaults to the full 7-phase pipeline.
+				const expectedPhases =
+					slice.tier === "S" ? PIPELINE_PHASE_ORDER.length - 1 : PIPELINE_PHASE_ORDER.length;
+				const phaseStr = runs.length > 0 ? `${completedPhases}/${expectedPhases}` : "—";
 				const totalMs = runs.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
 				const timeStr = totalMs > 0 ? formatDuration(totalMs) : "—";
 				lines.push(
