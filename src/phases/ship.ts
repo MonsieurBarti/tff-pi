@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { cleanupCheckpoints } from "../common/checkpoint.js";
 import { compressIfEnabled } from "../common/compress.js";
 import { getSlices, resetTasksToOpen, updateSlicePrUrl } from "../common/db.js";
+import { overrideSliceStatus } from "../common/derived-state.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
@@ -23,14 +25,15 @@ export interface PreflightResult {
 /**
  * Cleanup after a slice PR is merged: remove worktree + checkpoints, delete
  * slice branch (local + remote), checkout the milestone branch and pull,
- * mark the slice closed. Shared between the `shipPhase` re-entry path and the
- * new `/tff ship-merged` slash command (user-attested merge, no PR fetch).
+ * and close the slice via override. Shared between the `shipPhase` re-entry
+ * path and `/tff ship-merged` (user-attested merge, no PR fetch).
  */
 export function finalizeMergedSlice(
-	_db: Database.Database,
+	db: Database.Database,
 	root: string,
 	slice: Slice,
 	milestoneNumber: number,
+	pi: ExtensionAPI,
 ): void {
 	const mLabel = milestoneLabel(milestoneNumber);
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
@@ -83,6 +86,17 @@ export function finalizeMergedSlice(
 			env,
 		});
 	}
+
+	// Close the slice via override: rule 1 (ship/completed + pr_url → closed)
+	// has been removed; closing is now explicit here.
+	overrideSliceStatus(db, slice.id, "closed", "ship-merged");
+	pi.events.emit("tff:override", {
+		...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+		type: "status_override",
+		from: slice.status,
+		to: "closed",
+		reason: "ship-merged",
+	});
 }
 
 export function preflightCheck(
@@ -187,7 +201,7 @@ export const shipPhase: PhaseModule = {
 				};
 
 				if (pr.state === "MERGED") {
-					finalizeMergedSlice(db, root, slice, milestoneNumber);
+					finalizeMergedSlice(db, root, slice, milestoneNumber, pi);
 					const next = suggestNextAction(db, slice.milestoneId);
 					pi.sendUserMessage(`PR merged. Slice closed.\n\n${next}`);
 					pi.events.emit("tff:phase", {

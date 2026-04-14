@@ -87,12 +87,8 @@ export async function handleShipMerged(
 		}
 	}
 
-	finalizeMergedSlice(db, root, slice, milestone.number);
+	finalizeMergedSlice(db, root, slice, milestone.number, pi);
 
-	// Rule 1 (ship/completed + pr_url → closed) requires slice.prUrl to be
-	// non-null. That invariant is met here because ship-merged is always
-	// called AFTER shipPhase created the PR and wrote prUrl via
-	// updateSlicePrUrl. The early check at line 39 also ensures slice exists.
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(slice.id, sLabel, milestone.number),
 		type: "phase_complete",
