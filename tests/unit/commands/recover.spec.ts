@@ -2,8 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeRecovery } from "../../../src/commands/recover.js";
 import {
 	applyMigrations,
@@ -17,12 +18,29 @@ import {
 import { gitEnv } from "../../../src/common/git.js";
 import { acquireLock, readLock } from "../../../src/common/session-lock.js";
 
+function makeMockPi(): ExtensionAPI {
+	return {
+		events: {
+			emit: vi.fn(),
+			on: vi.fn(),
+			once: vi.fn(),
+			off: vi.fn(),
+		},
+		sendUserMessage: vi.fn(),
+		commands: {
+			executeCommand: vi.fn(),
+		},
+	} as unknown as ExtensionAPI;
+}
+
 describe("recover command", () => {
 	let root: string;
 	let db: Database.Database;
 	let savedEnv: Record<string, string | undefined> = {};
+	let mockPi: ExtensionAPI;
 
 	beforeEach(() => {
+		mockPi = makeMockPi();
 		for (const key of Object.keys(process.env)) {
 			if (key.startsWith("GIT_")) {
 				savedEnv[key] = process.env[key];
@@ -61,11 +79,16 @@ describe("recover command", () => {
 		updateSliceStatus(db, sId, "executing");
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
-		const result = executeRecovery(db, root, {
-			action: "dismiss",
-			sliceId: sId,
-			milestoneNumber: 1,
-		});
+		const result = executeRecovery(
+			db,
+			root,
+			{
+				action: "dismiss",
+				sliceId: sId,
+				milestoneNumber: 1,
+			},
+			mockPi,
+		);
 
 		expect(result.success).toBe(true);
 		expect(readLock(root)).toBeNull();
@@ -85,11 +108,16 @@ describe("recover command", () => {
 		updateSliceStatus(db, sId, "executing");
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
-		const result = executeRecovery(db, root, {
-			action: "resume",
-			sliceId: sId,
-			milestoneNumber: 1,
-		});
+		const result = executeRecovery(
+			db,
+			root,
+			{
+				action: "resume",
+				sliceId: sId,
+				milestoneNumber: 1,
+			},
+			mockPi,
+		);
 
 		expect(result.success).toBe(true);
 		expect(result.message).toContain("execute");
@@ -108,11 +136,16 @@ describe("recover command", () => {
 		updateSliceStatus(db, sId, "executing");
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
-		const result = executeRecovery(db, root, {
-			action: "skip",
-			sliceId: sId,
-			milestoneNumber: 1,
-		});
+		const result = executeRecovery(
+			db,
+			root,
+			{
+				action: "skip",
+				sliceId: sId,
+				milestoneNumber: 1,
+			},
+			mockPi,
+		);
 
 		expect(result.success).toBe(true);
 		const after = getSlice(db, sId);
@@ -132,11 +165,16 @@ describe("recover command", () => {
 		updateSliceStatus(db, sId, "executing");
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
-		const result = executeRecovery(db, root, {
-			action: "rollback",
-			sliceId: sId,
-			milestoneNumber: 1,
-		});
+		const result = executeRecovery(
+			db,
+			root,
+			{
+				action: "rollback",
+				sliceId: sId,
+				milestoneNumber: 1,
+			},
+			mockPi,
+		);
 
 		expect(result.success).toBe(false);
 		expect(result.message).toContain("No checkpoint");
