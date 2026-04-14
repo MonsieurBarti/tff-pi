@@ -127,6 +127,20 @@ function toDependency(r: DependencyRow): SnapshotDependency {
 		toTaskId: r.to_task_id,
 	};
 }
+// SECURITY NOTE — free-text fields in phase_run.
+//   `error`, `feedback`, and `metadata` are populated from LLM outputs, shell
+//   errors, tool results, and structured phase payloads. They are NOT filtered
+//   and MAY contain secrets (API keys pasted into error traces, user-supplied
+//   credentials from a failed tool call, stack traces citing file paths that
+//   expose username/hostname, etc.).
+//
+//   Once this snapshot is committed to a state branch (M10-S03) and pushed to
+//   a remote, any such content becomes part of the git history and is visible
+//   to anyone with pull access. TFF's trust boundary here is identical to the
+//   code branch (a shared push-access remote), so the assumption is: whoever
+//   can read code can read snapshots. If that assumption shifts — e.g., public
+//   state branches, or tighter separation from code — revisit by either
+//   redacting these fields at export time or encrypting the snapshot.
 function toPhaseRun(r: PhaseRunRow): PhaseRun {
 	return {
 		id: r.id,

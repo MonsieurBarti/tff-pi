@@ -30,6 +30,16 @@ export function tffHomeRoot(): string {
 	if (!override.startsWith("/")) {
 		throw new ProjectHomeError(`TFF_HOME must be an absolute path, got: ${override}`);
 	}
+	// Reject path-traversal components. Even though TFF_HOME is user-supplied
+	// and thus "trusted", accidental `..` in env setups (e.g., CI scripts that
+	// interpolate relative paths) could escape the intended home and clobber
+	// files outside it.
+	const segments = override.split("/");
+	if (segments.includes("..") || segments.includes(".")) {
+		throw new ProjectHomeError(
+			`TFF_HOME must not contain '.' or '..' path components, got: ${override}`,
+		);
+	}
 	return override;
 }
 
@@ -103,6 +113,24 @@ export function writeProjectIdFile(repoRoot: string, projectId: string): void {
 	writeFileSync(projectIdFilePath(repoRoot), `${projectId}\n`, "utf-8");
 }
 
+/**
+ * Returns the tracked `.tff-project-id` UUID or throws an instructive error.
+ * Commands that create or mutate project state (e.g. `handleNew`) should call
+ * this at the start so test authors who forget `handleInit` get a targeted
+ * message instead of a mysterious downstream failure.
+ */
+export function ensureInitialized(repoRoot: string): string {
+	const trackedId = readProjectIdFile(repoRoot);
+	if (!trackedId) {
+		throw new ProjectHomeError(
+			"Project is not initialized: .tff-project-id is missing. " +
+				"Call handleInit(repoRoot) first; /tff commands invoke it automatically — " +
+				"tests that bypass the normal entry points must do the same.",
+		);
+	}
+	return trackedId;
+}
+
 /** Returns true for both dangling and non-dangling symlinks. */
 function isSymlink(p: string): boolean {
 	try {
@@ -114,11 +142,20 @@ function isSymlink(p: string): boolean {
 
 function resolveMergeDriverPath(): string {
 	// project-home.ts compiles to dist/common/project-home.js; the merge-driver
-	// bin lives at dist/tools/state-snapshot-merge.js. During tests, import.meta.url
-	// points into src/, so the same relative resolution picks up the .ts source,
-	// which bun can run directly.
-	const url = new URL("../tools/state-snapshot-merge.js", import.meta.url);
-	return decodeURIComponent(url.pathname);
+	// bin lives at dist/tools/state-snapshot-merge.js. During tests (bun running
+	// .ts directly), the `.js` sibling doesn't exist on disk — fall back to the
+	// `.ts` source so the registered driver points at a file that actually
+	// exists. If neither resolves, throw: a registered driver with a phantom
+	// path would silently break every git merge.
+	const jsUrl = new URL("../tools/state-snapshot-merge.js", import.meta.url);
+	const jsPath = decodeURIComponent(jsUrl.pathname);
+	if (existsSync(jsPath)) return jsPath;
+	const tsUrl = new URL("../tools/state-snapshot-merge.ts", import.meta.url);
+	const tsPath = decodeURIComponent(tsUrl.pathname);
+	if (existsSync(tsPath)) return tsPath;
+	throw new ProjectHomeError(
+		`Cannot locate merge-driver bin. Expected at ${jsPath} (prod) or ${tsPath} (dev). Rebuild TFF with 'bun run build' or reinstall.`,
+	);
 }
 
 function expectedDriverCommand(): string {
