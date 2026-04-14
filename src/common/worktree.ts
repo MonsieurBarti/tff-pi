@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createCheckpoint } from "./checkpoint.js";
 import { gitEnv } from "./git.js";
+import { ProjectHomeError, createTffSymlink, readProjectIdFile } from "./project-home.js";
 
 export function getWorktreePath(root: string, sliceLabel: string): string {
 	return join(root, ".tff", "worktrees", sliceLabel);
@@ -17,7 +18,10 @@ export function worktreeExists(root: string, sliceLabel: string): boolean {
 			encoding: "utf-8",
 			env: gitEnv(),
 		});
-		return output.includes(wtPath);
+		// Resolve symlinks before comparing: on macOS /var is a symlink to /private/var,
+		// and git outputs the real path, so a naive includes() would miss symlinked paths.
+		const realWtPath = realpathSync(wtPath);
+		return output.includes(wtPath) || output.includes(realWtPath);
 	} catch {
 		return false;
 	}
@@ -60,6 +64,18 @@ export function createWorktree(root: string, sliceLabel: string, milestoneBranch
 			env,
 		});
 	}
+
+	// M10-S01: recreate the .tff/ symlink inside the new worktree so it shares
+	// the main project home. The git checkout includes .tff-project-id (tracked)
+	// but not the .tff/ symlink (gitignored). After symlink creation, slice
+	// worktrees read/write the same DB and artifacts as the main repo.
+	const projectId = readProjectIdFile(root);
+	if (!projectId) {
+		throw new ProjectHomeError(
+			"Cannot create slice worktree before /tff init — .tff-project-id is missing.",
+		);
+	}
+	createTffSymlink(wtPath, projectId);
 
 	return wtPath;
 }
