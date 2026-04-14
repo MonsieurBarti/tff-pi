@@ -19,6 +19,28 @@
 ### Removed
 - `updateSliceStatus()` — status is no longer a directly-written column.
 
+## [0.1.5](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.4...tff-pi-v0.1.5) (2026-04-14)
+
+
+### Features
+
+* **m10-s1:** add .tff-project-id read/write with uuid v4 validation ([284ba0f](https://github.com/MonsieurBarti/tff-pi/commit/284ba0f048d06d0bcfbb51da97a4df5a448ce308))
+* **m10-s1:** add createtffsymlink with idempotency and real-dir/wrong-target guards ([8d98aa7](https://github.com/MonsieurBarti/tff-pi/commit/8d98aa7c044cc71667feb53263c8533e4fa848b9))
+* **m10-s1:** add handleinit with idempotency, recovery, windows guard ([936052d](https://github.com/MonsieurBarti/tff-pi/commit/936052d2a492e78caf917433f966a40bd3584d13))
+* **m10-s1:** add project-home module scaffold with tff_home + uuid validation ([c36bff7](https://github.com/MonsieurBarti/tff-pi/commit/c36bff7dd0aeaec0434ad3662d68b398681858f3))
+* **m10-s1:** add projecthomedir and ensureprojecthomedir ([4b7285b](https://github.com/MonsieurBarti/tff-pi/commit/4b7285bd50508997d850e039e08c961a8de0859c))
+* **m10-s1:** ensuregitignoreentries replaces .tff/ with /.tff for symlink model ([809b0db](https://github.com/MonsieurBarti/tff-pi/commit/809b0dbba4d051eba43ddbf0155c7c00dff5c9ea))
+* **m10-s1:** project home + /tff init + .tff symlink ([3d54b47](https://github.com/MonsieurBarti/tff-pi/commit/3d54b471284d37b03ebe542d6bfe4347fa2deb42))
+* **m10-s1:** run db migrations against project home in handleinit ([92e1703](https://github.com/MonsieurBarti/tff-pi/commit/92e17037081f2f3851d369dcb1bc15178abc3941))
+* **m10-s1:** slice label validation, 0o600 db perms, tff_home path checks ([9516817](https://github.com/MonsieurBarti/tff-pi/commit/95168170190ba7e64d43470cfaf4a65a61446169))
+* **m10-s1:** slice worktrees share project home via inner .tff/ symlink ([15d892a](https://github.com/MonsieurBarti/tff-pi/commit/15d892a312ad50d70ab6a9ec894579ceecf376c6))
+* **m10-s1:** stage .tff-project-id + .gitignore on fresh init ([91b1859](https://github.com/MonsieurBarti/tff-pi/commit/91b185966768339daa1a43a73481e73d4eb6f025))
+
+
+### Bug Fixes
+
+* **m10-s1:** runinit sends user message so pi unblocks ([270df49](https://github.com/MonsieurBarti/tff-pi/commit/270df4939bc7cd1e09f8d4a8b3cac51427f69767))
+
 ## [0.1.4](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.3...tff-pi-v0.1.4) (2026-04-14)
 
 
