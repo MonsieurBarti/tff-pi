@@ -90,7 +90,7 @@ Useful for tests, CI, or shared-disk environments.
 
 ### Recovering from a manually deleted project home
 
-If you (or a sync tool) removed `~/.tff/{id}/`, run `/tff init` again. It keeps your existing `.tff-project-id`, re-creates the home dir, and re-runs DB migrations on a fresh state file. (Once M10-S03 lands, it will also re-hydrate content from the state branch on your git remote.)
+If you (or a sync tool) removed `~/.tff/{id}/`, run `/tff init` again. It keeps your existing `.tff-project-id`, re-creates the home dir, and re-runs DB migrations on a fresh state file. DB is fresh — any in-flight work was lost. Re-run `/tff new` to re-seed or restore from backup manually.
 
 ### Platform support
 

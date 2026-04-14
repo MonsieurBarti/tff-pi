@@ -7,6 +7,22 @@ export function tffPath(root: string, ...segments: string[]): string {
 	return join(root, ".tff", ...segments);
 }
 
+/**
+ * Test helper — seeds .tff/ subdirs and settings.yaml when .tff/ already
+ * exists. No-op when .tff/ is absent. Not called from production code;
+ * use ensureProjectHomeDir (project-home.ts) for that.
+ */
+export function initTffDirectory(root: string): void {
+	const tffRoot = tffPath(root);
+	if (!existsSync(tffRoot)) return;
+	mkdirSync(tffPath(root, "milestones"), { recursive: true });
+	mkdirSync(tffPath(root, "worktrees"), { recursive: true });
+	const settingsPath = tffPath(root, "settings.yaml");
+	if (!existsSync(settingsPath)) {
+		writeFileSync(settingsPath, serializeSettings(DEFAULT_SETTINGS), "utf-8");
+	}
+}
+
 function safeTffPath(root: string, relativePath: string): string {
 	const tffRoot = resolve(root, ".tff");
 	const fullPath = resolve(tffRoot, relativePath);
@@ -28,21 +44,6 @@ export function sliceDir(root: string, milestoneNumber: number, sliceNumber: num
 		"slices",
 		sliceLabel(milestoneNumber, sliceNumber),
 	);
-}
-
-export function initTffDirectory(root: string): void {
-	// .tff/ itself is owned by handleInit (symlink to ~/.tff/{projectId}/).
-	// This function only initializes the subdirs and settings.yaml through the
-	// symlink. It is a no-op if the symlink (or dir) doesn't exist yet, so
-	// handleInit can safely call it after creating the symlink.
-	const tffRoot = tffPath(root);
-	if (!existsSync(tffRoot)) return;
-	mkdirSync(tffPath(root, "milestones"), { recursive: true });
-	mkdirSync(tffPath(root, "worktrees"), { recursive: true });
-	const settingsPath = tffPath(root, "settings.yaml");
-	if (!existsSync(settingsPath)) {
-		writeFileSync(settingsPath, serializeSettings(DEFAULT_SETTINGS), "utf-8");
-	}
 }
 
 export function writeArtifact(root: string, relativePath: string, content: string): void {

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { initTffDirectory, tffPath, writeArtifact } from "../common/artifacts.js";
+import { tffPath, writeArtifact } from "../common/artifacts.js";
 import { compressIfEnabled } from "../common/compress.js";
 import type { TffContext } from "../common/context.js";
 import { applyMigrations, getProject, insertProject, openDatabase } from "../common/db.js";
@@ -25,7 +25,6 @@ export function handleNew(
 		throw new Error("Project already exists. Use /tff new-milestone to add milestones.");
 	}
 	const { projectName, vision } = input;
-	initTffDirectory(root);
 	const projectId = insertProject(db, { name: projectName, vision });
 	const content = `# ${projectName}\n\n## Vision\n\n${vision}\n`;
 	writeArtifact(root, "PROJECT.md", compressIfEnabled(content, "artifacts", settings));
@@ -33,7 +32,6 @@ export function handleNew(
 }
 
 function initDb(ctx: TffContext, root: string): void {
-	initTffDirectory(root);
 	const dbPath = tffPath(root, "state.db");
 	ctx.db = openDatabase(dbPath);
 	applyMigrations(ctx.db, { root });

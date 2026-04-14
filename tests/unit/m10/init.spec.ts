@@ -148,20 +148,27 @@ describe("handleInit DB setup", () => {
 		const first = handleInit(repo);
 		const dbPath = join(first.projectHome, "state.db");
 		const db = openDatabase(dbPath);
-		db.prepare("INSERT INTO project (id, name, vision) VALUES (?, ?, ?)").run(
-			"p-1",
-			"Test",
-			"Vision",
-		);
-		db.close();
+		try {
+			db.prepare("INSERT INTO project (id, name, vision) VALUES (?, ?, ?)").run(
+				"p-1",
+				"Test",
+				"Vision",
+			);
+		} finally {
+			db.close();
+		}
 
 		handleInit(repo);
 
 		const db2 = openDatabase(dbPath);
-		const row = db2.prepare("SELECT name FROM project WHERE id = ?").get("p-1") as
-			| { name: string }
-			| undefined;
-		db2.close();
+		let row: { name: string } | undefined;
+		try {
+			row = db2.prepare("SELECT name FROM project WHERE id = ?").get("p-1") as
+				| { name: string }
+				| undefined;
+		} finally {
+			db2.close();
+		}
 		expect(row?.name).toBe("Test");
 	});
 });
