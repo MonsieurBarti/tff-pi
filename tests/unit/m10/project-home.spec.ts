@@ -1,8 +1,18 @@
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readlinkSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	ProjectHomeError,
+	createTffSymlink,
 	ensureProjectHomeDir,
 	isUuidV4,
 	projectHomeDir,
@@ -109,5 +119,54 @@ describe("ensureProjectHomeDir", () => {
 		const id = "018f4a2b-3c5d-4e8f-9012-345678901234";
 		ensureProjectHomeDir(id);
 		expect(() => ensureProjectHomeDir(id)).not.toThrow();
+	});
+});
+
+describe("createTffSymlink", () => {
+	let tmp: string;
+	let repo: string;
+	const projectId = "018f4a2b-3c5d-4e8f-9012-345678901234";
+
+	beforeEach(() => {
+		tmp = mkdtempSync(join(tmpdir(), "tff-symlink-test-"));
+		process.env.TFF_HOME = tmp;
+		repo = mkdtempSync(join(tmpdir(), "tff-repo-"));
+	});
+
+	afterEach(() => {
+		rmSync(tmp, { recursive: true, force: true });
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	it("creates a symlink at repo/.tff pointing to the project home", () => {
+		ensureProjectHomeDir(projectId);
+		createTffSymlink(repo, projectId);
+		const linkPath = join(repo, ".tff");
+		expect(statSync(linkPath).isDirectory()).toBe(true);
+		expect(readlinkSync(linkPath)).toBe(join(tmp, projectId));
+	});
+
+	it("is idempotent when the symlink already points to the expected target", () => {
+		ensureProjectHomeDir(projectId);
+		createTffSymlink(repo, projectId);
+		expect(() => createTffSymlink(repo, projectId)).not.toThrow();
+		expect(readlinkSync(join(repo, ".tff"))).toBe(join(tmp, projectId));
+	});
+
+	it("throws ProjectHomeError when .tff is a real directory", () => {
+		mkdirSync(join(repo, ".tff"), { recursive: true });
+		expect(() => createTffSymlink(repo, projectId)).toThrow(ProjectHomeError);
+		expect(() => createTffSymlink(repo, projectId)).toThrow(/real directory/);
+	});
+
+	it("throws ProjectHomeError when .tff symlink points to an unexpected target", () => {
+		const otherTarget = mkdtempSync(join(tmpdir(), "tff-other-target-"));
+		try {
+			symlinkSync(otherTarget, join(repo, ".tff"), "dir");
+			expect(() => createTffSymlink(repo, projectId)).toThrow(ProjectHomeError);
+			expect(() => createTffSymlink(repo, projectId)).toThrow(/points to/);
+		} finally {
+			rmSync(otherTarget, { recursive: true, force: true });
+		}
 	});
 });
