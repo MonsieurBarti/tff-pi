@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
+import { reconcileSliceStatus } from "./derived-state.js";
 import {
 	type Dependency,
 	MILESTONE_STATUSES,
@@ -31,7 +32,7 @@ export function openDatabase(path: string): Database.Database {
 // Migrations
 // ---------------------------------------------------------------------------
 
-export function applyMigrations(db: Database.Database): void {
+export function applyMigrations(db: Database.Database, opts?: { root?: string }): void {
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS schema_version (
 			version    INTEGER NOT NULL,
@@ -148,6 +149,23 @@ export function applyMigrations(db: Database.Database): void {
 		// M07: paused status removed — migrate any orphaned paused slices
 		db.prepare("UPDATE slice SET status = 'created' WHERE status = 'paused'").run();
 		db.prepare("INSERT INTO schema_version (version) VALUES (3)").run();
+	}
+
+	if (currentVersion < 4) {
+		// M09-S4: derive slice.status from evidence on disk. Reconcile every
+		// non-closed slice's cache column from phase_run rows + artifacts.
+		// Without `root` we bump the version but skip the reconcile pass — this
+		// path exists for tests that seed their own state. Runtime callers
+		// (lifecycle.ts, commands/new.ts) always pass root.
+		if (opts?.root) {
+			const rows = db.prepare("SELECT id FROM slice WHERE status != 'closed'").all() as {
+				id: string;
+			}[];
+			for (const { id } of rows) {
+				reconcileSliceStatus(db, opts.root, id);
+			}
+		}
+		db.prepare("INSERT INTO schema_version (version) VALUES (4)").run();
 	}
 }
 
