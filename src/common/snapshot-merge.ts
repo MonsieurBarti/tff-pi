@@ -92,7 +92,10 @@ const STATUS_ORDER: Record<Table, string[]> = {
 		"closed",
 	],
 	task: ["open", "in_progress", "closed"],
-	phase_run: ["started", "retried", "completed", "abandoned"],
+	// "retried" ranks above "completed": a retry means work re-started after a
+	// prior completion/failure, so the retry signal supersedes. "abandoned" is
+	// last because it only appears via crash recovery (recoverOrphanedPhaseRuns).
+	phase_run: ["started", "completed", "retried", "abandoned"],
 	dependency: [],
 };
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import { mergeSnapshots } from "../common/snapshot-merge.js";
 import { SnapshotSchemaError, readSnapshot, serializeSnapshot } from "../common/state-exporter.js";
 
@@ -25,7 +25,11 @@ function main(argv: string[]): number {
 			}
 			return 1;
 		}
-		writeFileSync(oursPath, serializeSnapshot(result.merged), "utf-8");
+		// Atomic write: a crash between truncate and final flush would otherwise
+		// leave `oursPath` half-written and break `git merge --continue`.
+		const tmp = `${oursPath}.tmp`;
+		writeFileSync(tmp, serializeSnapshot(result.merged), "utf-8");
+		renameSync(tmp, oursPath);
 		return 0;
 	} catch (e) {
 		if (e instanceof SnapshotSchemaError) {

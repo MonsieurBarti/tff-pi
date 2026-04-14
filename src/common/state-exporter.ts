@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import type { PhaseRun } from "./db.js";
@@ -189,9 +189,16 @@ export function serializeSnapshot(snap: Snapshot): string {
 	return `${JSON.stringify(snap, sortedKeysReplacer, 2)}\n`;
 }
 
+/**
+ * Atomic write of the serialized snapshot. Writes to a sibling `.tmp` file and
+ * renames — POSIX rename is atomic on the same filesystem, so a crash mid-write
+ * leaves the original intact rather than a truncated JSON that breaks readers.
+ */
 export function writeSnapshot(db: Database.Database, homeDir: string): string {
 	const path = join(homeDir, SNAPSHOT_FILENAME);
-	writeFileSync(path, serializeSnapshot(exportSnapshot(db)), "utf-8");
+	const tmp = `${path}.tmp`;
+	writeFileSync(tmp, serializeSnapshot(exportSnapshot(db)), "utf-8");
+	renameSync(tmp, path);
 	return path;
 }
 

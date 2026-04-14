@@ -312,6 +312,16 @@ describe("mergeSnapshots status precedence", () => {
 		if (r.ok) expect(r.merged.phase_run[0]?.status).toBe("failed");
 	});
 
+	it("phase_run: completed vs retried -> retried (retry supersedes)", () => {
+		const r = mergeSnapshots(
+			makeSnap({ phase_run: [mkPhaseRun("started")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("completed")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("retried")] as unknown as Snapshot["phase_run"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.phase_run[0]?.status).toBe("retried");
+	});
+
 	it("phase_run: failed vs failed -> failed (idempotent)", () => {
 		const r = mergeSnapshots(
 			makeSnap({ phase_run: [mkPhaseRun("started")] as unknown as Snapshot["phase_run"] }),
