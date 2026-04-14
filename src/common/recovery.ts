@@ -310,6 +310,21 @@ export function formatRecoveryBriefing(
 		}
 	}
 
+	// For commit-requiring phases, remind the agent about git discipline so that
+	// /tff verify can find the diff even when recovery delivers this brief
+	// instead of the full execute/ship prompt.
+	if (diagnosis.status === "executing" || diagnosis.status === "shipping") {
+		// Derive the milestone label from the slice label (e.g. "M01-S02" → "M01").
+		// sliceLabel format is "Mnn-Snn"; split on "-" to grab the first part.
+		const mLabel = diagnosis.sliceLabel.split("-")[0] ?? diagnosis.sliceLabel;
+		lines.push("");
+		lines.push("### Git discipline reminder");
+		lines.push("");
+		lines.push(
+			`This phase requires git commits. Before \`/tff verify\` runs \`git diff milestone/${mLabel}...HEAD\`, make sure every code change has been \`git add\`-ed and \`git commit\`-ed in the slice worktree. Untracked files do NOT count as changes.`,
+		);
+	}
+
 	lines.push("");
 	lines.push(`### Recommendation: ${diagnosis.classification}`);
 	lines.push(diagnosis.recommendation);

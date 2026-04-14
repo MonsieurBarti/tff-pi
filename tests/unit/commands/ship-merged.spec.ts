@@ -8,7 +8,6 @@ import {
 	insertSlice,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
 
@@ -69,7 +68,7 @@ describe("handleShipMerged", () => {
 			number: 1,
 			title: "slice",
 		});
-		updateSliceStatus(db, sliceId, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 	});
 
 	afterEach(() => {
@@ -80,12 +79,16 @@ describe("handleShipMerged", () => {
 		const pi = fakePi();
 		const result = await handleShipMerged(pi, db, "/tmp", sliceId);
 		expect(result.success).toBe(true);
-		const slice = must(getSlice(db, sliceId));
-		expect(slice.status).toBe("closed");
+		// Reconciler rule 1: ship/completed + pr_url non-null → closed.
+		// Verify phase_complete was emitted; reconciler handles the DB write.
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_complete", phase: "ship" }),
+		);
 	});
 
 	it("refuses to close an already-closed slice", async () => {
-		updateSliceStatus(db, sliceId, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", sliceId);
 		const result = await handleShipMerged(fakePi(), db, "/tmp", sliceId);
 		expect(result.success).toBe(false);
 		expect(result.message).toContain("already closed");

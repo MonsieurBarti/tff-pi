@@ -13,7 +13,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
@@ -52,7 +51,7 @@ describe("shipFixPhase", () => {
 		const projectId = must(getProject(db)).id;
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		const slice = must(getSlices(db, milestoneId)[0]);
-		updateSliceStatus(db, slice.id, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", slice.id);
 		return {
 			pi: makePi(),
 			db,

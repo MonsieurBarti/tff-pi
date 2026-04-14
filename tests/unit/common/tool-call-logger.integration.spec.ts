@@ -71,7 +71,7 @@ describe("ToolCallLogger → EventLogger round-trip", () => {
 
 	it("during a phase, a bash call lands in the DB and per-slice JSONL", () => {
 		const bus = makeInProcessBus();
-		const eventLogger = new EventLogger(db, tmp);
+		const eventLogger = new EventLogger(db, tmp, tmp);
 		eventLogger.subscribe(bus);
 
 		const { pi, fire } = makeFakePi();
@@ -112,7 +112,7 @@ describe("ToolCallLogger → EventLogger round-trip", () => {
 
 	it("outside a phase, a bash call lands in ambient.jsonl with empty DB slice_id", () => {
 		const bus = makeInProcessBus();
-		const eventLogger = new EventLogger(db, tmp);
+		const eventLogger = new EventLogger(db, tmp, tmp);
 		eventLogger.subscribe(bus);
 
 		const { pi, fire } = makeFakePi();
@@ -139,7 +139,7 @@ describe("ToolCallLogger → EventLogger round-trip", () => {
 
 	it("oversized output is truncated by the existing 64 KB policy", () => {
 		const bus = makeInProcessBus();
-		const eventLogger = new EventLogger(db, tmp);
+		const eventLogger = new EventLogger(db, tmp, tmp);
 		eventLogger.subscribe(bus);
 
 		const { pi, fire } = makeFakePi();
@@ -166,7 +166,7 @@ describe("ToolCallLogger → EventLogger round-trip", () => {
 
 	it("truncated payloads remain parseable JSON (not string-spliced)", () => {
 		const bus = makeInProcessBus();
-		const eventLogger = new EventLogger(db, tmp);
+		const eventLogger = new EventLogger(db, tmp, tmp);
 		eventLogger.subscribe(bus);
 
 		const { pi, fire } = makeFakePi();

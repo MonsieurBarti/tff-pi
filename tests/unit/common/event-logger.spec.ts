@@ -93,7 +93,7 @@ describe("EventLogger", () => {
 		sliceId = seedSlice(db);
 		logsDir = mkdtempSync(join(tmpdir(), "tff-event-logger-"));
 		bus = new MockEventBus();
-		logger = new EventLogger(db, logsDir);
+		logger = new EventLogger(db, logsDir, logsDir);
 	});
 
 	afterEach(() => {
@@ -114,7 +114,7 @@ describe("EventLogger", () => {
 			const event = makePhaseEvent(sliceId);
 			bus.emit("tff:phase", event);
 
-			const entries = getEventLog(db, sliceId);
+			const entries = getEventLog(db, sliceId, "tff:phase");
 			expect(entries).toHaveLength(1);
 			const entry = must(entries[0]);
 			expect(entry.channel).toBe("tff:phase");
@@ -135,10 +135,13 @@ describe("EventLogger", () => {
 				type: "pipeline_start",
 			});
 
-			const entries = getEventLog(db, sliceId);
-			expect(entries).toHaveLength(2);
-			expect(entries[0]?.channel).toBe("tff:phase");
-			expect(entries[1]?.channel).toBe("tff:pipeline");
+			// Filter to pipeline channels only — tff:derived entries from reconciler are also written
+			const phaseEntries = getEventLog(db, sliceId, "tff:phase");
+			const pipelineEntries = getEventLog(db, sliceId, "tff:pipeline");
+			expect(phaseEntries).toHaveLength(1);
+			expect(pipelineEntries).toHaveLength(1);
+			expect(phaseEntries[0]?.channel).toBe("tff:phase");
+			expect(pipelineEntries[0]?.channel).toBe("tff:pipeline");
 		});
 	});
 
@@ -340,7 +343,7 @@ describe("EventLogger nullable-slice routing", () => {
 		db = createTestDb();
 		logsDir = mkdtempSync(join(tmpdir(), "tff-el-"));
 		bus = new MockEventBus();
-		logger = new EventLogger(db, logsDir);
+		logger = new EventLogger(db, logsDir, logsDir);
 	});
 
 	afterEach(() => {

@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { cleanupCheckpoints } from "../common/checkpoint.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { getSlices, resetTasksToOpen, updateSlicePrUrl, updateSliceStatus } from "../common/db.js";
+import { getSlices, resetTasksToOpen, updateSlicePrUrl } from "../common/db.js";
+import { overrideSliceStatus } from "../common/derived-state.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
@@ -23,14 +25,15 @@ export interface PreflightResult {
 /**
  * Cleanup after a slice PR is merged: remove worktree + checkpoints, delete
  * slice branch (local + remote), checkout the milestone branch and pull,
- * mark the slice closed. Shared between the `shipPhase` re-entry path and the
- * new `/tff ship-merged` slash command (user-attested merge, no PR fetch).
+ * and close the slice via override. Shared between the `shipPhase` re-entry
+ * path and `/tff ship-merged` (user-attested merge, no PR fetch).
  */
 export function finalizeMergedSlice(
 	db: Database.Database,
 	root: string,
 	slice: Slice,
 	milestoneNumber: number,
+	pi: ExtensionAPI,
 ): void {
 	const mLabel = milestoneLabel(milestoneNumber);
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
@@ -84,7 +87,16 @@ export function finalizeMergedSlice(
 		});
 	}
 
-	updateSliceStatus(db, slice.id, "closed");
+	// Close the slice via override: rule 1 (ship/completed + pr_url → closed)
+	// has been removed; closing is now explicit here.
+	overrideSliceStatus(db, slice.id, "closed", "ship-merged");
+	pi.events.emit("tff:override", {
+		...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+		type: "status_override",
+		from: slice.status,
+		to: "closed",
+		reason: "ship-merged",
+	});
 }
 
 export function preflightCheck(
@@ -189,7 +201,7 @@ export const shipPhase: PhaseModule = {
 				};
 
 				if (pr.state === "MERGED") {
-					finalizeMergedSlice(db, root, slice, milestoneNumber);
+					finalizeMergedSlice(db, root, slice, milestoneNumber, pi);
 					const next = suggestNextAction(db, slice.milestoneId);
 					pi.sendUserMessage(`PR merged. Slice closed.\n\n${next}`);
 					pi.events.emit("tff:phase", {
@@ -207,7 +219,7 @@ export const shipPhase: PhaseModule = {
 					// so the user can decide whether to do a small fix (edit
 					// worktree + ship-merged) or re-enter execute. The execute
 					// phase picks up REVIEW_FEEDBACK.md on next run.
-					updateSliceStatus(db, slice.id, "shipping");
+					// phase_retried maps to `shipping` via reconciler rule 2 (ship/retried → shipping).
 					writeArtifact(
 						root,
 						`milestones/${mLabel}/slices/${sLabel}/REVIEW_FEEDBACK.md`,
@@ -215,7 +227,7 @@ export const shipPhase: PhaseModule = {
 					);
 					pi.events.emit("tff:phase", {
 						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-						type: "phase_failed",
+						type: "phase_retried",
 						phase: "ship",
 						durationMs: Date.now() - startTime,
 						error: "PR has review comments",
@@ -263,8 +275,6 @@ export const shipPhase: PhaseModule = {
 					error: `Pre-flight failed: ${preflight.errors.join(", ")}`,
 				};
 			}
-
-			updateSliceStatus(db, slice.id, "shipping");
 
 			// Ensure the milestone branch is on origin before pushing the slice
 			// branch — `gh pr create` needs the base ref to exist remotely, and
@@ -358,8 +368,7 @@ export const shipPhase: PhaseModule = {
 					`${checksResult.stderr ?? ""}\n${checksResult.stdout ?? ""}`,
 				);
 			if (checksResult.code !== 0 && !noChecksConfigured) {
-				// CI failed — loop back to executing for fixes
-				updateSliceStatus(db, slice.id, "executing");
+				// CI failed — reconciler rule 3 (ship/failed → executing) handles status.
 				resetTasksToOpen(db, slice.id);
 				const detail = (checksResult.stderr || checksResult.stdout || "").trim();
 				pi.events.emit("tff:phase", {
@@ -376,56 +385,26 @@ export const shipPhase: PhaseModule = {
 				};
 			}
 
-			// Auto-merge disabled: hand control to the agent to poll the user
-			// via tff_ask_user until they report merged/changes. Mirrors
-			// TFF-CC's ship-slice merge gate (AskUserQuestion with 2 options).
-			// The agent is authorized to call tff_ship_merged or
-			// tff_ship_changes based on the user's reply — no polling of
-			// GitHub; the user's answer is the source of truth.
-			if (!settings.ship.auto_merge) {
-				pi.sendUserMessage(
-					[
-						`The slice PR is open: ${prUrl}`,
-						"",
-						`Now ask the user whether the PR was merged, using tff_ask_user with id \`pr_gate_${sLabel}\`, header "PR status", and two options:`,
-						'  1) label "PR merged"       — description "I merged the PR on GitHub."',
-						'  2) label "PR needs changes" — description "Reviewers requested changes."',
-						"",
-						"After the user replies:",
-						`  - If "PR merged": call tff_ship_merged({ sliceLabel: "${sLabel}" }).`,
-						`  - If "PR needs changes": ask the user for the reviewer feedback text in one follow-up message, then call tff_ship_changes({ sliceLabel: "${sLabel}", feedback: "<their exact feedback>" }).`,
-						"",
-						"Do NOT call these tools before the user has explicitly answered. Do NOT poll GitHub or guess the state — the user's reply is the source of truth.",
-					].join("\n"),
-				);
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_complete",
-					phase: "ship",
-					durationMs: Date.now() - startTime,
-				});
-				return { success: true, retry: false };
-			}
-
-			// Merge PR using the configured method (default: squash).
-			const mergeResult = await prTools.merge({
-				repo,
-				number: prNumber,
-				method: settings.ship.merge_method,
-			});
-			if (mergeResult.code !== 0) {
-				return {
-					success: false,
-					retry: false,
-					error: `gh pr merge failed: ${mergeResult.stderr}`,
-				};
-			}
-
-			finalizeMergedSlice(db, root, slice, milestoneNumber);
-
-			const next = suggestNextAction(db, slice.milestoneId);
-			pi.sendUserMessage(`Slice shipped and merged.\n\n${next}`);
-
+			// Ship always uses manual confirm: hand control to the agent to poll
+			// the user via tff_ask_user until they report merged/changes. The
+			// agent calls tff_ship_merged or tff_ship_changes based on the
+			// user's reply — no GitHub polling; the user's answer is the source
+			// of truth.
+			pi.sendUserMessage(
+				[
+					`The slice PR is open: ${prUrl}`,
+					"",
+					`Now ask the user whether the PR was merged, using tff_ask_user with id \`pr_gate_${sLabel}\`, header "PR status", and two options:`,
+					'  1) label "PR merged"       — description "I merged the PR on GitHub."',
+					'  2) label "PR needs changes" — description "Reviewers requested changes."',
+					"",
+					"After the user replies:",
+					`  - If "PR merged": call tff_ship_merged({ sliceLabel: "${sLabel}" }).`,
+					`  - If "PR needs changes": ask the user for the reviewer feedback text in one follow-up message, then call tff_ship_changes({ sliceLabel: "${sLabel}", feedback: "<their exact feedback>" }).`,
+					"",
+					"Do NOT call these tools before the user has explicitly answered. Do NOT poll GitHub or guess the state — the user's reply is the source of truth.",
+				].join("\n"),
+			);
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 				type: "phase_complete",

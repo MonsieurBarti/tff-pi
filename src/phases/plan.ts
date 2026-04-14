@@ -1,8 +1,7 @@
-import { updateSliceStatus } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
-import { sliceLabel } from "../common/types.js";
+import { milestoneLabel, sliceLabel } from "../common/types.js";
 import {
 	collectPhaseContext,
 	loadPhaseResources,
@@ -13,9 +12,9 @@ import {
 export const planPhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, slice, milestoneNumber, root, settings } = ctx;
-		updateSliceStatus(db, slice.id, "planning");
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+		const mLabel = milestoneLabel(milestoneNumber);
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",
@@ -54,6 +53,14 @@ export const planPhase: PhaseModule = {
 			}
 		}
 
+		const artifactBase = `.tff/milestones/${mLabel}/slices/${sLabel}/`;
+		const pathHint = [
+			"",
+			`**Slice artifact path:** \`${artifactBase}\``,
+			"SPEC.md, PLAN.md, REQUIREMENTS.md, and other slice artifacts live under this directory. Do not look for them at project root.",
+			"",
+		].join("\n");
+
 		const messageParts = [
 			agentPrompt,
 			protocol,
@@ -63,7 +70,7 @@ export const planPhase: PhaseModule = {
 			`## Slice: ${sLabel} — "${slice.title}"`,
 			`Slice ID: ${slice.id}`,
 			`Tier: ${slice.tier ?? "unclassified"}`,
-			"",
+			pathHint,
 			"## Context",
 			"",
 			contextBlock,

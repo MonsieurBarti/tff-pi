@@ -17,6 +17,15 @@ export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
 export const TASK_STATUSES = ["open", "in_progress", "closed"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const PHASE_RUN_STATUSES = [
+	"started",
+	"completed",
+	"failed",
+	"abandoned",
+	"retried",
+] as const;
+export type PhaseRunStatus = (typeof PHASE_RUN_STATUSES)[number];
+
 export const TIERS = ["S", "SS", "SSS"] as const;
 export type Tier = (typeof TIERS)[number];
 
@@ -38,6 +47,17 @@ export const ALL_PHASES: Phase[] = [
 	"review",
 	"ship",
 	"ship-fix",
+];
+
+export const SIDE_CHANNEL_PHASES: readonly Phase[] = ["ship-fix"];
+export const PIPELINE_PHASE_ORDER: readonly Phase[] = [
+	"discuss",
+	"research",
+	"plan",
+	"execute",
+	"verify",
+	"review",
+	"ship",
 ];
 
 export interface Project {

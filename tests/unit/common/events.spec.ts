@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type PhaseEvent, TFF_CHANNELS, makeBaseEvent } from "../../../src/common/events.js";
 
 describe("events", () => {
-	it("exports all 6 channels", () => {
+	it("exports all 8 channels", () => {
 		expect(TFF_CHANNELS).toEqual([
 			"tff:phase",
 			"tff:task",
@@ -10,6 +10,8 @@ describe("events", () => {
 			"tff:review",
 			"tff:pipeline",
 			"tff:tool",
+			"tff:derived",
+			"tff:override",
 		]);
 	});
 

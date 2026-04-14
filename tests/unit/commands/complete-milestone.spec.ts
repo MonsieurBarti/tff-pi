@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initTffDirectory, writeArtifact } from "../../../src/common/artifacts.js";
@@ -15,7 +16,6 @@ import {
 	insertSlice,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { DEFAULT_SETTINGS, type Settings } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
@@ -63,6 +63,21 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
 	};
 }
 
+function makeMockPi(): ExtensionAPI {
+	return {
+		events: {
+			emit: vi.fn(),
+			on: vi.fn(),
+			once: vi.fn(),
+			off: vi.fn(),
+		},
+		sendUserMessage: vi.fn(),
+		commands: {
+			executeCommand: vi.fn(),
+		},
+	} as unknown as ExtensionAPI;
+}
+
 const REQUIRED_ARTIFACTS = [
 	"SPEC.md",
 	"PLAN.md",
@@ -85,8 +100,10 @@ describe("handleCompleteMilestone", () => {
 	let db: Database.Database;
 	let root: string;
 	let milestoneId: string;
+	let mockPi: ExtensionAPI;
 
 	beforeEach(() => {
+		mockPi = makeMockPi();
 		mockExec.mockReset();
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
@@ -128,12 +145,12 @@ describe("handleCompleteMilestone", () => {
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
 		for (const s of slices) {
-			updateSliceStatus(db, s.id, "closed");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", s.id);
 		}
 		writeAllArtifacts(root, 1, 1);
 		writeAllArtifacts(root, 1, 2);
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(true);
 		expect(result.prUrl).toContain("github.com");
 
@@ -154,10 +171,10 @@ describe("handleCompleteMilestone", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
-		updateSliceStatus(db, must(slices[0]).id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
 		// Leave slices[1] as "created"
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("not closed");
 	});
@@ -166,17 +183,17 @@ describe("handleCompleteMilestone", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
-		updateSliceStatus(db, must(slices[0]).id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
 		writeAllArtifacts(root, 1, 1);
 
 		// Slice 2 is stuck at "shipping" with a prUrl
-		updateSliceStatus(db, must(slices[1]).id, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", must(slices[1]).id);
 		updateSlicePrUrl(db, must(slices[1]).id, "https://github.com/org/repo/pull/42");
 		writeAllArtifacts(root, 1, 2);
 
 		// mockView defaults to MERGED, mockCreate defaults to a PR URL — both already set in beforeEach
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(true);
 		expect(result.prUrl).toContain("github.com");
 
@@ -191,11 +208,62 @@ describe("handleCompleteMilestone", () => {
 	it("validates artifacts for all slices", async () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const slices = getSlices(db, milestoneId);
-		updateSliceStatus(db, must(slices[0]).id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
 		// Do NOT write artifacts
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("artifact");
+	});
+
+	it("runs git fetch then git merge --ff-only before push", async () => {
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		const slices = getSlices(db, milestoneId);
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
+		writeAllArtifacts(root, 1, 1);
+
+		const gitCalls: string[][] = [];
+		mockExec.mockImplementation((...args: unknown[]) => {
+			const cmd = args[0] as string;
+			const cmdArgs = args[1] as string[];
+			if (cmd === "git") gitCalls.push(cmdArgs);
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
+			}
+			return "";
+		});
+
+		await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
+
+		const fetchIdx = gitCalls.findIndex((a) => a[0] === "fetch" && a[1] === "origin");
+		const mergeIdx = gitCalls.findIndex((a) => a[0] === "merge" && a[1] === "--ff-only");
+		const pushIdx = gitCalls.findIndex((a) => a[0] === "push" && a.includes("-u"));
+		expect(fetchIdx).toBeGreaterThanOrEqual(0);
+		expect(mergeIdx).toBeGreaterThan(fetchIdx);
+		expect(pushIdx).toBeGreaterThan(mergeIdx);
+	});
+
+	it("returns error when local milestone branch has diverged from origin", async () => {
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		const slices = getSlices(db, milestoneId);
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
+		writeAllArtifacts(root, 1, 1);
+
+		mockExec.mockImplementation((...args: unknown[]) => {
+			const cmd = args[0] as string;
+			const cmdArgs = args[1] as string[];
+			if (cmd === "git" && cmdArgs?.[0] === "merge" && cmdArgs?.[1] === "--ff-only") {
+				throw new Error("fatal: Not possible to fast-forward, aborting.");
+			}
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
+			}
+			return "";
+		});
+
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("diverged from origin");
+		expect(result.error).toContain("git pull --rebase");
 	});
 });

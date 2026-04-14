@@ -16,7 +16,6 @@ import {
 	insertSlice,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
@@ -110,7 +109,7 @@ describe("shipPhase", () => {
 		milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, sliceId, "reviewing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 		updateSliceTier(db, sliceId, "SS");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec\nAC-1: auth works");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan\nStep 1: implement");
@@ -160,7 +159,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -176,7 +175,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
@@ -193,29 +192,14 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
 		expect(prMd).toBe("[COMPRESSED]pr");
 	});
 
-	it("marks slice as closed after successful merge", async () => {
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: makePi(),
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
-		};
-		await shipPhase.prepare(ctx);
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("closed");
-	});
-
-	it("with auto_merge disabled, does not squash merge", async () => {
+	it("emits phase_complete for ship and sends PR gate message to user", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const pi = makePi();
 		const ctx: PhaseContext = {
@@ -224,7 +208,30 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: false, merge_method: "squash" } }),
+			settings: makeSettings(),
+		};
+		await shipPhase.prepare(ctx);
+		// Ship always uses manual confirm: emits phase_complete and asks user to confirm merge.
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_complete", phase: "ship" }),
+		);
+		const updated = must(getSlice(db, sliceId));
+		expect(updated.prUrl).toContain("github.com");
+		// pr merge should NOT be called — user must confirm via /tff ship-merged
+		expect(mockMerge).not.toHaveBeenCalled();
+	});
+
+	it("sends PR gate message asking user to confirm merge via tff_ship_merged", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const pi = makePi();
+		const ctx: PhaseContext = {
+			pi,
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -250,7 +257,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		await shipPhase.prepare(ctx);
 		expect(mockCreate).toHaveBeenCalledWith(
@@ -263,7 +270,7 @@ describe("shipPhase", () => {
 		);
 	});
 
-	it("re-entry: merged PR closes slice", async () => {
+	it("re-entry: merged PR emits phase_complete", async () => {
 		mockView.mockResolvedValue({
 			code: 0,
 			stdout: JSON.stringify({ state: "MERGED", comments: [] }),
@@ -271,21 +278,24 @@ describe("shipPhase", () => {
 		});
 		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
 		const slice = must(getSlice(db, sliceId));
+		const pi = makePi();
 		const ctx: PhaseContext = {
-			pi: makePi(),
+			pi,
 			db,
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("closed");
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_complete", phase: "ship" }),
+		);
 	});
 
-	it("re-entry: PR with comments stashes feedback and leaves slice in shipping", async () => {
+	it("re-entry: PR with comments stashes feedback and emits phase_retried for ship", async () => {
 		mockView.mockResolvedValue({
 			code: 0,
 			stdout: JSON.stringify({
@@ -296,21 +306,24 @@ describe("shipPhase", () => {
 		});
 		updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/42");
 		const slice = must(getSlice(db, sliceId));
+		const pi = makePi();
 		const ctx: PhaseContext = {
-			pi: makePi(),
+			pi,
 			db,
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 		expect(result.retry).toBe(false);
-		// Slice stays in `shipping`; the user decides whether to edit the
-		// worktree or re-enter execute. Tasks are NOT reset automatically.
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("shipping");
+		// Reconciler rule 2 (ship/retried → shipping) handles status transition.
+		// phase_retried is emitted; tasks are NOT reset automatically.
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_retried", phase: "ship" }),
+		);
 		const stashed = readArtifact(root, "milestones/M01/slices/M01-S01/REVIEW_FEEDBACK.md");
 		expect(stashed).toContain("please fix");
 	});
@@ -324,29 +337,33 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
 		expect(mockMerge).not.toHaveBeenCalled();
 	});
 
-	it("CI failure triggers retry path", async () => {
+	it("CI failure triggers retry path and emits phase_failed for ship", async () => {
 		mockChecks.mockResolvedValue({ code: 1, stdout: "", stderr: "checks failed" });
 		const slice = must(getSlice(db, sliceId));
+		const pi = makePi();
 		const ctx: PhaseContext = {
-			pi: makePi(),
+			pi,
 			db,
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);
 		expect(result.retry).toBe(true);
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("executing");
+		// Reconciler rule 3 (ship/failed → executing) handles status transition.
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_failed", phase: "ship" }),
+		);
 	});
 
 	it("returns error for invalid PR URL", async () => {
@@ -358,7 +375,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);

@@ -87,7 +87,7 @@ export async function handleShipMerged(
 		}
 	}
 
-	finalizeMergedSlice(db, root, slice, milestone.number);
+	finalizeMergedSlice(db, root, slice, milestone.number, pi);
 
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(slice.id, sLabel, milestone.number),

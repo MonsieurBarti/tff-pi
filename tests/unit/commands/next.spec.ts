@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
@@ -60,7 +59,7 @@ describe("validateNext", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const sliceId = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		updateSliceTier(db, sliceId, "SS");
 
 		const result = validateNext(db);
@@ -75,7 +74,7 @@ describe("validateNext", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const sliceId = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		updateSliceTier(db, sliceId, "S");
 
 		const result = validateNext(db);
@@ -90,7 +89,7 @@ describe("validateNext", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const sliceId = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, sliceId, "planning");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sliceId);
 
 		const result = validateNext(db);
 		expect(result.valid).toBe(true);

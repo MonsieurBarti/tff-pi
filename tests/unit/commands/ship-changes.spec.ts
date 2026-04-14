@@ -21,7 +21,6 @@ import {
 	insertTask,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 	updateTaskStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
@@ -51,7 +50,7 @@ describe("handleShipChanges", () => {
 			branch: "milestone/M01",
 		});
 		sliceId = insertSlice(db, { milestoneId, number: 1, title: "slice" });
-		updateSliceStatus(db, sliceId, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 	});
 
 	afterEach(() => {
@@ -94,7 +93,7 @@ describe("handleShipChanges", () => {
 	});
 
 	it("refuses to reopen a closed slice", async () => {
-		updateSliceStatus(db, sliceId, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", sliceId);
 		const result = await handleShipChanges(fakePi(), db, root, sliceId, "feedback");
 		expect(result.success).toBe(false);
 		if (result.success) throw new Error("unreachable");

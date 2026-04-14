@@ -163,6 +163,15 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							"discuss",
 							verifyPhaseArtifacts,
 						);
+						return {
+							...writeResult,
+							content: [
+								{
+									type: "text" as const,
+									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared. Run /tff next to advance to plan.`,
+								},
+							],
+						};
 					}
 					return writeResult;
 				} catch (err) {

@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
 
@@ -30,19 +29,19 @@ describe("validateShip", () => {
 	});
 
 	it("succeeds when slice is in reviewing status", () => {
-		updateSliceStatus(db, sliceId, "reviewing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 		const result = validateShip(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("succeeds when slice is in shipping status (re-run stuck phase)", () => {
-		updateSliceStatus(db, sliceId, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 		const result = validateShip(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("fails for wrong status", () => {
-		updateSliceStatus(db, sliceId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sliceId);
 		const result = validateShip(db, sliceId);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("reviewing");

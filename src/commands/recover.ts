@@ -3,7 +3,9 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import type Database from "better-sqlite3";
 import { getLastCheckpoint } from "../common/checkpoint.js";
 import { type TffContext, requireProject } from "../common/context.js";
-import { getMilestone, getSlice, updateSliceStatus } from "../common/db.js";
+import { getMilestone, getSlice } from "../common/db.js";
+import { overrideSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
+import { makeBaseEvent } from "../common/events.js";
 import { gitEnv } from "../common/git.js";
 import {
 	type RecoveryClassification,
@@ -38,6 +40,7 @@ export function executeRecovery(
 	db: Database.Database,
 	root: string,
 	opts: RecoverOptions,
+	pi: ExtensionAPI,
 ): { success: boolean; message: string } {
 	const { action, sliceId, milestoneNumber } = opts;
 	const slice = getSlice(db, sliceId);
@@ -114,7 +117,16 @@ export function executeRecovery(
 		case "skip": {
 			const nextStatus = skipForwardStatus(slice.status);
 			if (nextStatus) {
-				updateSliceStatus(db, sliceId, nextStatus);
+				overrideSliceStatus(db, sliceId, nextStatus, "recover-skip");
+				pi.events.emit("tff:override", {
+					...makeBaseEvent(sliceId, sLabel, milestoneNumber),
+					type: "status_override",
+					from: slice.status,
+					to: nextStatus,
+					reason: "recover-skip",
+				});
+				// Reconcile to catch conflicts introduced by the override
+				reconcileSliceStatus(db, root, sliceId);
 			}
 			releaseLock(root);
 			return {
@@ -199,11 +211,16 @@ export async function runRecover(
 	const diagnosis = diagnoseRecovery(root, database, stuckSlice.id, milestone.number);
 	const action = explicitAction ?? diagnosis.classification;
 
-	const result = executeRecovery(database, root, {
-		action,
-		sliceId: stuckSlice.id,
-		milestoneNumber: milestone.number,
-	});
+	const result = executeRecovery(
+		database,
+		root,
+		{
+			action,
+			sliceId: stuckSlice.id,
+			milestoneNumber: milestone.number,
+		},
+		pi,
+	);
 
 	pi.sendUserMessage(result.message);
 }

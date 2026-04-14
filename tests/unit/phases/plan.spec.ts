@@ -14,7 +14,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
@@ -39,7 +38,7 @@ describe("planPhase", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, sliceId, "researching");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("researching", sliceId);
 		updateSliceTier(db, sliceId, "SS");
 		writeArtifact(root, "PROJECT.md", "# TFF");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec");
@@ -74,7 +73,7 @@ describe("planPhase", () => {
 		expect(result.message).toBeDefined();
 	});
 
-	it("transitions to planning during run", async () => {
+	it("message includes artifact path hint for the slice directory", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
 			pi: {
@@ -87,8 +86,33 @@ describe("planPhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
+		const result = await planPhase.prepare(ctx);
+		expect(result.message).toContain(".tff/milestones/M01/slices/M01-S01/");
+		expect(result.message).toContain("Do not look for them at project root");
+	});
+
+	it("emits phase_start for plan (reconciler sets status via EventLogger)", async () => {
+		// Status update is now driven by the reconciler when EventLogger handles
+		// the phase_start event on the real event bus. In unit tests the bus is
+		// mocked, so we verify the event was emitted — reconcile coverage lives in
+		// reconciler-integration tests.
+		const slice = must(getSlice(db, sliceId));
+		const mockEmit = vi.fn();
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: mockEmit, on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
 		await planPhase.prepare(ctx);
-		const updated = must(getSlice(db, sliceId));
-		expect(updated.status).toBe("planning");
+		const startCalls = mockEmit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "plan",
+		);
+		expect(startCalls).toHaveLength(1);
 	});
 });

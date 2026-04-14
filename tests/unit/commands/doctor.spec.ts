@@ -1,10 +1,15 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { STALLED_THRESHOLD_MS, handleDoctor } from "../../../src/commands/doctor.js";
+import { initMilestoneDir, initSliceDir, initTffDirectory } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestones,
 	getProject,
+	getSlice,
 	getSlices,
 	insertMilestone,
 	insertPhaseRun,
@@ -104,5 +109,94 @@ describe("handleDoctor", () => {
 		// Subsequent run should show no stalled phases (all marked abandoned).
 		const after = handleDoctor(db, { now });
 		expect(after.stalledPhases).toHaveLength(0);
+	});
+});
+
+describe("handleDoctor — drift reconcile", () => {
+	let db: Database.Database;
+	let sliceId: string;
+	let root: string;
+
+	beforeEach(() => {
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+		root = mkdtempSync(join(tmpdir(), "tff-doctor-drift-test-"));
+		initTffDirectory(root);
+		insertProject(db, { name: "TFF", vision: "V" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		initMilestoneDir(root, 1);
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
+		initSliceDir(root, 1, 1);
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("detects a drifted slice.status without reconciling (no --recover)", () => {
+		// slice.status starts as "created" (default after insert).
+		// Seed execute/started phase_run so computeSliceStatus returns "executing".
+		// The slice.status in DB is "created" (default), so drift is created → executing.
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+
+		const sliceBefore = must(getSlice(db, sliceId));
+		expect(sliceBefore.status).toBe("created");
+
+		const report = handleDoctor(db, { root });
+
+		expect(report.ok).toBe(false);
+		expect(report.drifts).toHaveLength(1);
+		const drift = must(report.drifts[0]);
+		expect(drift.sliceLabel).toBe("M01-S01");
+		expect(drift.from).toBe("created");
+		expect(drift.to).toBe("executing");
+
+		// DB must NOT be updated without --recover
+		const sliceAfter = must(getSlice(db, sliceId));
+		expect(sliceAfter.status).toBe("created");
+
+		expect(report.message).toMatch(/Detected 1 slice\(s\)/);
+		expect(report.message).toMatch(/--recover/);
+	});
+
+	it("detects and reconciles a drifted slice.status with --recover", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+
+		const report = handleDoctor(db, { root, recover: true });
+
+		expect(report.ok).toBe(true);
+		expect(report.drifts).toHaveLength(1);
+
+		// DB should be updated after reconcile
+		const sliceAfter = must(getSlice(db, sliceId));
+		expect(sliceAfter.status).toBe("executing");
+
+		expect(report.message).toMatch(/Reconciled 1 slice\(s\)/);
+	});
+
+	it("skips drift check if no root provided", () => {
+		// Even with a started phase_run that would cause drift, no root means no check
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+
+		const report = handleDoctor(db, {});
+		expect(report.drifts).toEqual([]);
 	});
 });

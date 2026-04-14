@@ -19,11 +19,10 @@ import {
 	insertTask,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../src/common/db.js";
 import type { PhaseContext } from "../../src/common/phase.js";
-import { DEFAULT_SETTINGS, type Settings } from "../../src/common/settings.js";
+import { DEFAULT_SETTINGS } from "../../src/common/settings.js";
 import { milestoneLabel, sliceLabel } from "../../src/common/types.js";
 import { handleCreateSlice } from "../../src/tools/create-slice.js";
 import { must } from "../helpers.js";
@@ -104,15 +103,6 @@ import { verifyPhase } from "../../src/phases/verify.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeSettings(overrides: Partial<Settings> = {}): Settings {
-	return {
-		...DEFAULT_SETTINGS,
-		compress: { ...DEFAULT_SETTINGS.compress },
-		ship: { ...DEFAULT_SETTINGS.ship },
-		...overrides,
-	};
-}
 
 function makePi() {
 	return {
@@ -217,7 +207,7 @@ describe("E2E critical path", () => {
 				"# Requirements\nR1: JWT auth\nR2: session management",
 			);
 			updateSliceTier(db, sliceId, "SS");
-			updateSliceStatus(db, sliceId, "discussing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 
 			// Step 5: researchPhase.prepare → verify sendUserMessage called
 			const researchPi = makePi();
@@ -328,9 +318,9 @@ describe("E2E critical path", () => {
 				`milestones/${mLabel}/slices/${sLabel}/PR.md`,
 				"# Description\n\nAdds auth.",
 			);
-			updateSliceStatus(db, sliceId, "reviewing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 
-			// Step 11: shipPhase.prepare with auto_merge: true
+			// Step 11: shipPhase.prepare — always manual confirm path
 			const shipPi = makePi();
 			const shipSlice = must(getSlice(db, sliceId));
 			const shipResult = await shipPhase.prepare({
@@ -339,25 +329,39 @@ describe("E2E critical path", () => {
 				root,
 				slice: shipSlice,
 				milestoneNumber: msNumber,
-				settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+				settings: DEFAULT_SETTINGS,
 			});
 			expect(shipResult.success).toBe(true);
 			const shippedSlice = must(getSlice(db, sliceId));
 			expect(shippedSlice.prUrl).toContain("github.com");
-			expect(shippedSlice.status).toBe("closed");
+			// Ship always emits phase_complete; slice is closed via override in
+			// finalizeMergedSlice (called from /tff ship-merged after user confirms).
+			expect(shipPi.events.emit).toHaveBeenCalledWith(
+				"tff:phase",
+				expect.objectContaining({ type: "phase_complete", phase: "ship" }),
+			);
+			// Override slice to closed to allow complete-milestone to proceed
+			db.prepare("UPDATE slice SET status = 'closed' WHERE id = ?").run(sliceId);
 
 			// Step 12: handleCompleteMilestone → milestone PR created
-			const completeResult = await handleCompleteMilestone(db, root, milestoneId, DEFAULT_SETTINGS);
+			const completePi = makePi();
+			const completeResult = await handleCompleteMilestone(
+				db,
+				root,
+				milestoneId,
+				DEFAULT_SETTINGS,
+				completePi,
+			);
 			expect(completeResult.success).toBe(true);
 			expect(completeResult.prUrl).toContain("github.com");
 		});
 	});
 
 	// -----------------------------------------------------------------------
-	// 2. Ship with auto_merge disabled
+	// 2. Ship always uses manual confirm path
 	// -----------------------------------------------------------------------
-	describe("ship with auto_merge disabled", () => {
-		it("leaves PR open and tells user it is ready for review", async () => {
+	describe("ship manual confirm path", () => {
+		it("leaves PR open and sends gate message asking user to confirm merge", async () => {
 			// Set up project, milestone, slice with all artifacts
 			initTffDirectory(root);
 			insertProject(db, { name: "TFF", vision: "Vision" });
@@ -371,7 +375,7 @@ describe("E2E critical path", () => {
 			const milestoneId = must(getMilestones(db, projectId)[0]).id;
 			insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 			const sliceId = must(getSlices(db, milestoneId)[0]).id;
-			updateSliceStatus(db, sliceId, "reviewing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 			updateSliceTier(db, sliceId, "SS");
 
 			writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec\nAC-1: auth works");
@@ -397,17 +401,20 @@ describe("E2E critical path", () => {
 				root,
 				slice,
 				milestoneNumber: 1,
-				settings: makeSettings({ ship: { auto_merge: false, merge_method: "squash" } }),
+				settings: DEFAULT_SETTINGS,
 			});
 
 			expect(result.success).toBe(true);
 
-			// Slice should be "shipping" (not closed)
+			// Ship emits phase_start and phase_complete; PR URL is persisted.
+			expect(pi.events.emit).toHaveBeenCalledWith(
+				"tff:phase",
+				expect.objectContaining({ type: "phase_start", phase: "ship" }),
+			);
 			const updated = must(getSlice(db, sliceId));
-			expect(updated.status).toBe("shipping");
 			expect(updated.prUrl).toContain("github.com");
 
-			// pr merge should NOT have been called
+			// pr merge should NOT have been called — user must confirm
 			expect(mockMerge).not.toHaveBeenCalled();
 
 			// sendUserMessage hands the merge gate to the agent — PR URL +
@@ -439,7 +446,7 @@ describe("E2E critical path", () => {
 			const milestoneId = must(getMilestones(db, projectId)[0]).id;
 			insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 			const sliceId = must(getSlices(db, milestoneId)[0]).id;
-			updateSliceStatus(db, sliceId, "shipping");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 			updateSliceTier(db, sliceId, "SS");
 			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
 
@@ -463,8 +470,12 @@ describe("E2E critical path", () => {
 			});
 
 			expect(result.success).toBe(true);
-			const updated = must(getSlice(db, sliceId));
-			expect(updated.status).toBe("closed");
+			// Reconciler rule 1: ship/completed + pr_url non-null → closed.
+			// Verify phase_complete was emitted; reconciler handles the DB write.
+			expect(pi.events.emit).toHaveBeenCalledWith(
+				"tff:phase",
+				expect.objectContaining({ type: "phase_complete", phase: "ship" }),
+			);
 		});
 	});
 
@@ -496,7 +507,7 @@ describe("E2E critical path", () => {
 			writeArtifact(root, `${base}/VERIFICATION.md`, "# V\n- [x] pass");
 			writeArtifact(root, `${base}/REVIEW.md`, "# Review");
 			writeArtifact(root, `${base}/PR.md`, "# Description");
-			updateSliceStatus(db, sliceId, "shipping");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 			updateSliceTier(db, sliceId, "SS");
 			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
 

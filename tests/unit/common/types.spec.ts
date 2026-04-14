@@ -3,6 +3,8 @@ import {
 	type Dependency,
 	MILESTONE_STATUSES,
 	type Milestone,
+	PHASE_RUN_STATUSES,
+	type PhaseRunStatus,
 	type Project,
 	SLICE_STATUSES,
 	type Slice,
@@ -47,6 +49,23 @@ describe("types", () => {
 	describe("Tiers", () => {
 		it("contains S, SS, SSS", () => {
 			expect(TIERS).toEqual(["S", "SS", "SSS"]);
+		});
+	});
+
+	describe("PHASE_RUN_STATUSES", () => {
+		it("contains all five expected values", () => {
+			expect(PHASE_RUN_STATUSES).toEqual([
+				"started",
+				"completed",
+				"failed",
+				"abandoned",
+				"retried",
+			]);
+		});
+
+		it("exposes a PhaseRunStatus type compatible with the tuple members", () => {
+			const v: PhaseRunStatus = "failed";
+			expect(PHASE_RUN_STATUSES).toContain(v);
 		});
 	});
 

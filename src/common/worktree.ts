@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { createCheckpoint } from "./checkpoint.js";
 import { gitEnv } from "./git.js";
 
 export function getWorktreePath(root: string, sliceLabel: string): string {
@@ -60,6 +61,18 @@ export function createWorktree(root: string, sliceLabel: string, milestoneBranch
 		});
 	}
 
+	return wtPath;
+}
+
+/**
+ * Idempotent: creates the git worktree + pre-execute checkpoint tag for a
+ * slice only if the worktree does not already exist. Safe to call multiple
+ * times (e.g. from both execute.prepare and session_start marker delivery).
+ * Returns the worktree path.
+ */
+export function ensureSliceWorktree(root: string, sLabel: string, milestoneBranch: string): string {
+	const wtPath = createWorktree(root, sLabel, milestoneBranch);
+	createCheckpoint(wtPath, sLabel, "pre-execute");
 	return wtPath;
 }
 

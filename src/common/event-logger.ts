@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { insertEventLog, insertPhaseRun, updatePhaseRun } from "./db.js";
+import { reconcileSliceStatus } from "./derived-state.js";
 import { type EventBus, type PhaseEvent, TFF_CHANNELS, type TffChannel } from "./events.js";
 
 export class EventLogger {
@@ -15,6 +16,7 @@ export class EventLogger {
 	constructor(
 		private db: Database.Database,
 		private logsDir: string,
+		private root: string,
 	) {
 		mkdirSync(logsDir, { recursive: true });
 	}
@@ -120,6 +122,46 @@ export class EventLogger {
 		appendFileSync(filePath, `${line}\n`);
 	}
 
+	private reconcileAndLog(sliceId: string): void {
+		// Direct event_log write — bypass the bus (to avoid cascading re-handling
+		// of tff:derived during a tff:phase handler) and bypass JSONL (derived
+		// status changes are observational, not operational — they belong in the
+		// DB log for forensics, not the per-slice action stream).
+		try {
+			const result = reconcileSliceStatus(this.db, this.root, sliceId);
+			if (result.changed) {
+				insertEventLog(this.db, {
+					channel: "tff:derived",
+					type: "status_changed",
+					sliceId,
+					payload: JSON.stringify({
+						sliceId,
+						from: result.from,
+						to: result.status,
+						timestamp: new Date().toISOString(),
+					}),
+				});
+			}
+		} catch (err) {
+			// Monitoring must not fail the pipeline, but reconciler errors must be
+			// observable for forensics. Write a reconcile_error row; if even that
+			// fails, we're in unrecoverable territory and must stay silent.
+			try {
+				insertEventLog(this.db, {
+					channel: "tff:derived",
+					type: "reconcile_error",
+					sliceId,
+					payload: JSON.stringify({
+						error: String(err),
+						timestamp: new Date().toISOString(),
+					}),
+				});
+			} catch {
+				// truly unrecoverable — swallow to keep pipeline alive
+			}
+		}
+	}
+
 	private handlePhaseRun(event: PhaseEvent): void {
 		const key = `${event.sliceId}:${event.phase}`;
 
@@ -131,6 +173,7 @@ export class EventLogger {
 				startedAt: event.timestamp,
 			});
 			this.activePhaseRuns.set(key, id);
+			this.reconcileAndLog(event.sliceId);
 			return;
 		}
 
@@ -156,6 +199,7 @@ export class EventLogger {
 		if (Object.keys(metadata).length > 0) update.metadata = JSON.stringify(metadata);
 
 		updatePhaseRun(this.db, runId, update);
+		this.reconcileAndLog(event.sliceId);
 
 		if (event.type !== "phase_retried") {
 			this.activePhaseRuns.delete(key);

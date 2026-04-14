@@ -4,9 +4,10 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { getSlice, updateSliceStatus } from "../common/db.js";
+import { getMilestone, getSlice } from "../common/db.js";
+import { makeBaseEvent } from "../common/events.js";
 import { SLICE_TRANSITIONS, canTransitionSlice, nextSliceStatus } from "../common/state-machine.js";
-import { SLICE_STATUSES, type SliceStatus } from "../common/types.js";
+import { type Phase, SLICE_STATUSES, type SliceStatus, sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -14,9 +15,21 @@ export interface ToolResult {
 	isError?: boolean;
 }
 
+const STATUS_TO_PHASE: Partial<Record<SliceStatus, Phase>> = {
+	discussing: "discuss",
+	researching: "research",
+	planning: "plan",
+	executing: "execute",
+	verifying: "verify",
+	reviewing: "review",
+	shipping: "ship",
+};
+
 export function handleTransition(
+	pi: ExtensionAPI,
 	db: Database.Database,
 	sliceId: string,
+	milestoneNumber: number,
 	targetStatus?: string,
 ): ToolResult {
 	const slice = getSlice(db, sliceId);
@@ -53,6 +66,19 @@ export function handleTransition(
 		};
 	}
 
+	if (target === "closed") {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "Cannot transition directly to 'closed'. Run /tff ship to merge the PR; the slice will close automatically once the merge evidence is present.",
+				},
+			],
+			details: { sliceId, from: slice.status, to: target },
+			isError: true,
+		};
+	}
+
 	if (!canTransitionSlice(slice.status, target)) {
 		return {
 			content: [
@@ -66,7 +92,26 @@ export function handleTransition(
 		};
 	}
 
-	updateSliceStatus(db, sliceId, target);
+	const phaseForTarget = STATUS_TO_PHASE[target];
+	if (!phaseForTarget) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: `Cannot transition to '${target}' via this tool.`,
+				},
+			],
+			details: { sliceId, from: slice.status, to: target },
+			isError: true,
+		};
+	}
+
+	const sLabel = sliceLabel(milestoneNumber, slice.number);
+	pi.events.emit("tff:phase", {
+		...makeBaseEvent(sliceId, sLabel, milestoneNumber),
+		type: "phase_start",
+		phase: phaseForTarget,
+	});
 
 	return {
 		content: [
@@ -75,7 +120,7 @@ export function handleTransition(
 				text: `Slice ${sliceId} transitioned: ${slice.status} → ${target}`,
 			},
 		],
-		details: { sliceId, from: slice.status, to: target },
+		details: { sliceId, from: slice.status, to: target, phaseEmitted: phaseForTarget },
 	};
 }
 
@@ -115,7 +160,15 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							isError: true,
 						};
 					}
-					return handleTransition(database, slice.id, params.targetStatus);
+					const milestone = getMilestone(database, slice.milestoneId);
+					if (!milestone) {
+						return {
+							content: [{ type: "text", text: `Milestone not found for slice: ${params.sliceId}` }],
+							details: { sliceId: params.sliceId },
+							isError: true,
+						};
+					}
+					return handleTransition(pi, database, slice.id, milestone.number, params.targetStatus);
 				} catch (err) {
 					return {
 						content: [

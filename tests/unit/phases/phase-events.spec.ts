@@ -14,11 +14,11 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
+import type { SliceStatus } from "../../../src/common/types.js";
 import { must } from "../../helpers.js";
 
 import { discussPhase } from "../../../src/phases/discuss.js";
@@ -63,7 +63,10 @@ function setupDb(milestoneStatus?: string): {
 	updateSliceTier(db, sliceId, "SS");
 	writeArtifact(root, "PROJECT.md", "# TFF");
 	if (milestoneStatus) {
-		updateSliceStatus(db, sliceId, milestoneStatus as Parameters<typeof updateSliceStatus>[2]);
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(
+			milestoneStatus as SliceStatus,
+			sliceId,
+		);
 	}
 	return { db, root, sliceId };
 }

@@ -29,6 +29,9 @@ export function nextSliceStatus(current: SliceStatus, tier?: Tier): SliceStatus 
 	if (current === "closed") return null;
 	if (current === "discussing" && tier === "S") return "planning";
 
+	// NOTE: this is the SliceStatus ordering (includes 'created' and 'closed').
+	// The Phase equivalent lives as PIPELINE_PHASE_ORDER in types.ts — keep both
+	// in sync if the pipeline adds/removes phases.
 	const forwardPath: SliceStatus[] = [
 		"created",
 		"discussing",
