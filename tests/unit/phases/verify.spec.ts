@@ -15,7 +15,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
@@ -83,7 +82,7 @@ describe("verifyPhase", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, sliceId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sliceId);
 		updateSliceTier(db, sliceId, "SS");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec\nAC-1: auth works");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan");

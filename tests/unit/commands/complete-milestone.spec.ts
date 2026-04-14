@@ -16,7 +16,6 @@ import {
 	insertSlice,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { DEFAULT_SETTINGS, type Settings } from "../../../src/common/settings.js";
 import { must } from "../../helpers.js";
@@ -146,7 +145,7 @@ describe("handleCompleteMilestone", () => {
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
 		for (const s of slices) {
-			updateSliceStatus(db, s.id, "closed");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", s.id);
 		}
 		writeAllArtifacts(root, 1, 1);
 		writeAllArtifacts(root, 1, 2);
@@ -172,7 +171,7 @@ describe("handleCompleteMilestone", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
-		updateSliceStatus(db, must(slices[0]).id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
 		// Leave slices[1] as "created"
 
 		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
@@ -184,11 +183,11 @@ describe("handleCompleteMilestone", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const slices = getSlices(db, milestoneId);
-		updateSliceStatus(db, must(slices[0]).id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
 		writeAllArtifacts(root, 1, 1);
 
 		// Slice 2 is stuck at "shipping" with a prUrl
-		updateSliceStatus(db, must(slices[1]).id, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", must(slices[1]).id);
 		updateSlicePrUrl(db, must(slices[1]).id, "https://github.com/org/repo/pull/42");
 		writeAllArtifacts(root, 1, 2);
 
@@ -209,7 +208,7 @@ describe("handleCompleteMilestone", () => {
 	it("validates artifacts for all slices", async () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const slices = getSlices(db, milestoneId);
-		updateSliceStatus(db, must(slices[0]).id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
 		// Do NOT write artifacts
 
 		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);

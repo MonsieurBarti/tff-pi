@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { handleTransition } from "../../../src/tools/transition.js";
 import { must } from "../../helpers.js";
@@ -63,7 +62,7 @@ describe("handleTransition", () => {
 	});
 
 	it("transitions to explicit valid targetStatus", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		const result = handleTransition(pi, db, sliceId, 1, "researching");
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("discussing → researching");
@@ -80,7 +79,7 @@ describe("handleTransition", () => {
 	});
 
 	it("rejects target 'closed' with pointer to /tff ship", () => {
-		updateSliceStatus(db, sliceId, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 		const result = handleTransition(pi, db, sliceId, 1, "closed");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("closed");
@@ -97,7 +96,7 @@ describe("handleTransition", () => {
 	});
 
 	it("returns error when no next status from closed", () => {
-		updateSliceStatus(db, sliceId, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", sliceId);
 		const result = handleTransition(pi, db, sliceId, 1);
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("No valid next status");

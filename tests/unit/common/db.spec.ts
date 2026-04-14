@@ -27,7 +27,6 @@ import {
 	updateMilestoneStatus,
 	updatePhaseRun,
 	updateSlicePrUrl,
-	updateSliceStatus,
 	updateSliceTier,
 	updateTaskStatus,
 	updateTaskWave,
@@ -160,7 +159,7 @@ describe("slice", () => {
 	it("updates slice status", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const id = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, id, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", id);
 		expect(must(getSlice(db, id)).status).toBe("executing");
 	});
 
@@ -394,7 +393,7 @@ describe("getActiveSlice", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "S1" });
 		insertSlice(db, { milestoneId, number: 2, title: "S2" });
 		const s1Id = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, s1Id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", s1Id);
 		const active = must(getActiveSlice(db, milestoneId));
 		expect(active.title).toBe("S2");
 	});

@@ -15,7 +15,6 @@ import {
 	insertSlice,
 	insertTask,
 	openDatabase,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
@@ -64,7 +63,7 @@ describe("executePhase", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, sliceId, "planning");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sliceId);
 		updateSliceTier(db, sliceId, "SS");
 	});
 

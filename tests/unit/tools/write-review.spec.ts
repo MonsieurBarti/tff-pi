@@ -22,7 +22,6 @@ import {
 	insertSlice,
 	insertTask,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { handleWriteReview } from "../../../src/tools/write-review.js";
 import { must } from "../../helpers.js";
@@ -51,7 +50,7 @@ describe("handleWriteReview", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		initSliceDir(root, 1, 1);
-		updateSliceStatus(db, sliceId, "reviewing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 	});
 
 	afterEach(() => {

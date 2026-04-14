@@ -19,7 +19,6 @@ import {
 	insertTask,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../src/common/db.js";
 import type { PhaseContext } from "../../src/common/phase.js";
@@ -217,7 +216,7 @@ describe("E2E critical path", () => {
 				"# Requirements\nR1: JWT auth\nR2: session management",
 			);
 			updateSliceTier(db, sliceId, "SS");
-			updateSliceStatus(db, sliceId, "discussing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 
 			// Step 5: researchPhase.prepare → verify sendUserMessage called
 			const researchPi = makePi();
@@ -328,7 +327,7 @@ describe("E2E critical path", () => {
 				`milestones/${mLabel}/slices/${sLabel}/PR.md`,
 				"# Description\n\nAdds auth.",
 			);
-			updateSliceStatus(db, sliceId, "reviewing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 
 			// Step 11: shipPhase.prepare with auto_merge: true
 			const shipPi = makePi();
@@ -383,7 +382,7 @@ describe("E2E critical path", () => {
 			const milestoneId = must(getMilestones(db, projectId)[0]).id;
 			insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 			const sliceId = must(getSlices(db, milestoneId)[0]).id;
-			updateSliceStatus(db, sliceId, "reviewing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 			updateSliceTier(db, sliceId, "SS");
 
 			writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec\nAC-1: auth works");
@@ -455,7 +454,7 @@ describe("E2E critical path", () => {
 			const milestoneId = must(getMilestones(db, projectId)[0]).id;
 			insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 			const sliceId = must(getSlices(db, milestoneId)[0]).id;
-			updateSliceStatus(db, sliceId, "shipping");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 			updateSliceTier(db, sliceId, "SS");
 			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
 
@@ -516,7 +515,7 @@ describe("E2E critical path", () => {
 			writeArtifact(root, `${base}/VERIFICATION.md`, "# V\n- [x] pass");
 			writeArtifact(root, `${base}/REVIEW.md`, "# Review");
 			writeArtifact(root, `${base}/PR.md`, "# Description");
-			updateSliceStatus(db, sliceId, "shipping");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 			updateSliceTier(db, sliceId, "SS");
 			updateSlicePrUrl(db, sliceId, "https://github.com/org/repo/pull/1");
 

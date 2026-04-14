@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
 
@@ -30,19 +29,19 @@ describe("validateExecute", () => {
 	});
 
 	it("succeeds when slice is in planning status", () => {
-		updateSliceStatus(db, sliceId, "planning");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sliceId);
 		const result = validateExecute(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("succeeds when slice is in executing status (re-run stuck phase)", () => {
-		updateSliceStatus(db, sliceId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sliceId);
 		const result = validateExecute(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("fails for wrong status", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		const result = validateExecute(db, sliceId);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("planning");

@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
@@ -36,21 +35,21 @@ describe("validateResearch", () => {
 	});
 
 	it("succeeds for discussing status with SS tier", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		updateSliceTier(db, sliceId, "SS");
 		const result = validateResearch(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("succeeds for discussing status with SSS tier", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		updateSliceTier(db, sliceId, "SSS");
 		const result = validateResearch(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("fails for S-tier slice", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		updateSliceTier(db, sliceId, "S");
 		const result = validateResearch(db, sliceId);
 		expect(result.valid).toBe(false);
@@ -58,7 +57,7 @@ describe("validateResearch", () => {
 	});
 
 	it("succeeds for researching status (re-run stuck phase)", () => {
-		updateSliceStatus(db, sliceId, "researching");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("researching", sliceId);
 		const result = validateResearch(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
@@ -70,7 +69,7 @@ describe("validateResearch", () => {
 	});
 
 	it("fails for planning status", () => {
-		updateSliceStatus(db, sliceId, "planning");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sliceId);
 		const result = validateResearch(db, sliceId);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("planning");

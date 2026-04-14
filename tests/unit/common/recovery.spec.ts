@@ -11,7 +11,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { gitEnv } from "../../../src/common/git.js";
 import {
@@ -114,7 +113,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const stuck = scanForStuckSlices(db);
 			expect(stuck).toHaveLength(1);
@@ -130,7 +129,7 @@ describe("recovery", () => {
 			});
 			insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
 			const s2 = insertSlice(db, { milestoneId: mId, number: 2, title: "S2" });
-			updateSliceStatus(db, s2, "closed");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", s2);
 
 			expect(scanForStuckSlices(db)).toEqual([]);
 		});
@@ -145,7 +144,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "discussing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sId);
 
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			expect(diag.classification).toBe("resume");
@@ -159,7 +158,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			expect(diag.classification).toBe("manual");
@@ -173,7 +172,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "shipping");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sId);
 
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			expect(diag.classification).toBe("manual");
@@ -187,7 +186,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "verifying");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("verifying", sId);
 
 			const sliceDir = join(root, ".tff", "milestones", "M01", "slices", "M01-S01");
 			mkdirSync(sliceDir, { recursive: true });
@@ -207,7 +206,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			expect(diag.evidence.recentToolCalls).toEqual([]);
@@ -221,7 +220,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const now = Date.now();
 			for (let i = 0; i < 15; i++) {
@@ -245,7 +244,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const now = Date.now();
 			seedToolCall(sId, {
@@ -270,7 +269,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const now = Date.now();
 			seedToolCall(sId, {
@@ -356,7 +355,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			seedToolCall(sId, {
 				command: "bun run test",
@@ -384,7 +383,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			seedToolCall(sId, {
 				command: "bash -c 'echo `date`'",
@@ -408,7 +407,7 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			updateSliceStatus(db, sId, "executing");
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			const briefing = formatRecoveryBriefing(diag);

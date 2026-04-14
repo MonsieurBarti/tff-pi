@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
 
@@ -41,20 +40,20 @@ describe("validateDiscuss", () => {
 	});
 
 	it("succeeds for discussing status (re-run stuck phase)", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		const result = validateDiscuss(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("fails for executing status", () => {
-		updateSliceStatus(db, sliceId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sliceId);
 		const result = validateDiscuss(db, sliceId);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("executing");
 	});
 
 	it("fails for closed status", () => {
-		updateSliceStatus(db, sliceId, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", sliceId);
 		const result = validateDiscuss(db, sliceId);
 		expect(result.valid).toBe(false);
 	});

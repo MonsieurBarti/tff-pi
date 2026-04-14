@@ -15,7 +15,6 @@ import {
 	insertTask,
 	openDatabase,
 	updateMilestoneStatus,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../src/common/db.js";
 import {
@@ -66,7 +65,7 @@ describe("findActiveSlice", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		insertSlice(db, { milestoneId, number: 2, title: "DB" });
 		const s1Id = must(getSlices(db, milestoneId)[0]).id;
-		updateSliceStatus(db, s1Id, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", s1Id);
 
 		const active = must(findActiveSlice(db));
 		expect(active.title).toBe("DB");

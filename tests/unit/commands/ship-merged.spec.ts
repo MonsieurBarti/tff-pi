@@ -8,7 +8,6 @@ import {
 	insertSlice,
 	openDatabase,
 	updateSlicePrUrl,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
 
@@ -69,7 +68,7 @@ describe("handleShipMerged", () => {
 			number: 1,
 			title: "slice",
 		});
-		updateSliceStatus(db, sliceId, "shipping");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sliceId);
 	});
 
 	afterEach(() => {
@@ -89,7 +88,7 @@ describe("handleShipMerged", () => {
 	});
 
 	it("refuses to close an already-closed slice", async () => {
-		updateSliceStatus(db, sliceId, "closed");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", sliceId);
 		const result = await handleShipMerged(fakePi(), db, "/tmp", sliceId);
 		expect(result.success).toBe(false);
 		expect(result.message).toContain("already closed");

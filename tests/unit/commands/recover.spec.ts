@@ -15,7 +15,6 @@ import {
 	insertSlice,
 	openDatabase,
 	updatePhaseRun,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { gitEnv } from "../../../src/common/git.js";
 import { acquireLock, readLock } from "../../../src/common/session-lock.js";
@@ -78,7 +77,7 @@ describe("recover command", () => {
 			branch: "milestone/M01",
 		});
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
-		updateSliceStatus(db, sId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
 		const result = executeRecovery(
@@ -107,7 +106,7 @@ describe("recover command", () => {
 			branch: "milestone/M01",
 		});
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
-		updateSliceStatus(db, sId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
 		const result = executeRecovery(
@@ -135,7 +134,7 @@ describe("recover command", () => {
 			branch: "milestone/M01",
 		});
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
-		updateSliceStatus(db, sId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
 		// Create artifacts to support reconciliation after the skip
@@ -181,7 +180,7 @@ describe("recover command", () => {
 			branch: "milestone/M01",
 		});
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
-		updateSliceStatus(db, sId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
 		const result = executeRecovery(

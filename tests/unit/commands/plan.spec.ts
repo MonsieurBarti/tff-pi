@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 	updateSliceTier,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
@@ -36,14 +35,14 @@ describe("validatePlan", () => {
 	});
 
 	it("succeeds for a discussing S-tier slice", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		updateSliceTier(db, sliceId, "S");
 		const result = validatePlan(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("fails for a discussing non-S-tier slice", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		updateSliceTier(db, sliceId, "SS");
 		const result = validatePlan(db, sliceId);
 		expect(result.valid).toBe(false);
@@ -51,14 +50,14 @@ describe("validatePlan", () => {
 	});
 
 	it("fails for a discussing slice with no tier", () => {
-		updateSliceStatus(db, sliceId, "discussing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sliceId);
 		const result = validatePlan(db, sliceId);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("discussing");
 	});
 
 	it("succeeds for researching status", () => {
-		updateSliceStatus(db, sliceId, "researching");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("researching", sliceId);
 		const result = validatePlan(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
@@ -70,13 +69,13 @@ describe("validatePlan", () => {
 	});
 
 	it("succeeds for planning status (re-run stuck phase)", () => {
-		updateSliceStatus(db, sliceId, "planning");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sliceId);
 		const result = validatePlan(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("fails for executing status", () => {
-		updateSliceStatus(db, sliceId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sliceId);
 		const result = validatePlan(db, sliceId);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("executing");

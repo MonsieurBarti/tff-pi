@@ -390,10 +390,6 @@ export function getSlice(db: Database.Database, id: string): Slice | null {
 	return row ? rowToSlice(row) : null;
 }
 
-export function updateSliceStatus(db: Database.Database, id: string, status: SliceStatus): void {
-	db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(status, id);
-}
-
 export function updateSliceTier(db: Database.Database, id: string, tier: Tier): void {
 	db.prepare("UPDATE slice SET tier = ? WHERE id = ?").run(tier, id);
 }

@@ -10,7 +10,6 @@ import {
 	insertProject,
 	insertSlice,
 	openDatabase,
-	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { must } from "../../helpers.js";
 
@@ -30,19 +29,19 @@ describe("validateVerify", () => {
 	});
 
 	it("succeeds when slice is in executing status", () => {
-		updateSliceStatus(db, sliceId, "executing");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sliceId);
 		const result = validateVerify(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("succeeds when slice is in verifying status (re-run stuck phase)", () => {
-		updateSliceStatus(db, sliceId, "verifying");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("verifying", sliceId);
 		const result = validateVerify(db, sliceId);
 		expect(result.valid).toBe(true);
 	});
 
 	it("fails for wrong status", () => {
-		updateSliceStatus(db, sliceId, "planning");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sliceId);
 		const result = validateVerify(db, sliceId);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("executing");
