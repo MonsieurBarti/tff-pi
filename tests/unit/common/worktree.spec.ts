@@ -165,3 +165,66 @@ describe("createWorktree — M10-S01 inner symlink", () => {
 		expect(readlinkSync(innerLink)).toBe(projectHomeDir(projectId));
 	});
 });
+
+describe("createWorktree — slice label validation (H1)", () => {
+	let repo: string;
+	let home: string;
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGitEnv: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		for (const key of Object.keys(process.env)) {
+			if (key.startsWith("GIT_")) {
+				savedGitEnv[key] = process.env[key];
+				Reflect.deleteProperty(process.env, key);
+			}
+		}
+		repo = mkdtempSync(join(tmpdir(), "tff-wt-h1-"));
+		home = mkdtempSync(join(tmpdir(), "tff-wt-h1-home-"));
+		process.env.TFF_HOME = home;
+		execSync("git init", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m init", { cwd: repo, stdio: "pipe" });
+		handleInit(repo);
+		execSync("git commit -m 'tff init'", { cwd: repo, stdio: "pipe" });
+	});
+
+	afterEach(() => {
+		rmSync(repo, { recursive: true, force: true });
+		rmSync(home, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [key, value] of Object.entries(savedGitEnv)) {
+			if (value !== undefined) process.env[key] = value;
+		}
+	});
+
+	it("rejects path-traversal labels", () => {
+		const mainBranch = execSync("git rev-parse --abbrev-ref HEAD", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(() => createWorktree(repo, "../../etc/passwd", mainBranch)).toThrow(
+			/Invalid slice label/,
+		);
+	});
+
+	it("rejects labels with shell metacharacters", () => {
+		const mainBranch = execSync("git rev-parse --abbrev-ref HEAD", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(() => createWorktree(repo, "M01-S01; rm -rf /", mainBranch)).toThrow(
+			/Invalid slice label/,
+		);
+	});
+
+	it("accepts canonical M##-S## labels", () => {
+		const mainBranch = execSync("git rev-parse --abbrev-ref HEAD", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(() => createWorktree(repo, "M99-S88", mainBranch)).not.toThrow();
+	});
+});

@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SETTINGS, serializeSettings } from "./settings.js";
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -21,8 +22,14 @@ export class ProjectHomeError extends Error {
 
 export function tffHomeRoot(): string {
 	const override = process.env.TFF_HOME;
-	if (override && override.length > 0) return override;
-	return join(homedir(), ".tff");
+	if (!override || override.length === 0) return join(homedir(), ".tff");
+	if (override.includes("\0")) {
+		throw new ProjectHomeError("TFF_HOME contains null byte");
+	}
+	if (!override.startsWith("/")) {
+		throw new ProjectHomeError(`TFF_HOME must be an absolute path, got: ${override}`);
+	}
+	return override;
 }
 
 export function isUuidV4(s: string): boolean {
@@ -35,16 +42,20 @@ export function projectHomeDir(projectId: string): string {
 
 export function ensureProjectHomeDir(projectId: string): string {
 	const dir = projectHomeDir(projectId);
-	mkdirSync(dir, { recursive: true });
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
 	mkdirSync(join(dir, "milestones"), { recursive: true });
 	mkdirSync(join(dir, "worktrees"), { recursive: true });
+	const settingsPath = join(dir, "settings.yaml");
+	if (!existsSync(settingsPath)) {
+		writeFileSync(settingsPath, serializeSettings(DEFAULT_SETTINGS), "utf-8");
+	}
 	return dir;
 }
 
 export function createTffSymlink(repoRoot: string, projectId: string): void {
 	const linkPath = join(repoRoot, ".tff");
 	const target = projectHomeDir(projectId);
-	if (existsSync(linkPath) || isDanglingLink(linkPath)) {
+	if (existsSync(linkPath) || isSymlink(linkPath)) {
 		const stat = lstatSync(linkPath);
 		if (!stat.isSymbolicLink()) {
 			throw new ProjectHomeError(
@@ -91,7 +102,8 @@ export function writeProjectIdFile(repoRoot: string, projectId: string): void {
 	writeFileSync(projectIdFilePath(repoRoot), `${projectId}\n`, "utf-8");
 }
 
-function isDanglingLink(p: string): boolean {
+/** Returns true for both dangling and non-dangling symlinks. */
+function isSymlink(p: string): boolean {
 	try {
 		return lstatSync(p).isSymbolicLink();
 	} catch {

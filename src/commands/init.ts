@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { chmodSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { initTffDirectory } from "../common/artifacts.js";
 import type { TffContext } from "../common/context.js";
 import { applyMigrations, openDatabase } from "../common/db.js";
 import { ensureGitignoreEntries, getGitRoot, gitEnv, initRepo } from "../common/git.js";
@@ -43,7 +43,6 @@ export function handleInit(repoRoot: string): InitResult {
 	const home = ensureProjectHomeDir(projectId);
 	createTffSymlink(repoRoot, projectId);
 	if (created) writeProjectIdFile(repoRoot, projectId);
-	initTffDirectory(repoRoot);
 	ensureGitignoreEntries(repoRoot);
 
 	const dbPath = join(home, "state.db");
@@ -53,6 +52,7 @@ export function handleInit(repoRoot: string): InitResult {
 	} finally {
 		db.close();
 	}
+	chmodSync(dbPath, 0o600);
 
 	if (created) stageFiles(repoRoot, [".tff-project-id", ".gitignore"]);
 

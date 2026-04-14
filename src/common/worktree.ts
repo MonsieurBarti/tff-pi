@@ -5,6 +5,14 @@ import { createCheckpoint } from "./checkpoint.js";
 import { gitEnv } from "./git.js";
 import { ProjectHomeError, createTffSymlink, readProjectIdFile } from "./project-home.js";
 
+const SLICE_LABEL_RE = /^M\d{2}-S\d{2}$/;
+
+function validateSliceLabel(label: string): void {
+	if (!SLICE_LABEL_RE.test(label)) {
+		throw new Error(`Invalid slice label: ${JSON.stringify(label)}. Expected format M##-S##.`);
+	}
+}
+
 export function getWorktreePath(root: string, sliceLabel: string): string {
 	return join(root, ".tff", "worktrees", sliceLabel);
 }
@@ -28,6 +36,7 @@ export function worktreeExists(root: string, sliceLabel: string): boolean {
 }
 
 export function createWorktree(root: string, sliceLabel: string, milestoneBranch: string): string {
+	validateSliceLabel(sliceLabel);
 	const wtPath = getWorktreePath(root, sliceLabel);
 	if (worktreeExists(root, sliceLabel)) {
 		return wtPath;
@@ -87,12 +96,14 @@ export function createWorktree(root: string, sliceLabel: string, milestoneBranch
  * Returns the worktree path.
  */
 export function ensureSliceWorktree(root: string, sLabel: string, milestoneBranch: string): string {
+	validateSliceLabel(sLabel);
 	const wtPath = createWorktree(root, sLabel, milestoneBranch);
 	createCheckpoint(wtPath, sLabel, "pre-execute");
 	return wtPath;
 }
 
 export function removeWorktree(root: string, sliceLabel: string): void {
+	validateSliceLabel(sliceLabel);
 	const wtPath = getWorktreePath(root, sliceLabel);
 	const env = gitEnv();
 
