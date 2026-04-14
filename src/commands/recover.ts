@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 import { getLastCheckpoint } from "../common/checkpoint.js";
 import { type TffContext, requireProject } from "../common/context.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { overrideSliceStatus } from "../common/derived-state.js";
+import { overrideSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
 import { makeBaseEvent } from "../common/events.js";
 import { gitEnv } from "../common/git.js";
 import {
@@ -125,6 +125,8 @@ export function executeRecovery(
 					to: nextStatus,
 					reason: "recover-skip",
 				});
+				// Reconcile to catch conflicts introduced by the override
+				reconcileSliceStatus(db, root, sliceId);
 			}
 			releaseLock(root);
 			return {

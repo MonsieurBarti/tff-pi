@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -10,9 +10,11 @@ import {
 	applyMigrations,
 	getSlice,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
+	updatePhaseRun,
 	updateSliceStatus,
 } from "../../../src/common/db.js";
 import { gitEnv } from "../../../src/common/git.js";
@@ -135,6 +137,23 @@ describe("recover command", () => {
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
 		updateSliceStatus(db, sId, "executing");
 		acquireLock(root, { phase: "execute", sliceId: sId });
+
+		// Create artifacts to support reconciliation after the skip
+		const planDir = join(root, ".tff/milestones/M01/slices/M01-S01");
+		mkdirSync(planDir, { recursive: true });
+		writeFileSync(join(planDir, "PLAN.md"), "plan");
+
+		// Insert completed execute phase run so reconcile sees a path forward to verify
+		const prId = insertPhaseRun(db, {
+			sliceId: sId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		updatePhaseRun(db, prId, {
+			status: "completed",
+			finishedAt: new Date().toISOString(),
+		});
 
 		const result = executeRecovery(
 			db,
