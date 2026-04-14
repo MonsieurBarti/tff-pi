@@ -136,12 +136,9 @@ describe("handleDoctor — drift reconcile", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("detects and reconciles a drifted slice.status", () => {
+	it("detects a drifted slice.status without reconciling (no --recover)", () => {
 		// slice.status starts as "created" (default after insert).
-		// Seed a completed execute phase_run so computeSliceStatus returns "executing"
-		// (rule 4: execute completed but no PLAN.md yet means stay in "executing").
-		// Actually we need plan completed → execute in progress.
-		// Simplest: insert execute/started phase_run → computeSliceStatus returns "executing".
+		// Seed execute/started phase_run so computeSliceStatus returns "executing".
 		// The slice.status in DB is "created" (default), so drift is created → executing.
 		insertPhaseRun(db, {
 			sliceId,
@@ -155,12 +152,33 @@ describe("handleDoctor — drift reconcile", () => {
 
 		const report = handleDoctor(db, { root });
 
-		expect(report.ok).toBe(true);
+		expect(report.ok).toBe(false);
 		expect(report.drifts).toHaveLength(1);
 		const drift = must(report.drifts[0]);
 		expect(drift.sliceLabel).toBe("M01-S01");
 		expect(drift.from).toBe("created");
 		expect(drift.to).toBe("executing");
+
+		// DB must NOT be updated without --recover
+		const sliceAfter = must(getSlice(db, sliceId));
+		expect(sliceAfter.status).toBe("created");
+
+		expect(report.message).toMatch(/Detected 1 slice\(s\)/);
+		expect(report.message).toMatch(/--recover/);
+	});
+
+	it("detects and reconciles a drifted slice.status with --recover", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+
+		const report = handleDoctor(db, { root, recover: true });
+
+		expect(report.ok).toBe(true);
+		expect(report.drifts).toHaveLength(1);
 
 		// DB should be updated after reconcile
 		const sliceAfter = must(getSlice(db, sliceId));

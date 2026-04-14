@@ -95,26 +95,31 @@ export function handleDoctor(
 						from: s.status,
 						to: computed,
 					});
-					reconcileSliceStatus(db, options.root, s.id);
+					if (options.recover) {
+						reconcileSliceStatus(db, options.root, s.id);
+					}
 				}
 			}
 		}
 	}
 
 	if (stalled.length === 0) {
+		const verb = options.recover ? "Reconciled" : "Detected";
 		const lines: string[] = [
-			`TFF doctor: ${drifts.length === 0 ? "OK" : "reconciled drift"}`,
+			`TFF doctor: ${drifts.length === 0 ? "OK" : options.recover ? "reconciled drift" : "drift detected"}`,
 			`- ${milestones.length} milestone(s), no stalled phases.`,
 			`- Stall threshold: ${Math.round(STALLED_THRESHOLD_MS / 60000)} minutes.`,
 		];
 		if (drifts.length > 0) {
-			lines.push(`- Reconciled ${drifts.length} slice(s) with drifted status:`);
+			lines.push(
+				`- ${verb} ${drifts.length} slice(s) with drifted status${options.recover ? "" : " (run /tff doctor --recover to reconcile)"}:`,
+			);
 			for (const d of drifts) {
 				lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
 			}
 		}
 		return {
-			ok: true,
+			ok: drifts.length === 0 || !!options.recover,
 			stalledPhases: [],
 			drifts,
 			message: lines.join("\n"),
@@ -127,7 +132,7 @@ export function handleDoctor(
 			ok: true,
 			stalledPhases: stalled,
 			drifts,
-			message: formatStalledReport(stalled, { recovered: count, drifts }),
+			message: formatStalledReport(stalled, { recovered: count, drifts, recover: true }),
 		};
 	}
 
@@ -135,7 +140,7 @@ export function handleDoctor(
 		ok: false,
 		stalledPhases: stalled,
 		drifts,
-		message: formatStalledReport(stalled, { drifts }),
+		message: formatStalledReport(stalled, { drifts, recover: false }),
 	};
 }
 
@@ -148,7 +153,7 @@ function isStalled(run: PhaseRun, now: number): boolean {
 
 function formatStalledReport(
 	stalled: StalledPhase[],
-	opts: { recovered?: number; drifts?: SliceDrift[] } = {},
+	opts: { recovered?: number; drifts?: SliceDrift[]; recover?: boolean } = {},
 ): string {
 	const lines: string[] = [];
 	if (opts.recovered !== undefined) {
@@ -173,8 +178,11 @@ function formatStalledReport(
 
 	const drifts = opts.drifts ?? [];
 	if (drifts.length > 0) {
+		const verb = opts.recover ? "Reconciled" : "Detected";
 		lines.push("");
-		lines.push(`Reconciled ${drifts.length} slice(s) with drifted status:`);
+		lines.push(
+			`${verb} ${drifts.length} slice(s) with drifted status${opts.recover ? "" : " (run /tff doctor --recover to reconcile)"}:`,
+		);
 		for (const d of drifts) {
 			lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
 		}
