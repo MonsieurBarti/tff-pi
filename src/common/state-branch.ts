@@ -344,7 +344,7 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 			return;
 		}
 
-		// Push is added in Tasks 9-11.
+		// Push is handled by pushWithRebaseRetry (Tasks 9-11), called at the lifecycle site.
 	} catch (err) {
 		console.warn("commitStateAtPhaseEnd: unexpected error", err);
 	} finally {
@@ -399,4 +399,30 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 	}
 
 	await createOrphanStateBranch(repoRoot, projectId, stateBranch, codeBranch);
+}
+
+// ---------------------------------------------------------------------------
+// pushWithRebaseRetry
+// ---------------------------------------------------------------------------
+
+export type PushOutcome = "pushed" | "conflict-backup" | "skipped-no-remote";
+
+export async function pushWithRebaseRetry(
+	worktreeDir: string,
+	stateBranch: string,
+): Promise<PushOutcome> {
+	if (!hasOriginRemote(worktreeDir)) return "skipped-no-remote";
+
+	const push = runGit(worktreeDir, ["push", "origin", stateBranch]);
+	if (push.ok) return "pushed";
+	const isNonFf =
+		/non-fast-forward|\(fetch first\)|\(non-fast-forward\)/i.test(push.stderr) ||
+		/rejected.*\(fetch first\)/i.test(push.stderr);
+	if (!isNonFf) {
+		console.warn(`pushWithRebaseRetry: push failed (non-retryable): ${push.stderr}`);
+		return "skipped-no-remote";
+	}
+	// Non-ff path (rebase + retry) added in Task 10.
+	// Backup-branch path added in Task 11.
+	return "skipped-no-remote";
 }

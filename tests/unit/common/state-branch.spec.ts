@@ -18,6 +18,7 @@ import {
 	commitStateAtPhaseEnd,
 	ensureStateBranch,
 	mirrorPortableSubset,
+	pushWithRebaseRetry,
 	stateBranchName,
 } from "../../../src/common/state-branch.js";
 
@@ -624,5 +625,68 @@ describe("commitStateAtPhaseEnd — non-blocking", () => {
 				sliceLabel: "M01-S01",
 			}),
 		).resolves.toBeUndefined();
+	});
+});
+
+describe("pushWithRebaseRetry — clean push", () => {
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+	let home: string;
+	let origin: string;
+	let repo: string;
+	let projectId: string;
+
+	beforeEach(async () => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		origin = mkdtempSync(join(tmpdir(), "sb-origin-"));
+		repo = mkdtempSync(join(tmpdir(), "sb-repo-"));
+		process.env.TFF_HOME = home;
+		execSync("git init --bare -b main", { cwd: origin, stdio: "pipe" });
+		execSync("git init -b main", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
+		execSync(`git remote add origin ${origin}`, { cwd: repo, stdio: "pipe" });
+		execSync("git push -u origin main", { cwd: repo, stdio: "pipe" });
+		const r = handleInit(repo);
+		projectId = r.projectId;
+		await ensureStateBranch(repo, projectId);
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(origin, { recursive: true, force: true });
+		rmSync(repo, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("returns 'skipped-no-remote' when repo has no origin", async () => {
+		execSync("git remote remove origin", { cwd: repo, stdio: "pipe" });
+		const r = await pushWithRebaseRetry(repo, "tff-state/main");
+		expect(r).toBe("skipped-no-remote");
+	});
+
+	it("pushes and returns 'pushed' when remote is ready", async () => {
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		execSync("git checkout tff-state/main", { cwd: repo, stdio: "pipe" });
+		const r = await pushWithRebaseRetry(repo, "tff-state/main");
+		expect(r).toBe("pushed");
+		const remoteBranches = execSync(`git -C ${origin} branch --list tff-state/main`, {
+			encoding: "utf-8",
+		});
+		expect(remoteBranches).toContain("tff-state/main");
 	});
 });
