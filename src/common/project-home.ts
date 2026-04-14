@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -18,4 +19,16 @@ export function tffHomeRoot(): string {
 
 export function isUuidV4(s: string): boolean {
 	return UUID_V4_RE.test(s);
+}
+
+export function projectHomeDir(projectId: string): string {
+	return join(tffHomeRoot(), projectId);
+}
+
+export function ensureProjectHomeDir(projectId: string): string {
+	const dir = projectHomeDir(projectId);
+	mkdirSync(dir, { recursive: true });
+	mkdirSync(join(dir, "milestones"), { recursive: true });
+	mkdirSync(join(dir, "worktrees"), { recursive: true });
+	return dir;
 }

@@ -1,7 +1,13 @@
-import { homedir } from "node:os";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isUuidV4, tffHomeRoot } from "../../../src/common/project-home.js";
+import {
+	ensureProjectHomeDir,
+	isUuidV4,
+	projectHomeDir,
+	tffHomeRoot,
+} from "../../../src/common/project-home.js";
 
 describe("project-home", () => {
 	let savedTffHome: string | undefined;
@@ -60,5 +66,48 @@ describe("project-home", () => {
 		it("rejects whitespace", () => {
 			expect(isUuidV4("  018f4a2b-3c5d-4e8f-9012-345678901234  ")).toBe(false);
 		});
+	});
+});
+
+describe("projectHomeDir", () => {
+	it("composes TFF_HOME + projectId", () => {
+		process.env.TFF_HOME = "/tmp/tff-home-fixture";
+		expect(projectHomeDir("abc-123")).toBe("/tmp/tff-home-fixture/abc-123");
+	});
+
+	it("handles projectId with UUID characters", () => {
+		process.env.TFF_HOME = "/tmp/tff-home-fixture";
+		expect(projectHomeDir("018f4a2b-3c5d-4e8f-9012-345678901234")).toBe(
+			"/tmp/tff-home-fixture/018f4a2b-3c5d-4e8f-9012-345678901234",
+		);
+	});
+});
+
+describe("ensureProjectHomeDir", () => {
+	let tmp: string;
+
+	beforeEach(() => {
+		tmp = mkdtempSync(join(tmpdir(), "tff-home-test-"));
+		process.env.TFF_HOME = tmp;
+	});
+
+	afterEach(() => {
+		rmSync(tmp, { recursive: true, force: true });
+	});
+
+	it("creates the project home directory and required subdirs", () => {
+		const id = "018f4a2b-3c5d-4e8f-9012-345678901234";
+		const dir = ensureProjectHomeDir(id);
+		expect(dir).toBe(join(tmp, id));
+		expect(existsSync(join(tmp, id))).toBe(true);
+		expect(existsSync(join(tmp, id, "milestones"))).toBe(true);
+		expect(existsSync(join(tmp, id, "worktrees"))).toBe(true);
+		expect(statSync(join(tmp, id)).isDirectory()).toBe(true);
+	});
+
+	it("is idempotent — calling twice does not throw", () => {
+		const id = "018f4a2b-3c5d-4e8f-9012-345678901234";
+		ensureProjectHomeDir(id);
+		expect(() => ensureProjectHomeDir(id)).not.toThrow();
 	});
 });
