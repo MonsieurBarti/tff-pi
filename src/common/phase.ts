@@ -3,9 +3,13 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { clearCurrentPhase, setCurrentPhase } from "./current-phase-context.js";
+import { getSlice } from "./db.js";
 import type { FffBridge } from "./fff-integration.js";
+import { getCurrentBranch } from "./git.js";
+import { readProjectIdFile } from "./project-home.js";
 import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
+import { commitStateAtPhaseEnd } from "./state-branch.js";
 import { type Phase, type Slice, sliceLabel } from "./types.js";
 
 /**
@@ -157,6 +161,30 @@ export async function runPhaseWithFreshContext(
 	}
 
 	const message = prepareResult.message;
+
+	// M10-S03: phase-end state-branch commit (best-effort, non-blocking).
+	// Happens after prepare() artifacts are flushed, before newSession() swaps
+	// the session. Any failure is logged; phase transition is never blocked.
+	try {
+		const projectId = readProjectIdFile(phaseCtx.root);
+		if (projectId) {
+			const freshSlice = getSlice(phaseCtx.db, phaseCtx.slice.id);
+			const freezeLogForSlice =
+				freshSlice?.status === "shipping"
+					? sliceLabel(phaseCtx.milestoneNumber, freshSlice.number)
+					: undefined;
+			await commitStateAtPhaseEnd({
+				repoRoot: phaseCtx.root,
+				projectId,
+				codeBranch: getCurrentBranch(phaseCtx.root) ?? "",
+				phase,
+				sliceLabel: sliceLabel(phaseCtx.milestoneNumber, phaseCtx.slice.number),
+				...(freezeLogForSlice !== undefined ? { freezeLogForSlice } : {}),
+			});
+		}
+	} catch (err) {
+		console.warn("state-branch phase-end commit skipped:", err);
+	}
 
 	// Stash on disk as a crash-recovery backstop before we try to switch.
 	writePendingMessage(phaseCtx.root, message);
