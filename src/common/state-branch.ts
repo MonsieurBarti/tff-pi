@@ -413,6 +413,7 @@ export async function pushWithRebaseRetry(
 ): Promise<PushOutcome> {
 	if (!hasOriginRemote(worktreeDir)) return "skipped-no-remote";
 
+	let hitUnresolvable = false;
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const push = runGit(worktreeDir, ["push", "origin", stateBranch]);
 		if (push.ok) return "pushed";
@@ -435,10 +436,37 @@ export async function pushWithRebaseRetry(
 		const rebase = runGit(worktreeDir, ["rebase", `origin/${stateBranch}`]);
 		if (!rebase.ok) {
 			runGit(worktreeDir, ["rebase", "--abort"]);
-			break; // unresolvable → backup-branch path added in Task 11
+			hitUnresolvable = true;
+			break;
 		}
 		// loop and retry push
 	}
-	// Backup-branch path added in Task 11.
-	return "skipped-no-remote";
+
+	if (!hitUnresolvable) {
+		// 3 attempts exhausted without a true conflict — remote is a moving target.
+		console.warn(`pushWithRebaseRetry: retry cap reached on ${stateBranch}`);
+		hitUnresolvable = true;
+	}
+
+	const ts = new Date().toISOString().replace(/[:.]/g, "-");
+	// Use "--conflict-" (double dash) instead of "/conflict-" to avoid a git ref
+	// namespace collision: refs/heads/tff-state/main and refs/heads/tff-state/main/*
+	// cannot coexist in the same repo.
+	const backupRef = `${stateBranch}--conflict-${ts}`;
+	const saveRemoteTip = runGit(worktreeDir, [
+		"push",
+		"origin",
+		`refs/remotes/origin/${stateBranch}:refs/heads/${backupRef}`,
+	]);
+	if (!saveRemoteTip.ok) {
+		console.warn(`pushWithRebaseRetry: failed to save remote tip: ${saveRemoteTip.stderr}`);
+		// Still attempt force-push below so local progress is preserved.
+	}
+	const force = runGit(worktreeDir, ["push", "--force-with-lease", "origin", stateBranch]);
+	if (!force.ok) {
+		console.warn(`pushWithRebaseRetry: force-push failed: ${force.stderr}`);
+		return "skipped-no-remote";
+	}
+	console.warn(`State conflict preserved at ${backupRef}. Local state pushed.`);
+	return "conflict-backup";
 }

@@ -782,3 +782,96 @@ describe("pushWithRebaseRetry — non-ff with clean rebase", () => {
 		expect(log).toContain("plan: M01-S02");
 	});
 });
+
+describe("pushWithRebaseRetry — backup branch on unresolvable conflict", () => {
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+	let home: string;
+	let origin: string;
+	let alice: string;
+	let bob: string;
+
+	beforeEach(async () => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		origin = mkdtempSync(join(tmpdir(), "sb-origin-"));
+		alice = mkdtempSync(join(tmpdir(), "sb-alice-"));
+		bob = mkdtempSync(join(tmpdir(), "sb-bob-"));
+		process.env.TFF_HOME = home;
+		execSync("git init --bare -b main", { cwd: origin, stdio: "pipe" });
+		execSync("git init -b main", { cwd: alice, stdio: "pipe" });
+		execSync('git config user.email "a@a.com"', { cwd: alice, stdio: "pipe" });
+		execSync('git config user.name "A"', { cwd: alice, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: alice, stdio: "pipe" });
+		execSync(`git remote add origin ${origin}`, { cwd: alice, stdio: "pipe" });
+		execSync("git push -u origin main", { cwd: alice, stdio: "pipe" });
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(origin, { recursive: true, force: true });
+		rmSync(alice, { recursive: true, force: true });
+		rmSync(bob, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("creates tff-state/main/conflict-<ts> and force-pushes local", async () => {
+		// Both clones write conflicting non-JSON files (settings.yaml) so the
+		// default text merge conflicts (the snapshot merge driver handles JSON
+		// cleanly, so to force an unresolvable we use a non-JSON file).
+		const aRes = handleInit(alice);
+		await ensureStateBranch(alice, aRes.projectId);
+		writeFileSync(join(home, aRes.projectId, "settings.yaml"), "ownedBy: alice\n");
+		await commitStateAtPhaseEnd({
+			repoRoot: alice,
+			projectId: aRes.projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		execSync("git checkout tff-state/main", { cwd: alice, stdio: "pipe" });
+		await pushWithRebaseRetry(alice, "tff-state/main");
+		execSync("git checkout main", { cwd: alice, stdio: "pipe" });
+
+		execSync(`git clone ${origin} ${bob}`, { stdio: "pipe" });
+		execSync('git config user.email "b@b.com"', { cwd: bob, stdio: "pipe" });
+		execSync('git config user.name "B"', { cwd: bob, stdio: "pipe" });
+		const bRes = handleInit(bob);
+		writeFileSync(join(home, bRes.projectId, "settings.yaml"), "ownedBy: bob\n");
+		await commitStateAtPhaseEnd({
+			repoRoot: bob,
+			projectId: bRes.projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S02",
+		});
+		execSync("git checkout tff-state/main", { cwd: bob, stdio: "pipe" });
+
+		// alice now pushes a conflicting settings.yaml change
+		writeFileSync(join(home, aRes.projectId, "settings.yaml"), "ownedBy: alice-v2\n");
+		await commitStateAtPhaseEnd({
+			repoRoot: alice,
+			projectId: aRes.projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S03",
+		});
+		execSync("git checkout tff-state/main", { cwd: alice, stdio: "pipe" });
+		await pushWithRebaseRetry(alice, "tff-state/main");
+		execSync("git checkout main", { cwd: alice, stdio: "pipe" });
+
+		// bob tries — rebase of settings.yaml conflicts → backup branch
+		const outcome = await pushWithRebaseRetry(bob, "tff-state/main");
+		expect(outcome).toBe("conflict-backup");
+		const remoteBranches = execSync(`git -C ${origin} branch --list "tff-state/main--conflict-*"`, {
+			encoding: "utf-8",
+		});
+		expect(remoteBranches).toMatch(/tff-state\/main--conflict-/);
+	});
+});
