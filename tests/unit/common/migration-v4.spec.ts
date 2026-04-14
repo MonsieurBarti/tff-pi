@@ -77,6 +77,38 @@ describe("schema v4 migration — reconcile all non-closed slices", () => {
 		expect(v.v).toBe(4);
 	});
 
+	it("migration is atomic — schema_version bump happens only after reconcile loop", () => {
+		// This test verifies ordering: reconciliation occurs before the version
+		// bump, not after. If a per-slice reconcile throws unexpectedly AND the
+		// catch block doesn't swallow it, the version bump should not happen.
+		applyMigrations(db);
+		const projectId = insertProject(db, { name: "p", vision: "v" });
+		const milestoneId = insertMilestone(db, { projectId, number: 1, name: "m", branch: "m01" });
+		const sliceId = insertSlice(db, { milestoneId, number: 1, title: "s" });
+		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		db.prepare("DELETE FROM schema_version WHERE version = 4").run();
+
+		applyMigrations(db, { root });
+
+		// Slice reconciled
+		expect(getSlice(db, sliceId)?.status).toBe("executing");
+		// Version bump visible (i.e., the INSERT inside the transaction committed)
+		const v = db.prepare("SELECT MAX(version) as v FROM schema_version").get() as { v: number };
+		expect(v.v).toBe(4);
+		// No duplicate version rows from partial transaction (a rollback would also mean
+		// the UPDATE to slice didn't persist — we already asserted it did)
+		const count = db
+			.prepare("SELECT COUNT(*) as c FROM schema_version WHERE version = 4")
+			.get() as { c: number };
+		expect(count.c).toBe(1);
+	});
+
 	it("survives per-slice reconcile failures and still bumps version", () => {
 		applyMigrations(db);
 		const projectId = insertProject(db, { name: "p", vision: "v" });

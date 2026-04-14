@@ -94,6 +94,28 @@ describe("EventLogger → reconciler integration", () => {
 		expect(getSlice(db, sliceId)?.status).toBe("executing");
 	});
 
+	it("duplicate phase_start events produce a single phase_run row and stable slice.status", () => {
+		const emit = (): void => {
+			bus.emit("tff:phase", {
+				type: "phase_start",
+				phase: "plan",
+				sliceId,
+				sliceLabel: "M01-S01",
+				milestoneNumber: 1,
+				timestamp: new Date().toISOString(),
+			});
+		};
+		emit();
+		emit();
+		emit();
+
+		const rows = db
+			.prepare("SELECT COUNT(*) as c FROM phase_run WHERE slice_id = ? AND phase = ?")
+			.get(sliceId, "plan") as { c: number };
+		expect(rows.c).toBe(1);
+		expect(getSlice(db, sliceId)?.status).toBe("planning");
+	});
+
 	it("emits tff:derived event when slice.status changes", () => {
 		bus.emit("tff:phase", {
 			type: "phase_start",
