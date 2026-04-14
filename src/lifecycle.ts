@@ -14,15 +14,10 @@ import {
 	openDatabase,
 } from "./common/db.js";
 import { shutdownFffBridge } from "./common/fff-integration.js";
-import { getDefaultBranch, getGitRoot } from "./common/git.js";
+import { getGitRoot } from "./common/git.js";
 import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
 import { initMonitoring } from "./common/monitoring-setup.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
-import {
-	DEFAULT_PROTECTED,
-	detectProtectedPush,
-	installProtectedBranchHook,
-} from "./common/protected-branches.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
@@ -140,39 +135,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	ctx.toolCallLogger.subscribe();
 
 	// -------------------------------------------------------------------------
-	// Defense-in-depth: intercept bash tool_call events that attempt a direct
-	// push to a protected branch during a live TFF session.
-	// The pre-push git hook is the authoritative guard (works even outside PI);
-	// this interceptor provides an additional in-session trip-wire with a clear
-	// TFF-flavored error message before the shell even runs.
-	// Registered ONCE here (same rationale as ToolCallLogger above).
-	// -------------------------------------------------------------------------
-	pi.on("tool_call", (event, _ctx) => {
-		const ev = event as { toolName?: string; input?: { command?: string } };
-		if (ev.toolName !== "bash") return undefined;
-		const command = ev.input?.command ?? "";
-		if (!command) return undefined;
-
-		// Resolve the effective protected-branch list at call time so it includes
-		// the dynamic default branch if the project root is known.
-		const protectedBranches: string[] = [...DEFAULT_PROTECTED.branches];
-		if (ctx.projectRoot) {
-			const defaultBranch = getDefaultBranch(ctx.projectRoot);
-			if (defaultBranch && !protectedBranches.includes(defaultBranch)) {
-				protectedBranches.push(defaultBranch);
-			}
-		}
-
-		const blocked = detectProtectedPush(command, protectedBranches);
-		if (!blocked) return undefined;
-
-		return {
-			block: true,
-			reason: `TFF guardrail: direct push to protected branch "${blocked}" is blocked.\n\nPer the TFF workflow:\n  - Slice PRs merge to the milestone branch (never to main/master).\n  - Milestone branches merge to the default branch via a milestone PR.\n  - Never push to main/master directly from the client.\n\nIf you genuinely need this push, bypass with:  git push --no-verify\nThis message means the agent attempted an out-of-workflow push.`,
-		};
-	});
-
-	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
 	pi.on("session_start", async (event, uiCtx) => {
@@ -258,18 +220,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				ctx.db = openDatabase(dbPath);
 				applyMigrations(ctx.db, { root: ctx.projectRoot });
 				loadSettings(ctx, root);
-
-				// Idempotent: ensure the pre-push hook is installed for existing
-				// projects that pre-date this guard. Silent unless manual action needed.
-				{
-					const hookResult = installProtectedBranchHook(root);
-					if (hookResult.status === "installed-no-hookspath" && uiCtx.hasUI) {
-						uiCtx.ui.notify(
-							"TFF: protected-branch hook written but core.hooksPath is already set. Manual chaining required. See .tff/hooks/README.md",
-							"warning",
-						);
-					}
-				}
 				ctx.initError = null;
 
 				// Initialize monitoring (EventLogger + TUIMonitor + fffBridge)

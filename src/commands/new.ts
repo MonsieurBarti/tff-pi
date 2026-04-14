@@ -6,7 +6,6 @@ import type { TffContext } from "../common/context.js";
 import { applyMigrations, getProject, insertProject, openDatabase } from "../common/db.js";
 import { createGitignore, getGitRoot, hasRemote, initRepo } from "../common/git.js";
 import { initMonitoring } from "../common/monitoring-setup.js";
-import { installProtectedBranchHook } from "../common/protected-branches.js";
 import { DEFAULT_SETTINGS, type Settings, loadSettings } from "../common/settings.js";
 
 export interface NewProjectInput {
@@ -55,20 +54,6 @@ export async function runNew(
 	initDb(ctx, root);
 	loadSettings(ctx, root);
 	await initMonitoring(pi, ctx, root, uiCtx);
-
-	// Install the protected-branch pre-push hook. Idempotent: safe to call on
-	// both fresh projects and existing ones. Notify the user only when they need
-	// to take manual action (i.e., they have their own hooksPath configured).
-	const hookResult = installProtectedBranchHook(root);
-	if (hookResult.status === "installed-no-hookspath") {
-		pi.sendUserMessage(
-			"TFF: I wrote the protected-branch pre-push hook to .tff/hooks/pre-push, " +
-				"but your repository already has core.hooksPath set to a custom path. " +
-				"To activate the guard, please chain .tff/hooks/pre-push from your existing pre-push hook. " +
-				"See .tff/hooks/README.md for instructions.",
-			{ deliverAs: "followUp" },
-		);
-	}
 
 	const projectName = args[0] ?? "New Project";
 	const remoteInstruction = hasRemote(root)
