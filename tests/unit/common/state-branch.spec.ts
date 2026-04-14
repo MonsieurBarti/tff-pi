@@ -90,6 +90,18 @@ describe("mirrorPortableSubset", () => {
 		expect(readFileSync(join(work, "branch-meta.json"), "utf-8")).toBe('{"stateId":"x"}');
 	});
 
+	it("skips symlinks that resolve to a directory without throwing", () => {
+		const linkedDir = mkdtempSync(join(tmpdir(), "sb-linked-dir-"));
+		writeFileSync(join(linkedDir, "inside.txt"), "content\n");
+		mkdirSync(join(home, "milestones"), { recursive: true });
+		symlinkSync(linkedDir, join(home, "milestones", "linked-dir"));
+		// Must not throw even though the symlink target is a directory.
+		expect(() => mirrorPortableSubset(home, work)).not.toThrow();
+		// The symlink-to-directory is skipped, so its contents are not mirrored.
+		expect(() => readFileSync(join(work, "milestones", "linked-dir", "inside.txt"))).toThrow();
+		rmSync(linkedDir, { recursive: true, force: true });
+	});
+
 	it("rejects symlinks that resolve outside the home dir", () => {
 		const outside = mkdtempSync(join(tmpdir(), "sb-outside-"));
 		writeFileSync(join(outside, "secret"), "nope");

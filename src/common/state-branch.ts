@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { gitEnv } from "./git.js";
 
 export class StateBranchError extends Error {
@@ -52,15 +52,29 @@ function walk(homeReal: string, currentAbs: string, destRoot: string): void {
 		} catch {
 			continue;
 		}
-		const rel = relative(homeReal, resolved);
-		if (rel.startsWith("..") || rel.startsWith("/")) continue;
+		// Traversal guard: resolved real path must stay inside homeReal.
+		if (!resolved.startsWith(homeReal + sep) && resolved !== homeReal) continue;
 
 		const destAbs = join(destRoot, relPath);
 		const stat = lstatSync(absPath);
 		if (stat.isDirectory()) {
 			mkdirSync(destAbs, { recursive: true });
 			walk(homeReal, absPath, destRoot);
-		} else if (stat.isFile() || stat.isSymbolicLink()) {
+		} else if (stat.isSymbolicLink()) {
+			// Resolve the symlink target's real type to avoid EISDIR when copying.
+			let targetStat: ReturnType<typeof statSync>;
+			try {
+				targetStat = statSync(resolved);
+			} catch {
+				continue;
+			}
+			if (targetStat.isDirectory()) {
+				// Symlink points to a directory — skip to avoid EISDIR.
+				continue;
+			}
+			mkdirSync(dirname(destAbs), { recursive: true });
+			copyFileSync(resolved, destAbs);
+		} else if (stat.isFile()) {
 			mkdirSync(dirname(destAbs), { recursive: true });
 			copyFileSync(resolved, destAbs);
 		}
