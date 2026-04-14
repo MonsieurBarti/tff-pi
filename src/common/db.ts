@@ -160,6 +160,9 @@ export function applyMigrations(db: Database.Database, opts?: { root?: string })
 		const root = opts?.root;
 		const runMigration = db.transaction(() => {
 			if (root) {
+				// Must filter status != 'closed' so we don't attempt to reconcile slices
+				// that were explicitly force-closed via overrideSliceStatus (rule 1 would
+				// not fire for out-of-band closes and the closed state could drift).
 				const rows = db.prepare("SELECT id FROM slice WHERE status != 'closed'").all() as {
 					id: string;
 				}[];

@@ -86,6 +86,8 @@ export function handleDoctor(
 		for (const m of milestones) {
 			const slices = getSlices(db, m.id);
 			for (const s of slices) {
+				// Preserve override-to-closed terminal safety: closed slices are never
+				// reconciled. See overrideSliceStatus docstring.
 				if (s.status === "closed") continue;
 				const computed = computeSliceStatus(db, options.root, s.id);
 				if (computed !== s.status) {

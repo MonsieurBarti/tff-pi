@@ -194,6 +194,18 @@ export function reconcileSliceStatus(
 	return { status: computed, from: current.status, changed };
 }
 
+/**
+ * Direct cache write that bypasses `computeSliceStatus`. Reserved for two
+ * audited call sites: `/tff recover --skip` (user-confirmed manual advance)
+ * and `complete-milestone` (PR-merged-out-of-band force-close). Every caller
+ * emits a `tff:override` event on the bus for forensics.
+ *
+ * Terminal-status safety: setting status = "closed" via this function is
+ * permanent in practice because every reconciler caller filters
+ * `status != "closed"` before considering a slice — so rule 1's evidence
+ * requirement (ship/completed + pr_url) cannot revert a closed override.
+ * New reconciler call sites MUST preserve the `!= "closed"` filter.
+ */
 export function overrideSliceStatus(
 	db: Database.Database,
 	sliceId: string,
