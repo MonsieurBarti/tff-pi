@@ -71,6 +71,42 @@ export function mergeSnapshots(base: Snapshot, ours: Snapshot, theirs: Snapshot)
 	return { ok: true, merged };
 }
 
+// Mirrors the canonical status arrays in src/common/types.ts. Any future
+// addition to those arrays requires a matching update here — the merge order
+// is a semantics decision, not a code-ordering accident.
+// slice.status is a derived-cache column (see src/common/derived-state.ts);
+// merge applies this order best-effort. Post-import reconcile heals drift.
+const STATUS_ORDER: Record<Table, string[]> = {
+	project: [],
+	milestone: ["created", "in_progress", "completing", "closed"],
+	slice: [
+		"created",
+		"discussing",
+		"researching",
+		"planning",
+		"executing",
+		"verifying",
+		"reviewing",
+		"shipping",
+		"closed",
+	],
+	task: ["open", "in_progress", "closed"],
+	phase_run: ["started", "retried", "completed", "abandoned"],
+	dependency: [],
+};
+
+const TERMINAL_WINS = new Set<string>(["failed"]);
+
+function resolveStatus(table: Table, ours: string, theirs: string): string | undefined {
+	if (TERMINAL_WINS.has(ours)) return ours;
+	if (TERMINAL_WINS.has(theirs)) return theirs;
+	const order = STATUS_ORDER[table];
+	const io = order.indexOf(ours);
+	const it = order.indexOf(theirs);
+	if (io < 0 || it < 0) return undefined;
+	return io >= it ? ours : theirs;
+}
+
 function mergeRow(
 	table: Table,
 	id: string,
@@ -78,7 +114,8 @@ function mergeRow(
 	ours: Record<string, unknown>,
 	theirs: Record<string, unknown>,
 ): { row: Record<string, unknown>; rowConflicts: Conflict[] } {
-	const fields = new Set<string>([...Object.keys(ours), ...Object.keys(theirs)]);
+	const fieldSet = new Set<string>([...Object.keys(ours), ...Object.keys(theirs)]);
+	const fields = [...fieldSet].sort();
 	const merged: Record<string, unknown> = {};
 	const rowConflicts: Conflict[] = [];
 	for (const f of fields) {
@@ -97,7 +134,18 @@ function mergeRow(
 			merged[f] = oo;
 			continue;
 		}
-		// Status rule slot — implemented in Task 7.
+		if (
+			f === "status" &&
+			STATUS_ORDER[table].length > 0 &&
+			typeof oo === "string" &&
+			typeof to === "string"
+		) {
+			const resolved = resolveStatus(table, oo, to);
+			if (resolved !== undefined) {
+				merged[f] = resolved;
+				continue;
+			}
+		}
 		rowConflicts.push({ table, id, field: f, base: bo, ours: oo, theirs: to });
 		merged[f] = oo; // keep something placeable; caller bails on conflict anyway
 	}

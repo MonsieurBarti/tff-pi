@@ -171,3 +171,154 @@ describe("mergeSnapshots field-level", () => {
 		}
 	});
 });
+
+describe("mergeSnapshots status precedence", () => {
+	const mkSlice = (status: string) => ({
+		id: "s1",
+		milestoneId: "m1",
+		number: 1,
+		title: "T",
+		status,
+		tier: null,
+		prUrl: null,
+		createdAt: "t",
+	});
+	const mkTask = (status: string) => ({
+		id: "t1",
+		sliceId: "s1",
+		number: 1,
+		title: "T",
+		status,
+		wave: null,
+		claimedBy: null,
+		createdAt: "t",
+	});
+	const mkMilestone = (status: string) => ({
+		id: "m1",
+		projectId: "p1",
+		number: 1,
+		name: "M",
+		status,
+		branch: "b",
+		createdAt: "t",
+	});
+	const mkPhaseRun = (status: string) => ({
+		id: "pr1",
+		sliceId: "s1",
+		phase: "plan",
+		status,
+		startedAt: "t",
+		finishedAt: null,
+		durationMs: null,
+		error: null,
+		feedback: null,
+		metadata: null,
+		createdAt: "t",
+	});
+
+	it("slice: discussing vs planning -> planning", () => {
+		const r = mergeSnapshots(
+			makeSnap({ slice: [mkSlice("created")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("discussing")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("planning")] as unknown as Snapshot["slice"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.slice[0]?.status).toBe("planning");
+	});
+
+	it("slice: executing vs verifying -> verifying", () => {
+		const r = mergeSnapshots(
+			makeSnap({ slice: [mkSlice("created")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("executing")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("verifying")] as unknown as Snapshot["slice"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.slice[0]?.status).toBe("verifying");
+	});
+
+	it("slice: reviewing vs closed -> closed", () => {
+		const r = mergeSnapshots(
+			makeSnap({ slice: [mkSlice("created")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("reviewing")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("closed")] as unknown as Snapshot["slice"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.slice[0]?.status).toBe("closed");
+	});
+
+	it("task: open vs in_progress -> in_progress", () => {
+		const r = mergeSnapshots(
+			makeSnap({ task: [mkTask("open")] as unknown as Snapshot["task"] }),
+			makeSnap({ task: [mkTask("open")] as unknown as Snapshot["task"] }),
+			makeSnap({ task: [mkTask("in_progress")] as unknown as Snapshot["task"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.task[0]?.status).toBe("in_progress");
+	});
+
+	it("task: in_progress vs closed -> closed", () => {
+		const r = mergeSnapshots(
+			makeSnap({ task: [mkTask("open")] as unknown as Snapshot["task"] }),
+			makeSnap({ task: [mkTask("in_progress")] as unknown as Snapshot["task"] }),
+			makeSnap({ task: [mkTask("closed")] as unknown as Snapshot["task"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.task[0]?.status).toBe("closed");
+	});
+
+	it("milestone: created vs in_progress -> in_progress", () => {
+		const r = mergeSnapshots(
+			makeSnap({ milestone: [mkMilestone("created")] as unknown as Snapshot["milestone"] }),
+			makeSnap({ milestone: [mkMilestone("created")] as unknown as Snapshot["milestone"] }),
+			makeSnap({ milestone: [mkMilestone("in_progress")] as unknown as Snapshot["milestone"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.milestone[0]?.status).toBe("in_progress");
+	});
+
+	it("phase_run: started vs completed -> completed", () => {
+		const r = mergeSnapshots(
+			makeSnap({ phase_run: [mkPhaseRun("started")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("started")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("completed")] as unknown as Snapshot["phase_run"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.phase_run[0]?.status).toBe("completed");
+	});
+
+	it("phase_run: completed vs failed -> failed (terminal wins)", () => {
+		const r = mergeSnapshots(
+			makeSnap({ phase_run: [mkPhaseRun("started")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("completed")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("failed")] as unknown as Snapshot["phase_run"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.phase_run[0]?.status).toBe("failed");
+	});
+
+	it("phase_run: failed vs failed -> failed (idempotent)", () => {
+		const r = mergeSnapshots(
+			makeSnap({ phase_run: [mkPhaseRun("started")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("failed")] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [mkPhaseRun("failed")] as unknown as Snapshot["phase_run"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.phase_run[0]?.status).toBe("failed");
+	});
+
+	it("unknown status on one side -> conflict", () => {
+		const r = mergeSnapshots(
+			makeSnap({ slice: [mkSlice("created")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("executing")] as unknown as Snapshot["slice"] }),
+			makeSnap({ slice: [mkSlice("bogus-status")] as unknown as Snapshot["slice"] }),
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.conflicts[0]).toMatchObject({
+				table: "slice",
+				id: "s1",
+				field: "status",
+			});
+		}
+	});
+});
