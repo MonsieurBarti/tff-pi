@@ -73,6 +73,24 @@ describe("planPhase", () => {
 		expect(result.message).toBeDefined();
 	});
 
+	it("message includes artifact path hint for the slice directory", async () => {
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await planPhase.prepare(ctx);
+		expect(result.message).toContain(".tff/milestones/M01/slices/M01-S01/");
+		expect(result.message).toContain("Do not look for them at project root");
+	});
+
 	it("emits phase_start for plan (reconciler sets status via EventLogger)", async () => {
 		// Status update is now driven by the reconciler when EventLogger handles
 		// the phase_start event on the real event bus. In unit tests the bus is
