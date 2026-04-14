@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type Database from "better-sqlite3";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -537,5 +539,29 @@ describe("insertPhaseRun — duplicate-started guard", () => {
 			.prepare("SELECT COUNT(*) as c FROM phase_run WHERE slice_id = ? AND phase = ?")
 			.get(sliceId, "execute") as { c: number };
 		expect(rows.c).toBe(2);
+	});
+});
+
+describe("insertProject with explicit id", () => {
+	let db: Database.Database;
+
+	beforeEach(() => {
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+	});
+
+	it("round-trips a provided id as project.id", () => {
+		const id = randomUUID();
+		const returned = insertProject(db, { name: "X", vision: "V", id });
+		expect(returned).toBe(id);
+		const proj = getProject(db);
+		expect(proj?.id).toBe(id);
+	});
+
+	it("generates a random UUID when id is omitted", () => {
+		const returned = insertProject(db, { name: "X", vision: "V" });
+		expect(returned).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+		);
 	});
 });

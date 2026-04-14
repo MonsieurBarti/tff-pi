@@ -1,9 +1,10 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { handleInit } from "../../../src/commands/init.js";
 import { handleNew, runNew } from "../../../src/commands/new.js";
 import { artifactExists, readArtifact } from "../../../src/common/artifacts.js";
 import { createTffContext } from "../../../src/common/context.js";
@@ -19,6 +20,7 @@ import {
 } from "../../../src/common/db.js";
 import { makeBaseEvent } from "../../../src/common/events.js";
 import type { PhaseEvent } from "../../../src/common/events.js";
+import { readProjectIdFile } from "../../../src/common/project-home.js";
 import { must } from "../../helpers.js";
 
 // Mock fff-integration so initFffBridge doesn't hit the real FS/subprocess
@@ -36,14 +38,24 @@ function createTestDb(): Database.Database {
 describe("handleNew", () => {
 	let db: Database.Database;
 	let root: string;
+	let tffHome: string;
+	let savedTffHome: string | undefined;
 
 	beforeEach(() => {
+		savedTffHome = process.env.TFF_HOME;
+		tffHome = mkdtempSync(join(tmpdir(), "tff-home-new-test-"));
+		process.env.TFF_HOME = tffHome;
 		db = createTestDb();
 		root = mkdtempSync(join(tmpdir(), "tff-new-test-"));
+		execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+		handleInit(root);
 	});
 
 	afterEach(() => {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(tffHome, { recursive: true, force: true });
+		if (savedTffHome !== undefined) process.env.TFF_HOME = savedTffHome;
+		else Reflect.deleteProperty(process.env, "TFF_HOME");
 	});
 
 	it("creates a project with name and vision", () => {
@@ -220,5 +232,33 @@ describe("runNew — EventLogger wiring", () => {
 
 		// Slice status should now be "discussing"
 		expect(must(getSlice(db, sliceId)).status).toBe("discussing");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// handleNew + handleInit identity unification
+// ---------------------------------------------------------------------------
+
+describe("handleNew + handleInit identity unification", () => {
+	it("project.id in DB equals .tff-project-id UUID", () => {
+		const tffHome = mkdtempSync(join(tmpdir(), "tff-home-id-unify-"));
+		const savedTffHome = process.env.TFF_HOME;
+		process.env.TFF_HOME = tffHome;
+		const root = mkdtempSync(join(tmpdir(), "tff-new-id-"));
+		execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+		try {
+			const init = handleInit(root);
+			const db = new Database(":memory:");
+			applyMigrations(db);
+			const { projectId } = handleNew(db, root, { projectName: "X", vision: "V" });
+			expect(projectId).toBe(init.projectId);
+			expect(projectId).toBe(readProjectIdFile(root));
+			db.close();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+			rmSync(tffHome, { recursive: true, force: true });
+			if (savedTffHome !== undefined) process.env.TFF_HOME = savedTffHome;
+			else Reflect.deleteProperty(process.env, "TFF_HOME");
+		}
 	});
 });

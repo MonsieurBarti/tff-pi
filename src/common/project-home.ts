@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
 	existsSync,
 	lstatSync,
@@ -28,6 +29,16 @@ export function tffHomeRoot(): string {
 	}
 	if (!override.startsWith("/")) {
 		throw new ProjectHomeError(`TFF_HOME must be an absolute path, got: ${override}`);
+	}
+	// Reject path-traversal components. Even though TFF_HOME is user-supplied
+	// and thus "trusted", accidental `..` in env setups (e.g., CI scripts that
+	// interpolate relative paths) could escape the intended home and clobber
+	// files outside it.
+	const segments = override.split("/");
+	if (segments.includes("..") || segments.includes(".")) {
+		throw new ProjectHomeError(
+			`TFF_HOME must not contain '.' or '..' path components, got: ${override}`,
+		);
 	}
 	return override;
 }
@@ -102,6 +113,24 @@ export function writeProjectIdFile(repoRoot: string, projectId: string): void {
 	writeFileSync(projectIdFilePath(repoRoot), `${projectId}\n`, "utf-8");
 }
 
+/**
+ * Returns the tracked `.tff-project-id` UUID or throws an instructive error.
+ * Commands that create or mutate project state (e.g. `handleNew`) should call
+ * this at the start so test authors who forget `handleInit` get a targeted
+ * message instead of a mysterious downstream failure.
+ */
+export function ensureInitialized(repoRoot: string): string {
+	const trackedId = readProjectIdFile(repoRoot);
+	if (!trackedId) {
+		throw new ProjectHomeError(
+			"Project is not initialized: .tff-project-id is missing. " +
+				"Call handleInit(repoRoot) first; /tff commands invoke it automatically — " +
+				"tests that bypass the normal entry points must do the same.",
+		);
+	}
+	return trackedId;
+}
+
 /** Returns true for both dangling and non-dangling symlinks. */
 function isSymlink(p: string): boolean {
 	try {
@@ -109,4 +138,59 @@ function isSymlink(p: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+function resolveMergeDriverPath(): string {
+	// project-home.ts compiles to dist/common/project-home.js; the merge-driver
+	// bin lives at dist/tools/state-snapshot-merge.js. During tests (bun running
+	// .ts directly), the `.js` sibling doesn't exist on disk — fall back to the
+	// `.ts` source so the registered driver points at a file that actually
+	// exists. If neither resolves, throw: a registered driver with a phantom
+	// path would silently break every git merge.
+	const jsUrl = new URL("../tools/state-snapshot-merge.js", import.meta.url);
+	const jsPath = decodeURIComponent(jsUrl.pathname);
+	if (existsSync(jsPath)) return jsPath;
+	const tsUrl = new URL("../tools/state-snapshot-merge.ts", import.meta.url);
+	const tsPath = decodeURIComponent(tsUrl.pathname);
+	if (existsSync(tsPath)) return tsPath;
+	throw new ProjectHomeError(
+		`Cannot locate merge-driver bin. Expected at ${jsPath} (prod) or ${tsPath} (dev). Rebuild TFF with 'bun run build' or reinstall.`,
+	);
+}
+
+function expectedDriverCommand(): string {
+	const path = resolveMergeDriverPath().replace(/'/g, `'\\''`);
+	return `node '${path}' %O %A %B %P`;
+}
+
+export function ensureSnapshotMergeDriver(repoRoot: string): void {
+	const expected = expectedDriverCommand();
+	let current: string | undefined;
+	try {
+		current = execFileSync(
+			"git",
+			["-C", repoRoot, "config", "--local", "--get", "merge.tff-snapshot.driver"],
+			{ encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+		).trim();
+	} catch {
+		current = undefined;
+	}
+	if (current === expected) return;
+	execFileSync(
+		"git",
+		[
+			"-C",
+			repoRoot,
+			"config",
+			"--local",
+			"merge.tff-snapshot.name",
+			"TFF state snapshot 3-way merge",
+		],
+		{ stdio: "ignore" },
+	);
+	execFileSync(
+		"git",
+		["-C", repoRoot, "config", "--local", "merge.tff-snapshot.driver", expected],
+		{ stdio: "ignore" },
+	);
 }
