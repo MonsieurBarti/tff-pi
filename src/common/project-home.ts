@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
 	existsSync,
 	lstatSync,
@@ -109,4 +110,49 @@ function isSymlink(p: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+function resolveMergeDriverPath(): string {
+	// project-home.ts compiles to dist/common/project-home.js; the merge-driver
+	// bin lives at dist/tools/state-snapshot-merge.js. During tests, import.meta.url
+	// points into src/, so the same relative resolution picks up the .ts source,
+	// which bun can run directly.
+	const url = new URL("../tools/state-snapshot-merge.js", import.meta.url);
+	return decodeURIComponent(url.pathname);
+}
+
+function expectedDriverCommand(): string {
+	return `node ${resolveMergeDriverPath()} %O %A %B %P`;
+}
+
+export function ensureSnapshotMergeDriver(repoRoot: string): void {
+	const expected = expectedDriverCommand();
+	let current: string | undefined;
+	try {
+		current = execFileSync(
+			"git",
+			["-C", repoRoot, "config", "--local", "--get", "merge.tff-snapshot.driver"],
+			{ encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+		).trim();
+	} catch {
+		current = undefined;
+	}
+	if (current === expected) return;
+	execFileSync(
+		"git",
+		[
+			"-C",
+			repoRoot,
+			"config",
+			"--local",
+			"merge.tff-snapshot.name",
+			"TFF state snapshot 3-way merge",
+		],
+		{ stdio: "ignore" },
+	);
+	execFileSync(
+		"git",
+		["-C", repoRoot, "config", "--local", "merge.tff-snapshot.driver", expected],
+		{ stdio: "ignore" },
+	);
 }
