@@ -122,7 +122,8 @@ function resolveMergeDriverPath(): string {
 }
 
 function expectedDriverCommand(): string {
-	return `node ${resolveMergeDriverPath()} %O %A %B %P`;
+	const path = resolveMergeDriverPath().replace(/'/g, `'\\''`);
+	return `node '${path}' %O %A %B %P`;
 }
 
 export function ensureSnapshotMergeDriver(repoRoot: string): void {
