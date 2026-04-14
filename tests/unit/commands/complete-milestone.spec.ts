@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initTffDirectory, writeArtifact } from "../../../src/common/artifacts.js";
@@ -63,6 +64,21 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
 	};
 }
 
+function makeMockPi(): ExtensionAPI {
+	return {
+		events: {
+			emit: vi.fn(),
+			on: vi.fn(),
+			once: vi.fn(),
+			off: vi.fn(),
+		},
+		sendUserMessage: vi.fn(),
+		commands: {
+			executeCommand: vi.fn(),
+		},
+	} as unknown as ExtensionAPI;
+}
+
 const REQUIRED_ARTIFACTS = [
 	"SPEC.md",
 	"PLAN.md",
@@ -85,8 +101,10 @@ describe("handleCompleteMilestone", () => {
 	let db: Database.Database;
 	let root: string;
 	let milestoneId: string;
+	let mockPi: ExtensionAPI;
 
 	beforeEach(() => {
+		mockPi = makeMockPi();
 		mockExec.mockReset();
 		mockExec.mockImplementation((...args: unknown[]) => {
 			const cmd = args[0] as string;
@@ -133,7 +151,7 @@ describe("handleCompleteMilestone", () => {
 		writeAllArtifacts(root, 1, 1);
 		writeAllArtifacts(root, 1, 2);
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(true);
 		expect(result.prUrl).toContain("github.com");
 
@@ -157,7 +175,7 @@ describe("handleCompleteMilestone", () => {
 		updateSliceStatus(db, must(slices[0]).id, "closed");
 		// Leave slices[1] as "created"
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("not closed");
 	});
@@ -176,7 +194,7 @@ describe("handleCompleteMilestone", () => {
 
 		// mockView defaults to MERGED, mockCreate defaults to a PR URL — both already set in beforeEach
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(true);
 		expect(result.prUrl).toContain("github.com");
 
@@ -194,7 +212,7 @@ describe("handleCompleteMilestone", () => {
 		updateSliceStatus(db, must(slices[0]).id, "closed");
 		// Do NOT write artifacts
 
-		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings());
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("artifact");
 	});

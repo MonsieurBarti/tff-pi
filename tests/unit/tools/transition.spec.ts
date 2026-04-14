@@ -1,10 +1,10 @@
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	applyMigrations,
 	getMilestones,
 	getProject,
-	getSlice,
 	getSlices,
 	insertMilestone,
 	insertProject,
@@ -21,12 +21,23 @@ function createTestDb(): Database.Database {
 	return db;
 }
 
+function makeMockPi(): ExtensionAPI {
+	return {
+		events: {
+			emit: vi.fn(),
+			on: vi.fn(),
+		},
+	} as unknown as ExtensionAPI;
+}
+
 describe("handleTransition", () => {
 	let db: Database.Database;
 	let sliceId: string;
+	let pi: ExtensionAPI;
 
 	beforeEach(() => {
 		db = createTestDb();
+		pi = makeMockPi();
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
@@ -36,33 +47,50 @@ describe("handleTransition", () => {
 	});
 
 	it("returns error for non-existent slice", () => {
-		const result = handleTransition(db, "nonexistent");
+		const result = handleTransition(pi, db, "nonexistent", 1);
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");
 	});
 
 	it("auto-advances to next status when targetStatus omitted", () => {
-		const result = handleTransition(db, sliceId);
+		const result = handleTransition(pi, db, sliceId, 1);
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("created → discussing");
-		expect(must(getSlice(db, sliceId)).status).toBe("discussing");
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_start", phase: "discuss" }),
+		);
 	});
 
 	it("transitions to explicit valid targetStatus", () => {
 		updateSliceStatus(db, sliceId, "discussing");
-		const result = handleTransition(db, sliceId, "researching");
+		const result = handleTransition(pi, db, sliceId, 1, "researching");
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("discussing → researching");
+		expect(pi.events.emit).toHaveBeenCalledWith(
+			"tff:phase",
+			expect.objectContaining({ type: "phase_start", phase: "research" }),
+		);
 	});
 
 	it("returns error for invalid targetStatus string", () => {
-		const result = handleTransition(db, sliceId, "bogus_status");
+		const result = handleTransition(pi, db, sliceId, 1, "bogus_status");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Invalid status: bogus_status");
 	});
 
+	it("rejects target 'closed' with pointer to /tff ship", () => {
+		updateSliceStatus(db, sliceId, "shipping");
+		const result = handleTransition(pi, db, sliceId, 1, "closed");
+		expect(result.isError).toBe(true);
+		expect(must(result.content[0]).text).toContain("closed");
+		expect(must(result.content[0]).text).toContain("/tff ship");
+		expect(pi.events.emit).not.toHaveBeenCalled();
+	});
+
 	it("returns error for disallowed transition", () => {
-		const result = handleTransition(db, sliceId, "closed");
+		// 'created' → 'researching' is not a valid direct transition
+		const result = handleTransition(pi, db, sliceId, 1, "researching");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Invalid transition");
 		expect(must(result.content[0]).text).toContain("Allowed from 'created': discussing");
@@ -70,7 +98,7 @@ describe("handleTransition", () => {
 
 	it("returns error when no next status from closed", () => {
 		updateSliceStatus(db, sliceId, "closed");
-		const result = handleTransition(db, sliceId);
+		const result = handleTransition(pi, db, sliceId, 1);
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("No valid next status");
 	});

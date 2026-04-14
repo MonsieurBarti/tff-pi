@@ -352,7 +352,14 @@ describe("E2E critical path", () => {
 			);
 
 			// Step 12: handleCompleteMilestone → milestone PR created
-			const completeResult = await handleCompleteMilestone(db, root, milestoneId, DEFAULT_SETTINGS);
+			const completePi = makePi();
+			const completeResult = await handleCompleteMilestone(
+				db,
+				root,
+				milestoneId,
+				DEFAULT_SETTINGS,
+				completePi,
+			);
 			expect(completeResult.success).toBe(true);
 			expect(completeResult.prUrl).toContain("github.com");
 		});

@@ -10,8 +10,9 @@ import {
 	getProject,
 	getSlices,
 	updateMilestoneStatus,
-	updateSliceStatus,
 } from "../common/db.js";
+import { overrideSliceStatus } from "../common/derived-state.js";
+import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
 import { getDefaultBranch, gitEnv } from "../common/git.js";
@@ -29,6 +30,7 @@ export async function handleCompleteMilestone(
 	root: string,
 	milestoneId: string,
 	settings: Settings,
+	pi: ExtensionAPI,
 ): Promise<CompleteMilestoneResult> {
 	// 1. Get milestone
 	const milestone = getMilestone(db, milestoneId);
@@ -52,7 +54,15 @@ export async function handleCompleteMilestone(
 					if (viewResult.code === 0) {
 						const prData = JSON.parse(viewResult.stdout) as { state: string };
 						if (prData.state === "MERGED") {
-							updateSliceStatus(db, slice.id, "closed");
+							overrideSliceStatus(db, slice.id, "closed", "milestone-close");
+							const sLabel = sliceLabel(milestone.number, slice.number);
+							pi.events.emit("tff:override", {
+								...makeBaseEvent(slice.id, sLabel, milestone.number),
+								type: "status_override",
+								from: slice.status,
+								to: "closed",
+								reason: "milestone-close",
+							});
 						}
 					}
 				} catch {
@@ -171,7 +181,7 @@ export async function runCompleteMilestone(
 		if (uiCtx?.hasUI) uiCtx.ui.notify(msg, "error");
 		return;
 	}
-	const result = await handleCompleteMilestone(database, root, milestone.id, currentSettings);
+	const result = await handleCompleteMilestone(database, root, milestone.id, currentSettings, pi);
 	if (result.success) {
 		pi.sendUserMessage(
 			`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
