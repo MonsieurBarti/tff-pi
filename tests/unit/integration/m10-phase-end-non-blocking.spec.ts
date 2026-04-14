@@ -16,6 +16,10 @@ describe("M10-S03: phase-end is non-blocking", () => {
 			cwd: fx.alice,
 			stdio: "pipe",
 		});
+		const headBefore = execSync("git rev-parse tff-state/main", {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		}).trim();
 		await expect(
 			commitStateAtPhaseEnd({
 				repoRoot: fx.alice,
@@ -25,5 +29,10 @@ describe("M10-S03: phase-end is non-blocking", () => {
 				sliceLabel: "M01-S01",
 			}),
 		).resolves.toBeUndefined();
+		const headAfter = execSync("git rev-parse tff-state/main", {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		}).trim();
+		expect(headAfter).not.toBe(headBefore);
 	});
 });

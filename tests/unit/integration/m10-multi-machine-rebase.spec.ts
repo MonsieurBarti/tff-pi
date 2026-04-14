@@ -77,12 +77,14 @@ describe("M10-S03: multi-machine rebase", () => {
 		const outcome = await pushWithRebaseRetry(fx.bob, "tff-state/main");
 		expect(outcome).toBe("pushed");
 		// Final snapshot contains both milestones
-		const finalSnap = JSON.parse(
-			execSync("git show tff-state/main:state-snapshot.json", {
-				cwd: fx.bob,
-				encoding: "utf-8",
-			}),
-		);
+		const snapStr = execSync("git show tff-state/main:state-snapshot.json", {
+			cwd: fx.bob,
+			encoding: "utf-8",
+		});
+		expect(snapStr).not.toContain("<<<<<<<");
+		expect(snapStr).not.toContain("=======");
+		expect(snapStr).not.toContain(">>>>>>>");
+		const finalSnap = JSON.parse(snapStr);
 		const ids = finalSnap.milestone.map((m: { id: string }) => m.id);
 		expect(ids).toContain("M02");
 		expect(ids).toContain("M03");

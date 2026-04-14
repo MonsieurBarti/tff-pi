@@ -37,6 +37,11 @@ describe("M10-S03: state-branch roundtrip", () => {
 
 		// Bob: fetch state branch, read snapshot file directly
 		execSync("git fetch origin tff-state/main:tff-state/main", { cwd: fx.bob, stdio: "pipe" });
+		const attrs = execSync("git show tff-state/main:.gitattributes", {
+			cwd: fx.bob,
+			encoding: "utf-8",
+		});
+		expect(attrs).toContain("state-snapshot.json merge=tff-snapshot");
 		const snapStr = execSync("git show tff-state/main:state-snapshot.json", {
 			cwd: fx.bob,
 			encoding: "utf-8",
