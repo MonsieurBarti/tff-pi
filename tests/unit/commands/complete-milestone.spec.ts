@@ -215,4 +215,55 @@ describe("handleCompleteMilestone", () => {
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("artifact");
 	});
+
+	it("runs git fetch then git merge --ff-only before push", async () => {
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		const slices = getSlices(db, milestoneId);
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
+		writeAllArtifacts(root, 1, 1);
+
+		const gitCalls: string[][] = [];
+		mockExec.mockImplementation((...args: unknown[]) => {
+			const cmd = args[0] as string;
+			const cmdArgs = args[1] as string[];
+			if (cmd === "git") gitCalls.push(cmdArgs);
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
+			}
+			return "";
+		});
+
+		await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
+
+		const fetchIdx = gitCalls.findIndex((a) => a[0] === "fetch" && a[1] === "origin");
+		const mergeIdx = gitCalls.findIndex((a) => a[0] === "merge" && a[1] === "--ff-only");
+		const pushIdx = gitCalls.findIndex((a) => a[0] === "push" && a.includes("-u"));
+		expect(fetchIdx).toBeGreaterThanOrEqual(0);
+		expect(mergeIdx).toBeGreaterThan(fetchIdx);
+		expect(pushIdx).toBeGreaterThan(mergeIdx);
+	});
+
+	it("returns error when local milestone branch has diverged from origin", async () => {
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		const slices = getSlices(db, milestoneId);
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("closed", must(slices[0]).id);
+		writeAllArtifacts(root, 1, 1);
+
+		mockExec.mockImplementation((...args: unknown[]) => {
+			const cmd = args[0] as string;
+			const cmdArgs = args[1] as string[];
+			if (cmd === "git" && cmdArgs?.[0] === "merge" && cmdArgs?.[1] === "--ff-only") {
+				throw new Error("fatal: Not possible to fast-forward, aborting.");
+			}
+			if (cmd === "git" && cmdArgs?.[0] === "remote" && cmdArgs?.[1] === "get-url") {
+				return "git@github.com:org/repo.git\n";
+			}
+			return "";
+		});
+
+		const result = await handleCompleteMilestone(db, root, milestoneId, makeSettings(), mockPi);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("diverged from origin");
+		expect(result.error).toContain("git pull --rebase");
+	});
 });

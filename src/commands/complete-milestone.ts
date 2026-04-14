@@ -118,6 +118,27 @@ export async function handleCompleteMilestone(
 		.join("\n");
 
 	try {
+		// Fetch and fast-forward the local milestone branch to avoid divergence
+		// errors on push. If the branches have diverged (non-ff), bail with a
+		// clear error rather than auto-resolving — conflicts must be fixed manually.
+		execFileSync("git", ["fetch", "origin", milestone.branch], {
+			cwd: root,
+			encoding: "utf-8",
+			env,
+		});
+		try {
+			execFileSync("git", ["merge", "--ff-only", `origin/${milestone.branch}`], {
+				cwd: root,
+				encoding: "utf-8",
+				env,
+			});
+		} catch {
+			return {
+				success: false,
+				error: `Local ${milestone.branch} has diverged from origin. Run 'git pull --rebase' manually to resolve before re-running /tff complete-milestone.`,
+			};
+		}
+
 		execFileSync("git", ["push", "-u", "origin", milestone.branch], {
 			cwd: root,
 			encoding: "utf-8",
