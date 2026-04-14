@@ -99,9 +99,16 @@ describe("handleInit", () => {
 describe("handleInit DB setup", () => {
 	let repo: string;
 	let home: string;
+	const savedGitEnv: Record<string, string | undefined> = {};
 	const savedTffHome = process.env.TFF_HOME;
 
 	beforeEach(() => {
+		for (const key of Object.keys(process.env)) {
+			if (key.startsWith("GIT_")) {
+				savedGitEnv[key] = process.env[key];
+				Reflect.deleteProperty(process.env, key);
+			}
+		}
 		repo = mkdtempSync(join(tmpdir(), "tff-init-db-repo-"));
 		home = mkdtempSync(join(tmpdir(), "tff-init-db-home-"));
 		process.env.TFF_HOME = home;
@@ -115,6 +122,9 @@ describe("handleInit DB setup", () => {
 		rmSync(home, { recursive: true, force: true });
 		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
 		else process.env.TFF_HOME = savedTffHome;
+		for (const [key, value] of Object.entries(savedGitEnv)) {
+			if (value !== undefined) process.env[key] = value;
+		}
 	});
 
 	it("creates state.db at the project home with migrations applied", () => {
@@ -153,5 +163,69 @@ describe("handleInit DB setup", () => {
 			| undefined;
 		db2.close();
 		expect(row?.name).toBe("Test");
+	});
+});
+
+describe("handleInit git staging", () => {
+	let repo: string;
+	let home: string;
+	const savedGitEnv: Record<string, string | undefined> = {};
+	const savedTffHome = process.env.TFF_HOME;
+
+	beforeEach(() => {
+		for (const key of Object.keys(process.env)) {
+			if (key.startsWith("GIT_")) {
+				savedGitEnv[key] = process.env[key];
+				Reflect.deleteProperty(process.env, key);
+			}
+		}
+		repo = mkdtempSync(join(tmpdir(), "tff-init-stage-repo-"));
+		home = mkdtempSync(join(tmpdir(), "tff-init-stage-home-"));
+		process.env.TFF_HOME = home;
+		execSync("git init", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+	});
+
+	afterEach(() => {
+		rmSync(repo, { recursive: true, force: true });
+		rmSync(home, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [key, value] of Object.entries(savedGitEnv)) {
+			if (value !== undefined) process.env[key] = value;
+		}
+	});
+
+	function stagedFiles(cwd: string): string[] {
+		return execSync("git diff --cached --name-only", { cwd, encoding: "utf-8" })
+			.trim()
+			.split("\n")
+			.filter(Boolean);
+	}
+
+	it("fresh init stages .tff-project-id and .gitignore", () => {
+		handleInit(repo);
+		const staged = stagedFiles(repo);
+		expect(staged).toContain(".tff-project-id");
+		expect(staged).toContain(".gitignore");
+	});
+
+	it("init does not create any commit", () => {
+		handleInit(repo);
+		let log = "";
+		try {
+			log = execSync("git log --oneline", { cwd: repo, encoding: "utf-8", stdio: "pipe" }).trim();
+		} catch {
+			// fresh repo with no commits exits non-zero — that is the expected state
+		}
+		expect(log).toBe("");
+	});
+
+	it("re-running init after a commit stages nothing", () => {
+		handleInit(repo);
+		execSync("git commit -m 'init'", { cwd: repo, stdio: "pipe" });
+		handleInit(repo);
+		expect(stagedFiles(repo)).toEqual([]);
 	});
 });

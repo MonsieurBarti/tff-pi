@@ -1,10 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { initTffDirectory } from "../common/artifacts.js";
 import type { TffContext } from "../common/context.js";
 import { applyMigrations, openDatabase } from "../common/db.js";
-import { ensureGitignoreEntries, getGitRoot, initRepo } from "../common/git.js";
+import { ensureGitignoreEntries, getGitRoot, gitEnv, initRepo } from "../common/git.js";
 import {
 	ProjectHomeError,
 	createTffSymlink,
@@ -12,6 +13,14 @@ import {
 	readProjectIdFile,
 	writeProjectIdFile,
 } from "../common/project-home.js";
+
+function stageFiles(repoRoot: string, files: string[]): void {
+	execFileSync("git", ["add", "--", ...files], {
+		cwd: repoRoot,
+		stdio: "pipe",
+		env: gitEnv(),
+	});
+}
 
 export interface InitResult {
 	projectId: string;
@@ -45,6 +54,8 @@ export function handleInit(repoRoot: string): InitResult {
 		db.close();
 	}
 
+	if (created) stageFiles(repoRoot, [".tff-project-id", ".gitignore"]);
+
 	return { projectId, projectHome: home, created };
 }
 
@@ -69,6 +80,6 @@ export async function runInit(
 	console.log(`Project home: ${result.projectHome}`);
 	console.log(`Symlink:      ${root}/.tff → ${result.projectHome}`);
 	if (result.created) {
-		console.log("Created: .tff-project-id + .gitignore (review and commit when ready)");
+		console.log("Staged: .tff-project-id + .gitignore (commit when ready)");
 	}
 }
