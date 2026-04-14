@@ -10,6 +10,7 @@ import {
 	ProjectHomeError,
 	createTffSymlink,
 	ensureProjectHomeDir,
+	ensureSnapshotMergeDriver,
 	readProjectIdFile,
 	writeProjectIdFile,
 } from "../common/project-home.js";
@@ -53,6 +54,7 @@ export function handleInit(repoRoot: string): InitResult {
 		db.close();
 	}
 	chmodSync(dbPath, 0o600);
+	ensureSnapshotMergeDriver(repoRoot);
 
 	if (created) stageFiles(repoRoot, [".tff-project-id", ".gitignore"]);
 
