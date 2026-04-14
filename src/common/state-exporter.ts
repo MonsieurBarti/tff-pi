@@ -1,5 +1,4 @@
 import type Database from "better-sqlite3";
-
 import type { PhaseRun } from "./db.js";
 import type { Dependency, Milestone, Project, Slice, Task } from "./types.js";
 
@@ -28,16 +27,148 @@ export interface Snapshot {
 	phase_run: PhaseRun[];
 }
 
-export function exportSnapshot(_db: Database.Database, opts?: { now?: () => Date }): Snapshot {
+interface ProjectRow {
+	id: string;
+	name: string;
+	vision: string;
+	created_at: string;
+}
+interface MilestoneRow {
+	id: string;
+	project_id: string;
+	number: number;
+	name: string;
+	status: string;
+	branch: string;
+	created_at: string;
+}
+interface SliceRow {
+	id: string;
+	milestone_id: string;
+	number: number;
+	title: string;
+	status: string;
+	tier: string | null;
+	pr_url: string | null;
+	created_at: string;
+}
+interface TaskRow {
+	id: string;
+	slice_id: string;
+	number: number;
+	title: string;
+	status: string;
+	wave: number | null;
+	claimed_by: string | null;
+	created_at: string;
+}
+interface DependencyRow {
+	from_task_id: string;
+	to_task_id: string;
+}
+interface PhaseRunRow {
+	id: string;
+	slice_id: string;
+	phase: string;
+	status: string;
+	started_at: string;
+	finished_at: string | null;
+	duration_ms: number | null;
+	error: string | null;
+	feedback: string | null;
+	metadata: string | null;
+	created_at: string;
+}
+
+function toProject(r: ProjectRow): Project {
+	return { id: r.id, name: r.name, vision: r.vision, createdAt: r.created_at };
+}
+function toMilestone(r: MilestoneRow): Milestone {
+	return {
+		id: r.id,
+		projectId: r.project_id,
+		number: r.number,
+		name: r.name,
+		status: r.status as Milestone["status"],
+		branch: r.branch,
+		createdAt: r.created_at,
+	};
+}
+function toSlice(r: SliceRow): Slice {
+	return {
+		id: r.id,
+		milestoneId: r.milestone_id,
+		number: r.number,
+		title: r.title,
+		status: r.status as Slice["status"],
+		tier: (r.tier ?? null) as Slice["tier"],
+		prUrl: r.pr_url ?? null,
+		createdAt: r.created_at,
+	};
+}
+function toTask(r: TaskRow): Task {
+	return {
+		id: r.id,
+		sliceId: r.slice_id,
+		number: r.number,
+		title: r.title,
+		status: r.status as Task["status"],
+		wave: r.wave ?? null,
+		claimedBy: r.claimed_by ?? null,
+		createdAt: r.created_at,
+	};
+}
+function toDependency(r: DependencyRow): SnapshotDependency {
+	return {
+		id: `${r.from_task_id}:${r.to_task_id}`,
+		fromTaskId: r.from_task_id,
+		toTaskId: r.to_task_id,
+	};
+}
+function toPhaseRun(r: PhaseRunRow): PhaseRun {
+	return {
+		id: r.id,
+		sliceId: r.slice_id,
+		phase: r.phase,
+		status: r.status,
+		startedAt: r.started_at,
+		finishedAt: r.finished_at,
+		durationMs: r.duration_ms,
+		error: r.error,
+		feedback: r.feedback,
+		metadata: r.metadata,
+		createdAt: r.created_at,
+	};
+}
+
+function sortById<T extends { id: string }>(rows: T[]): T[] {
+	return [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+export function exportSnapshot(db: Database.Database, opts?: { now?: () => Date }): Snapshot {
 	const now = (opts?.now ?? (() => new Date()))();
+	const project = sortById(
+		(db.prepare("SELECT * FROM project").all() as ProjectRow[]).map(toProject),
+	);
+	const milestone = sortById(
+		(db.prepare("SELECT * FROM milestone").all() as MilestoneRow[]).map(toMilestone),
+	);
+	const slice = sortById((db.prepare("SELECT * FROM slice").all() as SliceRow[]).map(toSlice));
+	const task = sortById((db.prepare("SELECT * FROM task").all() as TaskRow[]).map(toTask));
+	const dependency = sortById(
+		(db.prepare("SELECT * FROM dependency").all() as DependencyRow[]).map(toDependency),
+	);
+	const phase_run = sortById(
+		(db.prepare("SELECT * FROM phase_run").all() as PhaseRunRow[]).map(toPhaseRun),
+	);
 	return {
 		schemaVersion: SNAPSHOT_SCHEMA_VERSION,
 		exportedAt: now.toISOString(),
-		project: [],
-		milestone: [],
-		slice: [],
-		task: [],
-		dependency: [],
-		phase_run: [],
+		project,
+		milestone,
+		slice,
+		task,
+		dependency,
+		phase_run,
 	};
 }
