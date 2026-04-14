@@ -3,6 +3,7 @@ import { readArtifact } from "./artifacts.js";
 import { getMilestone, getSlice } from "./db.js";
 import {
 	type Phase,
+	SLICE_STATUSES,
 	type Slice,
 	type SliceStatus,
 	type Tier,
@@ -206,13 +207,12 @@ export function overrideSliceStatus(
 	db: Database.Database,
 	sliceId: string,
 	status: SliceStatus,
-	reason: string,
+	_reason: string, // kept for API documentation; event emission happens in callers
 ): void {
 	const current = getSlice(db, sliceId);
 	if (!current) throw new Error(`Slice not found: ${sliceId}`);
-	// reason is captured for the tff:override event emitted by caller contexts
-	// that hold an event bus. This function is a pure DB write — emission lives
-	// in callers (recover command, complete-milestone, migration).
-	void reason;
+	if (!(SLICE_STATUSES as readonly string[]).includes(status)) {
+		throw new Error(`Invalid status: ${status}`);
+	}
 	db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(status, sliceId);
 }

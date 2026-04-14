@@ -19,6 +19,7 @@ import {
 	overrideSliceStatus,
 	reconcileSliceStatus,
 } from "../../../src/common/derived-state.js";
+import type { SliceStatus } from "../../../src/common/types.js";
 
 let db: Database.Database;
 let root: string;
@@ -289,5 +290,9 @@ describe("overrideSliceStatus", () => {
 
 	it("throws if the slice does not exist", () => {
 		expect(() => overrideSliceStatus(db, "nope", "closed", "r")).toThrow();
+	});
+
+	it("throws on invalid status value", () => {
+		expect(() => overrideSliceStatus(db, sliceId, "not-a-status" as SliceStatus, "test")).toThrow();
 	});
 });
