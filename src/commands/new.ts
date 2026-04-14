@@ -5,6 +5,7 @@ import { compressIfEnabled } from "../common/compress.js";
 import type { TffContext } from "../common/context.js";
 import { applyMigrations, getProject, insertProject, openDatabase } from "../common/db.js";
 import { createGitignore, getGitRoot, hasRemote, initRepo } from "../common/git.js";
+import { initMonitoring } from "../common/monitoring-setup.js";
 import { DEFAULT_SETTINGS, type Settings, loadSettings } from "../common/settings.js";
 
 export interface NewProjectInput {
@@ -40,7 +41,7 @@ function initDb(ctx: TffContext, root: string): void {
 export async function runNew(
 	pi: ExtensionAPI,
 	ctx: TffContext,
-	_uiCtx: ExtensionCommandContext | null,
+	uiCtx: ExtensionCommandContext | null,
 	args: string[],
 ): Promise<void> {
 	let root = getGitRoot() ?? ctx.projectRoot;
@@ -52,6 +53,7 @@ export async function runNew(
 	ctx.projectRoot = root;
 	initDb(ctx, root);
 	loadSettings(ctx, root);
+	await initMonitoring(pi, ctx, root, uiCtx);
 
 	const projectName = args[0] ?? "New Project";
 	const remoteInstruction = hasRemote(root)

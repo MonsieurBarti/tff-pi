@@ -13,16 +13,15 @@ import {
 	getProject,
 	openDatabase,
 } from "./common/db.js";
-import { EventLogger } from "./common/event-logger.js";
-import { initFffBridge, shutdownFffBridge } from "./common/fff-integration.js";
+import { shutdownFffBridge } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
+import { initMonitoring } from "./common/monitoring-setup.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
 import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
-import { TUIMonitor } from "./common/tui-monitor.js";
 import { checkForUpdates } from "./update-check.js";
 
 /**
@@ -160,19 +159,12 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				loadSettings(ctx, root);
 				ctx.initError = null;
 
-				// Initialize monitoring
-				const logsDir = tffPath(root, "logs");
-				ctx.eventLogger = new EventLogger(ctx.db, logsDir, root);
-				ctx.eventLogger.subscribe(pi.events);
+				// Initialize monitoring (EventLogger + TUIMonitor + fffBridge)
+				await initMonitoring(pi, ctx, root, uiCtx);
 
 				if (uiCtx.hasUI) {
-					ctx.tuiMonitor = new TUIMonitor(uiCtx.ui);
-					ctx.tuiMonitor.subscribe(pi.events);
 					uiCtx.ui.notify("TFF ready", "info");
 				}
-
-				// fff-pi bridge: enriches plan/execute phase prompts with related files.
-				ctx.fffBridge = await initFffBridge(root);
 
 				// Crash-recovery scan runs only on cold startup. Phase transitions
 				// fire session_start with reason="new" while a slice is legitimately
