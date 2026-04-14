@@ -251,7 +251,19 @@ export interface CommitStateOpts {
 	freezeLogForSlice?: string;
 }
 
+const COMMIT_TIMEOUT_MS = 10_000;
+
 export async function commitStateAtPhaseEnd(opts: CommitStateOpts): Promise<void> {
+	const deadline = new Promise<void>((resolve) => {
+		setTimeout(() => {
+			console.warn("commitStateAtPhaseEnd: timed out after 10s");
+			resolve();
+		}, COMMIT_TIMEOUT_MS).unref();
+	});
+	await Promise.race([runCommit(opts), deadline]);
+}
+
+async function runCommit(opts: CommitStateOpts): Promise<void> {
 	const { repoRoot, projectId, codeBranch, phase, sliceLabel, freezeLogForSlice } = opts;
 	if (!codeBranch) return;
 	const stateBranch = stateBranchName(codeBranch);

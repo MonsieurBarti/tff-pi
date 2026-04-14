@@ -545,3 +545,56 @@ describe("commitStateAtPhaseEnd — happy path", () => {
 		expect(files).toContain("state-snapshot.json");
 	});
 });
+
+describe("commitStateAtPhaseEnd — non-blocking", () => {
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+	let home: string;
+	let repo: string;
+	let projectId: string;
+
+	beforeEach(async () => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		repo = mkdtempSync(join(tmpdir(), "sb-repo-"));
+		process.env.TFF_HOME = home;
+		execSync("git init -b main", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
+		const r = handleInit(repo);
+		projectId = r.projectId;
+		await ensureStateBranch(repo, projectId);
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(repo, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("never throws when remote points at nonexistent path", async () => {
+		execSync("git remote add origin /does/not/exist/origin.git", {
+			cwd: repo,
+			stdio: "pipe",
+		});
+		const db = openDatabase(join(home, projectId, "state.db"));
+		insertProject(db, { name: "p", vision: "v", id: projectId });
+		db.close();
+		await expect(
+			commitStateAtPhaseEnd({
+				repoRoot: repo,
+				projectId,
+				codeBranch: "main",
+				phase: "plan",
+				sliceLabel: "M01-S01",
+			}),
+		).resolves.toBeUndefined();
+	});
+});
