@@ -55,7 +55,7 @@ describe("handleNew", () => {
 		rmSync(root, { recursive: true, force: true });
 		rmSync(tffHome, { recursive: true, force: true });
 		if (savedTffHome !== undefined) process.env.TFF_HOME = savedTffHome;
-		else process.env.TFF_HOME = undefined;
+		else Reflect.deleteProperty(process.env, "TFF_HOME");
 	});
 
 	it("creates a project with name and vision", () => {
@@ -258,7 +258,7 @@ describe("handleNew + handleInit identity unification", () => {
 			rmSync(root, { recursive: true, force: true });
 			rmSync(tffHome, { recursive: true, force: true });
 			if (savedTffHome !== undefined) process.env.TFF_HOME = savedTffHome;
-			else process.env.TFF_HOME = undefined;
+			else Reflect.deleteProperty(process.env, "TFF_HOME");
 		}
 	});
 });

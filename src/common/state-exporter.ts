@@ -175,7 +175,7 @@ export function exportSnapshot(db: Database.Database, opts?: { now?: () => Date 
 	};
 }
 
-function sortedKeysReplacer(_key: string, value: unknown): unknown {
+export function sortedKeysReplacer(_key: string, value: unknown): unknown {
 	if (value && typeof value === "object" && !Array.isArray(value)) {
 		const obj = value as Record<string, unknown>;
 		const sorted: Record<string, unknown> = {};
@@ -206,7 +206,7 @@ export function readSnapshot(path: string): Snapshot {
 	const obj = parsed as Partial<Snapshot>;
 	if (obj.schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
 		throw new SnapshotSchemaError(
-			`state-snapshot.json schema v${obj.schemaVersion} not supported by this TFF build (v${SNAPSHOT_SCHEMA_VERSION}). Run: /tff init --rehydrate`,
+			`state-snapshot.json schema v${obj.schemaVersion} not supported by this TFF build (v${SNAPSHOT_SCHEMA_VERSION}). Update TFF to a version that supports schema v${obj.schemaVersion}, or delete state-snapshot.json to regenerate from the current DB.`,
 		);
 	}
 	return obj as Snapshot;

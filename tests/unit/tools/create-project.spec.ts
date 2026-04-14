@@ -41,7 +41,7 @@ describe("handleCreateProject", () => {
 		rmSync(root, { recursive: true, force: true });
 		rmSync(tffHome, { recursive: true, force: true });
 		if (savedTffHome !== undefined) process.env.TFF_HOME = savedTffHome;
-		else process.env.TFF_HOME = undefined;
+		else Reflect.deleteProperty(process.env, "TFF_HOME");
 	});
 
 	it("creates a project and returns success", () => {

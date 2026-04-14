@@ -1,3 +1,4 @@
+import { sortedKeysReplacer } from "./state-exporter.js";
 import type { Snapshot } from "./state-exporter.js";
 
 export interface Conflict {
@@ -15,7 +16,7 @@ const TABLES = ["project", "milestone", "slice", "task", "dependency", "phase_ru
 type Table = (typeof TABLES)[number];
 
 function deepEqual(a: unknown, b: unknown): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
+	return JSON.stringify(a, sortedKeysReplacer) === JSON.stringify(b, sortedKeysReplacer);
 }
 
 function byId<T extends { id: string }>(rows: readonly T[]): Map<string, T> {

@@ -96,6 +96,18 @@ describe("mergeSnapshots row-level", () => {
 		if (r.ok) expect(r.merged.project).toEqual([]);
 	});
 
+	it("treats rows with same fields in different key order as equal", () => {
+		const rowA = { id: "p1", name: "P", vision: "V", createdAt: "t" };
+		const rowB = { createdAt: "t", vision: "V", name: "P", id: "p1" }; // same values, different key order
+		const r = mergeSnapshots(
+			makeSnap(),
+			makeSnap({ project: [rowA] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [rowB] as unknown as Snapshot["project"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.merged.project).toHaveLength(1);
+	});
+
 	it("merged arrays are sorted by id ascending", () => {
 		const a = { id: "a", name: "A", vision: "", createdAt: "t" };
 		const b = { id: "b", name: "B", vision: "", createdAt: "t" };
