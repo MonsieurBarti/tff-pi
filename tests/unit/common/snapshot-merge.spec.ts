@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { mergeSnapshots } from "../../../src/common/snapshot-merge.js";
-import { SNAPSHOT_SCHEMA_VERSION, type Snapshot } from "../../../src/common/state-exporter.js";
+import {
+	SNAPSHOT_SCHEMA_VERSION,
+	type Snapshot,
+	serializeSnapshot,
+} from "../../../src/common/state-exporter.js";
 
 function makeSnap(overrides: Partial<Snapshot> = {}): Snapshot {
 	return {
@@ -319,6 +323,43 @@ describe("mergeSnapshots status precedence", () => {
 				id: "s1",
 				field: "status",
 			});
+		}
+	});
+});
+
+describe("mergeSnapshots determinism", () => {
+	it("serialized merge output matches a fresh export of the same logical state", () => {
+		const rows = [
+			{ id: "a", name: "A", vision: "V", createdAt: "t" },
+			{ id: "b", name: "B", vision: "V", createdAt: "t" },
+		];
+		const r = mergeSnapshots(
+			makeSnap(),
+			makeSnap({ project: [rows[0]] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [rows[1]] as unknown as Snapshot["project"] }),
+		);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		const direct = makeSnap({ project: rows as unknown as Snapshot["project"] });
+		expect(serializeSnapshot(r.merged)).toBe(serializeSnapshot(direct));
+	});
+
+	it("is commutative on non-conflicting inputs (swap ours/theirs)", () => {
+		const a = { id: "a", name: "A", vision: "V", createdAt: "t" };
+		const b = { id: "b", name: "B", vision: "V", createdAt: "t" };
+		const r1 = mergeSnapshots(
+			makeSnap(),
+			makeSnap({ project: [a] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [b] as unknown as Snapshot["project"] }),
+		);
+		const r2 = mergeSnapshots(
+			makeSnap(),
+			makeSnap({ project: [b] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [a] as unknown as Snapshot["project"] }),
+		);
+		expect(r1.ok && r2.ok).toBe(true);
+		if (r1.ok && r2.ok) {
+			expect(serializeSnapshot(r1.merged)).toBe(serializeSnapshot(r2.merged));
 		}
 	});
 });
