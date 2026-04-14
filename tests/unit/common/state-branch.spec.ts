@@ -690,3 +690,95 @@ describe("pushWithRebaseRetry — clean push", () => {
 		expect(remoteBranches).toContain("tff-state/main");
 	});
 });
+
+describe("pushWithRebaseRetry — non-ff with clean rebase", () => {
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+	let home: string;
+	let origin: string;
+	let alice: string;
+	let bob: string;
+
+	beforeEach(async () => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		origin = mkdtempSync(join(tmpdir(), "sb-origin-"));
+		alice = mkdtempSync(join(tmpdir(), "sb-alice-"));
+		bob = mkdtempSync(join(tmpdir(), "sb-bob-"));
+		process.env.TFF_HOME = home;
+		execSync("git init --bare -b main", { cwd: origin, stdio: "pipe" });
+
+		// Alice creates repo + pushes initial commit + tff-state/main
+		execSync("git init -b main", { cwd: alice, stdio: "pipe" });
+		execSync('git config user.email "a@a.com"', { cwd: alice, stdio: "pipe" });
+		execSync('git config user.name "A"', { cwd: alice, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: alice, stdio: "pipe" });
+		execSync(`git remote add origin ${origin}`, { cwd: alice, stdio: "pipe" });
+		execSync("git push -u origin main", { cwd: alice, stdio: "pipe" });
+		const aRes = handleInit(alice);
+		await ensureStateBranch(alice, aRes.projectId);
+		execSync("git checkout tff-state/main", { cwd: alice, stdio: "pipe" });
+		await pushWithRebaseRetry(alice, "tff-state/main");
+		execSync("git checkout main", { cwd: alice, stdio: "pipe" });
+
+		// Bob clones + handleInit picks up tracked .tff-project-id
+		execSync(`git clone ${origin} ${bob}`, { stdio: "pipe" });
+		execSync('git config user.email "b@b.com"', { cwd: bob, stdio: "pipe" });
+		execSync('git config user.name "B"', { cwd: bob, stdio: "pipe" });
+		handleInit(bob);
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(origin, { recursive: true, force: true });
+		rmSync(alice, { recursive: true, force: true });
+		rmSync(bob, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("rebases through the merge driver then re-pushes", async () => {
+		// Alice commits + pushes tff-state/main
+		const aliceProjectId = readFileSync(join(alice, ".tff-project-id"), "utf-8").trim();
+		const db = openDatabase(join(home, aliceProjectId, "state.db"));
+		insertProject(db, { name: "p", vision: "v", id: aliceProjectId });
+		db.close();
+		await commitStateAtPhaseEnd({
+			repoRoot: alice,
+			projectId: aliceProjectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		execSync("git checkout tff-state/main", { cwd: alice, stdio: "pipe" });
+		expect(await pushWithRebaseRetry(alice, "tff-state/main")).toBe("pushed");
+
+		// Bob (behind) commits + tries to push — should rebase then push
+		// bob's tff-state/main is fetched via clone but not yet tracked; ensure it
+		execSync("git fetch origin tff-state/main:tff-state/main", { cwd: bob, stdio: "pipe" });
+		execSync("git checkout tff-state/main", { cwd: bob, stdio: "pipe" });
+		// Force bob's view behind alice's by dropping the remote-fetched commit
+		execSync("git reset --hard HEAD~0", { cwd: bob, stdio: "pipe" });
+		// Make an independent commit on bob's tff-state/main so it's also ahead
+		writeFileSync(join(bob, "notes.md"), "# bob\n");
+		execSync("git add notes.md", { cwd: bob, stdio: "pipe" });
+		execSync("git commit -m 'plan: M01-S02'", { cwd: bob, stdio: "pipe" });
+		// Alice pushed another commit meanwhile → simulate it
+		writeFileSync(join(alice, "more.md"), "# more\n");
+		execSync("git add more.md", { cwd: alice, stdio: "pipe" });
+		execSync("git commit -m 'plan: M01-S03'", { cwd: alice, stdio: "pipe" });
+		execSync("git push origin tff-state/main", { cwd: alice, stdio: "pipe" });
+
+		// Bob's pushWithRebaseRetry should fetch alice's new commit, rebase, re-push
+		const outcome = await pushWithRebaseRetry(bob, "tff-state/main");
+		expect(outcome).toBe("pushed");
+		const log = execSync("git log --oneline tff-state/main", { cwd: bob, encoding: "utf-8" });
+		expect(log).toContain("plan: M01-S03");
+		expect(log).toContain("plan: M01-S02");
+	});
+});

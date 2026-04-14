@@ -413,16 +413,32 @@ export async function pushWithRebaseRetry(
 ): Promise<PushOutcome> {
 	if (!hasOriginRemote(worktreeDir)) return "skipped-no-remote";
 
-	const push = runGit(worktreeDir, ["push", "origin", stateBranch]);
-	if (push.ok) return "pushed";
-	const isNonFf =
-		/non-fast-forward|\(fetch first\)|\(non-fast-forward\)/i.test(push.stderr) ||
-		/rejected.*\(fetch first\)/i.test(push.stderr);
-	if (!isNonFf) {
-		console.warn(`pushWithRebaseRetry: push failed (non-retryable): ${push.stderr}`);
-		return "skipped-no-remote";
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const push = runGit(worktreeDir, ["push", "origin", stateBranch]);
+		if (push.ok) return "pushed";
+		const isNonFf =
+			/non-fast-forward|\(fetch first\)|\(non-fast-forward\)/i.test(push.stderr) ||
+			/rejected.*\(fetch first\)/i.test(push.stderr);
+		if (!isNonFf) {
+			console.warn(`pushWithRebaseRetry: push failed (non-retryable): ${push.stderr}`);
+			return "skipped-no-remote";
+		}
+		const fetch = runGit(worktreeDir, [
+			"fetch",
+			"origin",
+			`${stateBranch}:refs/remotes/origin/${stateBranch}`,
+		]);
+		if (!fetch.ok) {
+			console.warn(`pushWithRebaseRetry: fetch failed: ${fetch.stderr}`);
+			return "skipped-no-remote";
+		}
+		const rebase = runGit(worktreeDir, ["rebase", `origin/${stateBranch}`]);
+		if (!rebase.ok) {
+			runGit(worktreeDir, ["rebase", "--abort"]);
+			break; // unresolvable → backup-branch path added in Task 11
+		}
+		// loop and retry push
 	}
-	// Non-ff path (rebase + retry) added in Task 10.
 	// Backup-branch path added in Task 11.
 	return "skipped-no-remote";
 }
