@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -16,7 +16,7 @@ import {
 	openDatabase,
 } from "../../../src/common/db.js";
 import { EventLogger } from "../../../src/common/event-logger.js";
-import { type PhaseEvent, TFF_CHANNELS } from "../../../src/common/events.js";
+import { type PhaseEvent, TFF_CHANNELS, type ToolCallEvent } from "../../../src/common/events.js";
 import { must } from "../../helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -327,5 +327,84 @@ describe("EventLogger", () => {
 			expect(file1.trim().split("\n")).toHaveLength(1);
 			expect(file2.trim().split("\n")).toHaveLength(1);
 		});
+	});
+});
+
+describe("EventLogger nullable-slice routing", () => {
+	let db: Database.Database;
+	let logsDir: string;
+	let bus: MockEventBus;
+	let logger: EventLogger;
+
+	beforeEach(() => {
+		db = createTestDb();
+		logsDir = mkdtempSync(join(tmpdir(), "tff-el-"));
+		bus = new MockEventBus();
+		logger = new EventLogger(db, logsDir);
+	});
+
+	afterEach(() => {
+		rmSync(logsDir, { recursive: true, force: true });
+	});
+
+	it("writes tff:tool events with string sliceId to per-slice JSONL", () => {
+		logger.subscribe(bus);
+
+		const event: ToolCallEvent = {
+			timestamp: "2026-04-13T12:00:00.000Z",
+			type: "tool_call",
+			sliceId: "s1",
+			sliceLabel: "M09-S01",
+			milestoneNumber: 9,
+			phase: "execute",
+			toolCallId: "c1",
+			toolName: "bash",
+			input: { command: "ls" },
+			output: "x",
+			isError: false,
+			durationMs: 12,
+			startedAt: "2026-04-13T12:00:00.000Z",
+		};
+		bus.emit("tff:tool", event);
+
+		const files = readdirSync(logsDir);
+		expect(files).toContain("M09-S01.jsonl");
+		const content = readFileSync(join(logsDir, "M09-S01.jsonl"), "utf-8");
+		expect(content).toContain('"ch":"tff:tool"');
+		expect(content).toContain('"toolName":"bash"');
+
+		const row = db
+			.prepare("SELECT channel, type, slice_id FROM event_log WHERE channel = 'tff:tool' LIMIT 1")
+			.get() as { channel: string; type: string; slice_id: string };
+		expect(row).toMatchObject({ channel: "tff:tool", type: "tool_call", slice_id: "s1" });
+	});
+
+	it("writes tff:tool events with null sliceId to ambient.jsonl and empty-string DB slice_id", () => {
+		logger.subscribe(bus);
+
+		const event: ToolCallEvent = {
+			timestamp: "2026-04-13T12:00:00.000Z",
+			type: "tool_call",
+			sliceId: null,
+			sliceLabel: null,
+			milestoneNumber: null,
+			phase: null,
+			toolCallId: "c2",
+			toolName: "bash",
+			input: { command: "ls" },
+			output: "x",
+			isError: false,
+			durationMs: 5,
+			startedAt: "2026-04-13T12:00:00.000Z",
+		};
+		bus.emit("tff:tool", event);
+
+		const files = readdirSync(logsDir);
+		expect(files).toContain("ambient.jsonl");
+
+		const row = db
+			.prepare("SELECT channel, type, slice_id FROM event_log WHERE channel = 'tff:tool' LIMIT 1")
+			.get() as { channel: string; type: string; slice_id: string };
+		expect(row.slice_id).toBe("");
 	});
 });

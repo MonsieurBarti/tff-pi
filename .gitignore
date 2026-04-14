@@ -41,3 +41,12 @@ docs/plans/
 docs/research/
 .hippo/
 .superpowers/
+
+# TFF runtime state and logs (may contain captured tool outputs incl. secrets)
+.tff/state.db
+.tff/state.db-journal
+.tff/state.db-wal
+.tff/state.db-shm
+.tff/logs/
+.tff/session.lock
+.tff/pending-phase-message.txt

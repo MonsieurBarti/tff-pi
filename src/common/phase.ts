@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { clearCurrentPhase, setCurrentPhase } from "./current-phase-context.js";
 import type { FffBridge } from "./fff-integration.js";
 import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
-import type { Phase, Slice } from "./types.js";
+import { type Phase, type Slice, sliceLabel } from "./types.js";
 
 /**
  * Phase messages are stashed on disk because module-level state is not
@@ -116,13 +117,29 @@ export async function runPhaseWithFreshContext(
 		};
 	}
 
-	acquireLock(phaseCtx.root, { phase, sliceId: phaseCtx.slice.id });
+	setCurrentPhase({
+		sliceId: phaseCtx.slice.id,
+		sliceLabel: sliceLabel(phaseCtx.milestoneNumber, phaseCtx.slice.number),
+		milestoneNumber: phaseCtx.milestoneNumber,
+		phase,
+	});
+	try {
+		acquireLock(phaseCtx.root, { phase, sliceId: phaseCtx.slice.id });
+	} catch (err) {
+		clearCurrentPhase();
+		return {
+			success: false,
+			retry: false,
+			error: err instanceof Error ? err.message : String(err),
+		};
+	}
 
 	// Run prepare in the LIVE session — db and pi are valid here.
 	let prepareResult: PhasePrepareResult;
 	try {
 		prepareResult = await phaseModule.prepare(phaseCtx);
 	} catch (err) {
+		clearCurrentPhase();
 		releaseLock(phaseCtx.root);
 		return {
 			success: false,
@@ -134,6 +151,7 @@ export async function runPhaseWithFreshContext(
 	// If prepare failed or produced no message, we're done — no fresh
 	// session needed, release the lock and return.
 	if (!prepareResult.success || !prepareResult.message) {
+		clearCurrentPhase();
 		releaseLock(phaseCtx.root);
 		return prepareResult;
 	}
@@ -144,7 +162,10 @@ export async function runPhaseWithFreshContext(
 	writePendingMessage(phaseCtx.root, message);
 
 	// Release the lock before awaiting newSession — the new session must
-	// start without holding our lock.
+	// start without holding our lock. Clear the phase context too — the new
+	// session has no in-flight phase until the next /tff command re-enters
+	// this function.
+	clearCurrentPhase();
 	releaseLock(phaseCtx.root);
 
 	// Await newSession with a LIVE cmdCtx (no stale-closure freeze). The NEW

@@ -21,6 +21,7 @@ import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
+import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
 import { TUIMonitor } from "./common/tui-monitor.js";
 import { checkForUpdates } from "./update-check.js";
 
@@ -82,6 +83,23 @@ async function maybeRunCrashRecoveryScan(
  * Moved out of the entry point to keep index.ts thin; no behavior change.
  */
 export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void {
+	// Subscribe ToolCallLogger ONCE at extension init.
+	// PI's api.on is extension-scoped and append-only (handlers never cleared
+	// across sessions), so subscribing inside session_start would duplicate
+	// handlers on every phase transition — each tool call would fire N+1
+	// handlers after N newSession cycles. The instance must live for the
+	// extension's full lifetime because its closures are pinned in PI's
+	// handler list; disposing per-session would break the next session's
+	// receipt of tool_call events.
+	const piAdapter: ToolCallLoggerPi = {
+		on: (event, handler) => {
+			pi.on(event as Parameters<typeof pi.on>[0], handler as never);
+			return () => {};
+		},
+	};
+	ctx.toolCallLogger = new ToolCallLogger(piAdapter, pi.events);
+	ctx.toolCallLogger.subscribe();
+
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------

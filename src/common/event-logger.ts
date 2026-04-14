@@ -2,13 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { insertEventLog, insertPhaseRun, updatePhaseRun } from "./db.js";
-import {
-	type EventBus,
-	type PhaseEvent,
-	TFF_CHANNELS,
-	type TffChannel,
-	type TffEvent,
-} from "./events.js";
+import { type EventBus, type PhaseEvent, TFF_CHANNELS, type TffChannel } from "./events.js";
 
 export class EventLogger {
 	private static readonly MAX_EVENT_LOG_ROWS = 10_000;
@@ -30,11 +24,16 @@ export class EventLogger {
 		for (const channel of TFF_CHANNELS) {
 			const unsub = events.on(channel, (data) => {
 				try {
-					const event = data as TffEvent & { type: string };
+					const event = data as {
+						type: string;
+						sliceId: string | null;
+						sliceLabel: string | null;
+						timestamp: string;
+					} & Record<string, unknown>;
 					this.writeEventLog(channel, event);
 					this.appendJsonl(channel, event);
 					if (channel === "tff:phase") {
-						this.handlePhaseRun(event as PhaseEvent);
+						this.handlePhaseRun(event as unknown as PhaseEvent);
 					}
 				} catch {
 					// Monitoring must not fail the pipeline
@@ -67,29 +66,57 @@ export class EventLogger {
 		return label.replace(/[^a-zA-Z0-9_-]/g, "_");
 	}
 
-	private truncatePayload(json: string): string {
-		if (json.length <= EventLogger.MAX_PAYLOAD_BYTES) return json;
-		return `${json.substring(0, EventLogger.MAX_PAYLOAD_BYTES - 20)}..."truncated"}`;
+	private truncatePayload(event: { type: string } & Record<string, unknown>): string {
+		const full = JSON.stringify(event);
+		if (full.length <= EventLogger.MAX_PAYLOAD_BYTES) return full;
+
+		// Rebuild with stubbed large fields so the payload stays parseable JSON.
+		// Keep all non-payload fields (type, ids, phase, timestamps, etc.) and
+		// replace input/output with markers.
+		const truncated: Record<string, unknown> = { ...event };
+		truncated.input = "[truncated: payload exceeded MAX_PAYLOAD_BYTES]";
+		truncated.output = "[truncated: payload exceeded MAX_PAYLOAD_BYTES]";
+		truncated.truncated = true;
+
+		const retry = JSON.stringify(truncated);
+		if (retry.length <= EventLogger.MAX_PAYLOAD_BYTES) return retry;
+
+		// Extremely pathological case — even the metadata envelope is too large.
+		// Fall back to a minimal valid-JSON envelope.
+		return JSON.stringify({
+			type: event.type,
+			truncated: true,
+			reason: "event envelope exceeded MAX_PAYLOAD_BYTES",
+		});
 	}
 
 	private truncateString(s: string, maxLen = 2000): string {
 		return s.length > maxLen ? `${s.substring(0, maxLen)}…[truncated]` : s;
 	}
 
-	private writeEventLog(channel: TffChannel, event: TffEvent & { type: string }): void {
-		const payload = this.truncatePayload(JSON.stringify(event));
+	private writeEventLog(
+		channel: TffChannel,
+		event: { type: string; sliceId: string | null } & Record<string, unknown>,
+	): void {
+		const payload = this.truncatePayload(event);
 		insertEventLog(this.db, {
 			channel,
 			type: event.type,
-			sliceId: event.sliceId,
+			// event_log.slice_id is NOT NULL (db.ts:134); coerce null → empty string
+			sliceId: event.sliceId ?? "",
 			payload,
 		});
 	}
 
-	private appendJsonl(channel: TffChannel, event: TffEvent & { type: string }): void {
+	private appendJsonl(
+		channel: TffChannel,
+		event: { timestamp: string; type: string; sliceLabel: string | null } & Record<string, unknown>,
+	): void {
 		const line = JSON.stringify({ ts: event.timestamp, ch: channel, ...event });
-		const safeLabel = this.sanitizeFilename(event.sliceLabel);
-		const filePath = join(this.logsDir, `${safeLabel}.jsonl`);
+		const fileName = event.sliceLabel
+			? `${this.sanitizeFilename(event.sliceLabel)}.jsonl`
+			: "ambient.jsonl";
+		const filePath = join(this.logsDir, fileName);
 		appendFileSync(filePath, `${line}\n`);
 	}
 
