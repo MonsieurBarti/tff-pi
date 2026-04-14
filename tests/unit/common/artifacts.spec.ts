@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,7 +6,6 @@ import {
 	artifactExists,
 	initMilestoneDir,
 	initSliceDir,
-	initTffDirectory,
 	milestoneDir,
 	readArtifact,
 	sliceDir,
@@ -63,43 +62,9 @@ describe("artifacts", () => {
 		});
 	});
 
-	describe("initTffDirectory", () => {
-		it("creates .tff directory", () => {
-			initTffDirectory(root);
-			expect(existsSync(join(root, ".tff"))).toBe(true);
-		});
-
-		it("creates .tff/milestones directory", () => {
-			initTffDirectory(root);
-			expect(existsSync(join(root, ".tff", "milestones"))).toBe(true);
-		});
-
-		it("creates .tff/worktrees directory", () => {
-			initTffDirectory(root);
-			expect(existsSync(join(root, ".tff", "worktrees"))).toBe(true);
-		});
-
-		it("creates default settings.yaml", () => {
-			initTffDirectory(root);
-			expect(artifactExists(root, "settings.yaml")).toBe(true);
-		});
-
-		it("settings.yaml is valid YAML with defaults", () => {
-			initTffDirectory(root);
-			const content = readArtifact(root, "settings.yaml");
-			expect(content).not.toBeNull();
-			expect(content).toContain("model_profile");
-		});
-
-		it("is idempotent when called twice", () => {
-			initTffDirectory(root);
-			expect(() => initTffDirectory(root)).not.toThrow();
-		});
-	});
-
 	describe("writeArtifact / readArtifact", () => {
 		beforeEach(() => {
-			initTffDirectory(root);
+			mkdirSync(join(root, ".tff"), { recursive: true });
 		});
 
 		it("round-trips content", () => {
@@ -123,7 +88,7 @@ describe("artifacts", () => {
 
 	describe("readArtifact", () => {
 		beforeEach(() => {
-			initTffDirectory(root);
+			mkdirSync(join(root, ".tff"), { recursive: true });
 		});
 
 		it("returns null for missing file", () => {
@@ -133,7 +98,7 @@ describe("artifacts", () => {
 
 	describe("artifactExists", () => {
 		beforeEach(() => {
-			initTffDirectory(root);
+			mkdirSync(join(root, ".tff"), { recursive: true });
 		});
 
 		it("returns true for existing file", () => {
@@ -148,7 +113,7 @@ describe("artifacts", () => {
 
 	describe("initMilestoneDir", () => {
 		beforeEach(() => {
-			initTffDirectory(root);
+			mkdirSync(join(root, ".tff"), { recursive: true });
 		});
 
 		it("creates milestone directory", () => {
@@ -164,7 +129,7 @@ describe("artifacts", () => {
 
 	describe("initSliceDir", () => {
 		beforeEach(() => {
-			initTffDirectory(root);
+			mkdirSync(join(root, ".tff"), { recursive: true });
 			initMilestoneDir(root, 1);
 		});
 

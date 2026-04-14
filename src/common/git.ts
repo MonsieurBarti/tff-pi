@@ -86,7 +86,7 @@ export function getDefaultBranch(cwd?: string): string | null {
 }
 
 const DEFAULT_GITIGNORE_ENTRIES = [
-	".tff/",
+	"/.tff",
 	".pi/",
 	"node_modules/",
 	"dist/",
@@ -97,7 +97,7 @@ const DEFAULT_GITIGNORE_ENTRIES = [
 	"coverage/",
 ];
 
-export function createGitignore(cwd: string): void {
+export function ensureGitignoreEntries(cwd: string): void {
 	const filePath = join(cwd, ".gitignore");
 	const existing = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
 	const existingLines = new Set(
@@ -121,6 +121,9 @@ export function createGitignore(cwd: string): void {
 		stdio: "pipe",
 	});
 }
+
+// Keep legacy name as a thin alias so existing callers compile until T11 removes it.
+export const createGitignore = ensureGitignoreEntries;
 
 export function hasRemote(cwd?: string): boolean {
 	try {

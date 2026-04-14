@@ -143,6 +143,7 @@ function makeMockPi() {
 
 describe("runNew — EventLogger wiring", () => {
 	let root: string;
+	let tffHome: string;
 	const savedEnv: Record<string, string | undefined> = {};
 
 	beforeEach(() => {
@@ -153,6 +154,11 @@ describe("runNew — EventLogger wiring", () => {
 				delete process.env[key];
 			}
 		}
+		// Isolate TFF_HOME so handleInit doesn't pollute the real ~/.tff
+		savedEnv.TFF_HOME = process.env.TFF_HOME;
+		tffHome = mkdtempSync(join(tmpdir(), "tff-home-test-"));
+		process.env.TFF_HOME = tffHome;
+
 		root = mkdtempSync(join(tmpdir(), "tff-runnew-test-"));
 		execSync("git init", { cwd: root, stdio: "pipe" });
 		execSync('git config user.email "test@test.com"', { cwd: root, stdio: "pipe" });
@@ -163,6 +169,7 @@ describe("runNew — EventLogger wiring", () => {
 
 	afterEach(() => {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(tffHome, { recursive: true, force: true });
 		for (const [key, value] of Object.entries(savedEnv)) {
 			if (value !== undefined) process.env[key] = value;
 			else delete process.env[key];
