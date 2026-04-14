@@ -18,9 +18,11 @@ import { getGitRoot } from "./common/git.js";
 import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
 import { initMonitoring } from "./common/monitoring-setup.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
+import { readProjectIdFile } from "./common/project-home.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
+import { ensureStateBranch } from "./common/state-branch.js";
 import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
 import { ensureSliceWorktree } from "./common/worktree.js";
 import { type PendingWorktreeMarker, pendingWorktreeMarkerPath } from "./phases/execute.js";
@@ -220,6 +222,16 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				ctx.db = openDatabase(dbPath);
 				applyMigrations(ctx.db, { root: ctx.projectRoot });
 				loadSettings(ctx, root);
+
+				// M10-S03: ensure tff-state/<codeBranch> exists. Best-effort:
+				// a broken state branch must never block session start.
+				try {
+					const projectId = readProjectIdFile(root);
+					if (projectId) await ensureStateBranch(root, projectId);
+				} catch (err) {
+					console.warn("state-branch preflight failed:", err);
+				}
+
 				ctx.initError = null;
 
 				// Initialize monitoring (EventLogger + TUIMonitor + fffBridge)
