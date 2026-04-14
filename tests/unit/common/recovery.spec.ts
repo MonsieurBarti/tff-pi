@@ -414,5 +414,72 @@ describe("recovery", () => {
 
 			expect(briefing).not.toContain("Recent tool calls");
 		});
+
+		it("executing status includes git-commit reminder in briefing", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			expect(briefing).toMatch(/git discipline/i);
+			expect(briefing).toContain("git commit");
+			expect(briefing).toContain("git diff milestone/M01");
+		});
+
+		it("shipping status includes git-commit reminder in briefing", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sId);
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			expect(briefing).toMatch(/git discipline/i);
+			expect(briefing).toContain("git commit");
+		});
+
+		it("discussing status does NOT include git-commit reminder", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sId);
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			expect(briefing).not.toMatch(/git discipline/i);
+		});
+
+		it("planning status does NOT include git-commit reminder", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/M01",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sId);
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			expect(briefing).not.toMatch(/git discipline/i);
+		});
 	});
 });
