@@ -157,6 +157,12 @@ function isSliceWorktree(projectId: string): boolean {
 	return existsSync(join(projectHomeDir(projectId), "slice-worktree.marker"));
 }
 
+// HEURISTIC: Pick the local branch whose merge-base with `codeBranch` has the
+// most recent commit timestamp. This approximates `git merge-base --fork-point`
+// without requiring the reflog. Known edge case: a stale sibling branch whose
+// tip sits on a recent main commit can win the timestamp race over `main`; the
+// fallout is benign (fork `tff-state/<sibling>` instead of `tff-state/main`,
+// both are valid portable-state parents).
 function findParentCodeBranch(repoRoot: string, codeBranch: string): string | null {
 	const list = runGit(repoRoot, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"]);
 	if (!list.ok) return null;

@@ -237,6 +237,73 @@ describe("ensureStateBranch — fork from parent state branch", () => {
 		}).trim();
 		expect(fooSha).toBe(mainSha);
 	});
+
+	it("3-branch heuristic: picks feature/base over main as parent for feature/foo", async () => {
+		const r = handleInit(repo);
+
+		// Ensure tff-state/main exists (on main branch)
+		await ensureStateBranch(repo, r.projectId);
+
+		// Branch feature/base off main with a new commit so its merge-base with
+		// feature/foo is more recent than main's merge-base with feature/foo.
+		execSync("git checkout -b feature/base", { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'feature/base commit'", { cwd: repo, stdio: "pipe" });
+		await ensureStateBranch(repo, r.projectId); // creates tff-state/feature/base
+		const baseSha = execSync("git rev-parse tff-state/feature/base", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+
+		// Branch feature/foo off feature/base (so merge-base with feature/base is
+		// more recent than the merge-base with main).
+		execSync("git checkout -b feature/foo", { cwd: repo, stdio: "pipe" });
+		await ensureStateBranch(repo, r.projectId);
+
+		const fooSha = execSync("git rev-parse tff-state/feature/foo", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		// The heuristic should pick feature/base (most-recent merge-base timestamp),
+		// so tff-state/feature/foo must point at the same commit as tff-state/feature/base.
+		expect(fooSha).toBe(baseSha);
+	});
+
+	it("remote-fetch: recreates tff-state/main locally when only origin has it", async () => {
+		// Set up a bare origin repo.
+		const origin = mkdtempSync(join(tmpdir(), "sb-origin-"));
+		try {
+			execSync("git init --bare -b main", { cwd: origin, stdio: "pipe" });
+
+			// Wire repo to origin and push main.
+			execSync(`git remote add origin ${origin}`, { cwd: repo, stdio: "pipe" });
+			execSync("git push origin main", { cwd: repo, stdio: "pipe" });
+
+			// Create tff-state/main locally, then push it to origin.
+			const r = handleInit(repo);
+			await ensureStateBranch(repo, r.projectId);
+			execSync("git push origin tff-state/main", { cwd: repo, stdio: "pipe" });
+
+			// Record the SHA that origin holds.
+			const originSha = execSync("git rev-parse tff-state/main", {
+				cwd: repo,
+				encoding: "utf-8",
+			}).trim();
+
+			// Delete the local state branch so only origin has it.
+			execSync("git branch -D tff-state/main", { cwd: repo, stdio: "pipe" });
+
+			// ensureStateBranch must fetch from origin and recreate it locally.
+			await ensureStateBranch(repo, r.projectId);
+
+			const restoredSha = execSync("git rev-parse tff-state/main", {
+				cwd: repo,
+				encoding: "utf-8",
+			}).trim();
+			expect(restoredSha).toBe(originSha);
+		} finally {
+			rmSync(origin, { recursive: true, force: true });
+		}
+	});
 });
 
 describe("ensureStateBranch — guards", () => {
