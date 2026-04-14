@@ -26,7 +26,7 @@ describe("project-home", () => {
 			expect(tffHomeRoot()).toBe("/tmp/custom-tff-home");
 		});
 
-		it("prefers TFF_HOME even when empty string? no — empty falls back", () => {
+		it("falls back to ~/.tff when TFF_HOME is empty string", () => {
 			process.env.TFF_HOME = "";
 			expect(tffHomeRoot()).toBe(join(homedir(), ".tff"));
 		});
