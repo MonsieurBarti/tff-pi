@@ -1,9 +1,12 @@
+import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { handleInit } from "../../../src/commands/init.js";
 import {
 	StateBranchError,
+	ensureStateBranch,
 	mirrorPortableSubset,
 	stateBranchName,
 } from "../../../src/common/state-branch.js";
@@ -110,5 +113,183 @@ describe("mirrorPortableSubset", () => {
 		mirrorPortableSubset(home, work);
 		expect(() => readFileSync(join(work, "milestones", "leak.md"))).toThrow();
 		rmSync(outside, { recursive: true, force: true });
+	});
+});
+
+describe("ensureStateBranch — orphan creation (no parent)", () => {
+	let home: string;
+	let repo: string;
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		repo = mkdtempSync(join(tmpdir(), "sb-repo-"));
+		process.env.TFF_HOME = home;
+		execSync("git init -b main", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(repo, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("creates an orphan tff-state/main with .gitattributes and branch-meta.json", async () => {
+		const r = handleInit(repo);
+		await ensureStateBranch(repo, r.projectId);
+
+		const branches = execSync("git branch --list tff-state/main", { cwd: repo, encoding: "utf-8" });
+		expect(branches).toContain("tff-state/main");
+
+		const ls = execSync("git ls-tree -r --name-only tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		})
+			.trim()
+			.split("\n");
+		expect(ls).toContain(".gitattributes");
+		expect(ls).toContain("branch-meta.json");
+
+		const attrs = execSync("git show tff-state/main:.gitattributes", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		expect(attrs).toContain("state-snapshot.json merge=tff-snapshot");
+
+		const meta = JSON.parse(
+			execSync("git show tff-state/main:branch-meta.json", { cwd: repo, encoding: "utf-8" }),
+		);
+		expect(meta).toMatchObject({ parent: null, codeBranch: "main" });
+		expect(typeof meta.stateId).toBe("string");
+		expect(typeof meta.createdAt).toBe("string");
+	});
+
+	it("is idempotent — second call is a no-op", async () => {
+		const r = handleInit(repo);
+		await ensureStateBranch(repo, r.projectId);
+		const firstSha = execSync("git rev-parse tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		await ensureStateBranch(repo, r.projectId);
+		const secondSha = execSync("git rev-parse tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(secondSha).toBe(firstSha);
+	});
+});
+
+describe("ensureStateBranch — fork from parent state branch", () => {
+	let home: string;
+	let repo: string;
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+
+	beforeEach(() => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		repo = mkdtempSync(join(tmpdir(), "sb-repo-"));
+		process.env.TFF_HOME = home;
+		execSync("git init -b main", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(repo, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("forks tff-state/feature/foo from local tff-state/main", async () => {
+		const r = handleInit(repo);
+		await ensureStateBranch(repo, r.projectId); // creates tff-state/main
+		const mainSha = execSync("git rev-parse tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+
+		execSync("git checkout -b feature/foo", { cwd: repo, stdio: "pipe" });
+		await ensureStateBranch(repo, r.projectId);
+
+		const fooSha = execSync("git rev-parse tff-state/feature/foo", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(fooSha).toBe(mainSha);
+	});
+});
+
+describe("ensureStateBranch — guards", () => {
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+	let home: string;
+	let repo: string;
+
+	beforeEach(() => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		repo = mkdtempSync(join(tmpdir(), "sb-repo-"));
+		process.env.TFF_HOME = home;
+		execSync("git init -b main", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(repo, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("no-ops when slice-worktree sentinel is present", async () => {
+		const r = handleInit(repo);
+		const marker = join(home, r.projectId, "slice-worktree.marker");
+		writeFileSync(marker, "true");
+
+		await ensureStateBranch(repo, r.projectId);
+
+		const branches = execSync("git branch --list tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		expect(branches.trim()).toBe("");
+	});
+
+	it("no-ops on detached HEAD", async () => {
+		const r = handleInit(repo);
+		execSync("git checkout --detach", { cwd: repo, stdio: "pipe" });
+		await ensureStateBranch(repo, r.projectId);
+		const branches = execSync("git branch --list tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		expect(branches.trim()).toBe("");
 	});
 });

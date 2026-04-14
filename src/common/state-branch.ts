@@ -1,7 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+	copyFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	realpathSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { gitEnv } from "./git.js";
+import { projectHomeDir } from "./project-home.js";
 
 export class StateBranchError extends Error {
 	constructor(message: string) {
@@ -109,19 +121,16 @@ function runGit(cwd: string, args: string[]): ExecResult {
 	}
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: used by ensureStateBranch (Task 4+)
 function localBranchExists(repoRoot: string, branch: string): boolean {
 	return runGit(repoRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).ok;
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: used by pushWithRebaseRetry (Task 5+)
 function remoteBranchExists(repoRoot: string, branch: string): boolean {
 	const r = runGit(repoRoot, ["ls-remote", "--heads", "origin", branch]);
 	if (!r.ok) return false;
 	return r.stdout.trim().length > 0;
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: used by ensureStateBranch and pushWithRebaseRetry (Task 4+)
 function hasOriginRemote(repoRoot: string): boolean {
 	const r = runGit(repoRoot, ["remote"]);
 	if (!r.ok) return false;
@@ -131,10 +140,134 @@ function hasOriginRemote(repoRoot: string): boolean {
 		.includes("origin");
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: used by ensureStateBranch (Task 4+)
 function currentBranch(repoRoot: string): string | null {
 	const r = runGit(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
 	if (!r.ok) return null;
 	const b = r.stdout.trim();
 	return b === "HEAD" ? null : b;
+}
+
+// ---------------------------------------------------------------------------
+// ensureStateBranch and helpers
+// ---------------------------------------------------------------------------
+
+const ORPHAN_GITATTRIBUTES = "state-snapshot.json merge=tff-snapshot\n";
+
+function isSliceWorktree(projectId: string): boolean {
+	return existsSync(join(projectHomeDir(projectId), "slice-worktree.marker"));
+}
+
+function findParentCodeBranch(repoRoot: string, codeBranch: string): string | null {
+	const list = runGit(repoRoot, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"]);
+	if (!list.ok) return null;
+	const branches = list.stdout
+		.split("\n")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	let bestBranch: string | null = null;
+	let bestTs = Number.NEGATIVE_INFINITY;
+	for (const cand of branches) {
+		if (cand === codeBranch) continue;
+		if (cand.startsWith("tff-state/")) continue;
+		const base = runGit(repoRoot, ["merge-base", cand, codeBranch]);
+		if (!base.ok) continue;
+		const mergeBase = base.stdout.trim();
+		if (!mergeBase) continue;
+		const ts = runGit(repoRoot, ["log", "-1", "--format=%ct", mergeBase]);
+		if (!ts.ok) continue;
+		const n = Number(ts.stdout.trim());
+		if (!Number.isFinite(n)) continue;
+		if (n > bestTs) {
+			bestTs = n;
+			bestBranch = cand;
+		}
+	}
+	return bestBranch;
+}
+
+async function createOrphanStateBranch(
+	repoRoot: string,
+	projectId: string,
+	stateBranch: string,
+	codeBranch: string,
+): Promise<void> {
+	const tmpDir = join(projectHomeDir(projectId), ".tmp", `state-wt-${randomUUID()}`);
+	mkdirSync(dirname(tmpDir), { recursive: true });
+
+	let wtRegistered = false;
+	try {
+		const add = runGit(repoRoot, ["worktree", "add", "--detach", tmpDir, "HEAD"]);
+		if (!add.ok) throw new StateBranchError(`worktree add failed: ${add.stderr}`);
+		wtRegistered = true;
+
+		const orphan = runGit(tmpDir, ["checkout", "--orphan", stateBranch]);
+		if (!orphan.ok) throw new StateBranchError(`checkout --orphan failed: ${orphan.stderr}`);
+		// Remove everything that came with HEAD so we land on an empty tree.
+		runGit(tmpDir, ["rm", "-rf", "--ignore-unmatch", "."]);
+
+		writeFileSync(join(tmpDir, ".gitattributes"), ORPHAN_GITATTRIBUTES, "utf-8");
+		const meta = {
+			stateId: randomUUID(),
+			parent: null as string | null,
+			codeBranch,
+			createdAt: new Date().toISOString(),
+		};
+		writeFileSync(join(tmpDir, "branch-meta.json"), `${JSON.stringify(meta, null, 2)}\n`, "utf-8");
+
+		const add2 = runGit(tmpDir, ["add", "-A"]);
+		if (!add2.ok) throw new StateBranchError(`git add failed: ${add2.stderr}`);
+		const commit = runGit(tmpDir, ["commit", "-m", `chore(state): initialize ${stateBranch}`]);
+		if (!commit.ok) throw new StateBranchError(`git commit failed: ${commit.stderr}`);
+	} finally {
+		if (wtRegistered) runGit(repoRoot, ["worktree", "remove", "--force", tmpDir]);
+		try {
+			rmSync(tmpDir, { recursive: true, force: true });
+		} catch {
+			// best-effort
+		}
+	}
+}
+
+export async function ensureStateBranch(repoRoot: string, projectId: string): Promise<void> {
+	if (isSliceWorktree(projectId)) return;
+
+	const codeBranch = currentBranch(repoRoot);
+	if (!codeBranch) {
+		console.warn("ensureStateBranch: detached HEAD, skipping");
+		return;
+	}
+	const stateBranch = stateBranchName(codeBranch);
+
+	if (localBranchExists(repoRoot, stateBranch)) return;
+
+	// Try remote tracking ref for this exact stateBranch first.
+	if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, stateBranch)) {
+		const fetch = runGit(repoRoot, ["fetch", "origin", `${stateBranch}:refs/heads/${stateBranch}`]);
+		if (fetch.ok) return;
+		console.warn(`ensureStateBranch: fetch of ${stateBranch} failed: ${fetch.stderr}`);
+	}
+
+	// Try to fork from the state branch of the merge-base-derived parent code branch.
+	const parentCode = findParentCodeBranch(repoRoot, codeBranch);
+	if (parentCode) {
+		const parentState = stateBranchName(parentCode);
+		if (localBranchExists(repoRoot, parentState)) {
+			const br = runGit(repoRoot, ["branch", stateBranch, parentState]);
+			if (br.ok) return;
+			console.warn(`ensureStateBranch: branch from ${parentState} failed: ${br.stderr}`);
+		}
+		if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, parentState)) {
+			const fetch = runGit(repoRoot, [
+				"fetch",
+				"origin",
+				`${parentState}:refs/heads/${parentState}`,
+			]);
+			if (fetch.ok) {
+				const br = runGit(repoRoot, ["branch", stateBranch, parentState]);
+				if (br.ok) return;
+			}
+		}
+	}
+
+	await createOrphanStateBranch(repoRoot, projectId, stateBranch, codeBranch);
 }
