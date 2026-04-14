@@ -1,4 +1,3 @@
-import { sortedKeysReplacer } from "./state-exporter.js";
 import type { Snapshot } from "./state-exporter.js";
 
 export interface Conflict {
@@ -15,8 +14,38 @@ export type MergeResult = { ok: true; merged: Snapshot } | { ok: false; conflict
 const TABLES = ["project", "milestone", "slice", "task", "dependency", "phase_run"] as const;
 type Table = (typeof TABLES)[number];
 
+/**
+ * Structural equality tolerant of NaN, undefined, and key-order differences —
+ * the three ways JSON.stringify-based equality silently lies. Snapshot rows
+ * today hold only string|number|null, but the state branch will eventually
+ * pick up numeric columns (token costs, latencies) and we want those to
+ * compare correctly when a row legitimately contains NaN or Infinity.
+ */
 function deepEqual(a: unknown, b: unknown): boolean {
-	return JSON.stringify(a, sortedKeysReplacer) === JSON.stringify(b, sortedKeysReplacer);
+	if (a === b) return true;
+	if (typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b)) {
+		return true;
+	}
+	if (a === null || b === null) return a === b;
+	if (typeof a !== "object" || typeof b !== "object") return false;
+	if (Array.isArray(a) !== Array.isArray(b)) return false;
+	if (Array.isArray(a) && Array.isArray(b)) {
+		if (a.length !== b.length) return false;
+		for (let i = 0; i < a.length; i++) {
+			if (!deepEqual(a[i], b[i])) return false;
+		}
+		return true;
+	}
+	const oa = a as Record<string, unknown>;
+	const ob = b as Record<string, unknown>;
+	const ka = Object.keys(oa);
+	const kb = Object.keys(ob);
+	if (ka.length !== kb.length) return false;
+	for (const k of ka) {
+		if (!Object.hasOwn(ob, k)) return false;
+		if (!deepEqual(oa[k], ob[k])) return false;
+	}
+	return true;
 }
 
 function byId<T extends { id: string }>(rows: readonly T[]): Map<string, T> {
@@ -150,8 +179,12 @@ function mergeRow(
 				continue;
 			}
 		}
+		// Intentionally do NOT write merged[f] on conflict. mergeSnapshots returns
+		// `{ ok: false, conflicts }` without exposing the merged object when any
+		// conflict exists, so the field stays absent. If a future refactor ever
+		// exposes the partial merged row, a missing field is a louder failure
+		// than a silent ours-wins.
 		rowConflicts.push({ table, id, field: f, base: bo, ours: oo, theirs: to });
-		merged[f] = oo; // keep something placeable; caller bails on conflict anyway
 	}
 	return { row: merged, rowConflicts };
 }

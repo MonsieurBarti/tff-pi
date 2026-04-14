@@ -385,3 +385,36 @@ describe("mergeSnapshots determinism", () => {
 		}
 	});
 });
+
+describe("mergeSnapshots multi-field conflicts", () => {
+	it("collects every conflicting field on a single row before returning", () => {
+		const base = { id: "p1", name: "A", vision: "V", createdAt: "t" };
+		const ours = { id: "p1", name: "B", vision: "W", createdAt: "t" };
+		const theirs = { id: "p1", name: "C", vision: "X", createdAt: "t" };
+		const r = mergeSnapshots(
+			makeSnap({ project: [base] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [ours] as unknown as Snapshot["project"] }),
+			makeSnap({ project: [theirs] as unknown as Snapshot["project"] }),
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			const fields = r.conflicts
+				.filter((c) => c.table === "project" && c.id === "p1")
+				.map((c) => c.field)
+				.sort();
+			expect(fields).toEqual(["name", "vision"]);
+		}
+	});
+});
+
+describe("mergeSnapshots deepEqual robustness", () => {
+	it("treats NaN numeric fields as equal (not a false conflict)", () => {
+		const row = { id: "pr1", cost: Number.NaN, label: "x" };
+		const r = mergeSnapshots(
+			makeSnap({ phase_run: [row] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [row] as unknown as Snapshot["phase_run"] }),
+			makeSnap({ phase_run: [row] as unknown as Snapshot["phase_run"] }),
+		);
+		expect(r.ok).toBe(true);
+	});
+});

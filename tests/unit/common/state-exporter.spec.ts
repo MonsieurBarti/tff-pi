@@ -11,6 +11,7 @@ import {
 	insertProject,
 	insertSlice,
 	insertTask,
+	updateSlicePrUrl,
 } from "../../../src/common/db.js";
 import {
 	SNAPSHOT_FILENAME,
@@ -178,9 +179,25 @@ describe("writeSnapshot / readSnapshot round-trip", () => {
 		expect(loaded.project).toHaveLength(1);
 	});
 
-	it("readSnapshot throws SnapshotSchemaError on schemaVersion mismatch", () => {
+	it("readSnapshot throws SnapshotSchemaError on older schemaVersion", () => {
 		const path = join(home, "state-snapshot.json");
 		writeFileSync(path, JSON.stringify({ schemaVersion: 0, exportedAt: "x" }), "utf-8");
 		expect(() => readSnapshot(path)).toThrow(SnapshotSchemaError);
+	});
+
+	it("readSnapshot throws SnapshotSchemaError on newer schemaVersion", () => {
+		const path = join(home, "state-snapshot.json");
+		writeFileSync(path, JSON.stringify({ schemaVersion: 2, exportedAt: "x" }), "utf-8");
+		expect(() => readSnapshot(path)).toThrow(SnapshotSchemaError);
+	});
+
+	it("round-trips slice.prUrl through the snapshot", () => {
+		const pid = insertProject(db, { name: "P", vision: "V" });
+		const mid = insertMilestone(db, { projectId: pid, number: 1, name: "M", branch: "b" });
+		const sid = insertSlice(db, { milestoneId: mid, number: 1, title: "S" });
+		updateSlicePrUrl(db, sid, "https://github.com/example/repo/pull/42");
+		const path = writeSnapshot(db, home);
+		const loaded = readSnapshot(path);
+		expect(loaded.slice[0]?.prUrl).toBe("https://github.com/example/repo/pull/42");
 	});
 });
