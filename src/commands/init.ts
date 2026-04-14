@@ -60,7 +60,7 @@ export function handleInit(repoRoot: string): InitResult {
 }
 
 export async function runInit(
-	_pi: ExtensionAPI,
+	pi: ExtensionAPI,
 	ctx: TffContext,
 	_uiCtx: ExtensionCommandContext | null,
 	_args: string[],
@@ -76,10 +76,13 @@ export async function runInit(
 	const tffHome = process.env.TFF_HOME;
 	const homeNote = tffHome ? ` (TFF_HOME=${tffHome})` : "";
 	const verb = result.created ? "Initialized" : "Re-validated";
-	console.log(`${verb} TFF project ${result.projectId}${homeNote}`);
-	console.log(`Project home: ${result.projectHome}`);
-	console.log(`Symlink:      ${root}/.tff → ${result.projectHome}`);
+	const lines = [
+		`${verb} TFF project \`${result.projectId}\`${homeNote}`,
+		`- Project home: \`${result.projectHome}\``,
+		`- Symlink: \`${root}/.tff\` → \`${result.projectHome}\``,
+	];
 	if (result.created) {
-		console.log("Staged: .tff-project-id + .gitignore (commit when ready)");
+		lines.push("- Staged: `.tff-project-id` + `.gitignore` (commit when ready)");
 	}
+	pi.sendUserMessage(lines.join("\n"));
 }
