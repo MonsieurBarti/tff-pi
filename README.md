@@ -59,6 +59,47 @@ pi install git:github.com/MonsieurBarti/tff-pi
 
 Then reload PI with `/reload`.
 
+## 🏠 Project Home
+
+TFF stores all live project state under `~/.tff/{projectId}/` on your machine. Your repository carries two things:
+
+- **`.tff-project-id`** (tracked) — a single-line UUID that anchors your repo to its project home.
+- **`.tff/`** (gitignored) — a symlink pointing to `~/.tff/{projectId}/`. All TFF paths like `.tff/state.db`, `.tff/milestones/…`, `.tff/settings.yaml` resolve through this symlink.
+
+This means your working tree stays clean: no database, no logs, no session locks in the repo.
+
+### Initializing a project
+
+```bash
+/tff init
+```
+
+Bootstraps the project home, creates the symlink, writes `.tff-project-id`, and stages both `.tff-project-id` and `.gitignore` for you to commit. Idempotent — safe to re-run.
+
+`/tff new` runs this automatically on a fresh repo, so you rarely need to invoke `/tff init` directly unless you deleted the symlink or `~/.tff/{id}/` manually.
+
+### `TFF_HOME` env variable
+
+Override the `~/.tff/` root with `TFF_HOME`:
+
+```bash
+export TFF_HOME=/my/shared/tff-homes
+```
+
+Useful for tests, CI, or shared-disk environments.
+
+### Recovering from a manually deleted project home
+
+If you (or a sync tool) removed `~/.tff/{id}/`, run `/tff init` again. It keeps your existing `.tff-project-id`, re-creates the home dir, and re-runs DB migrations on a fresh state file. (Once M10-S03 lands, it will also re-hydrate content from the state branch on your git remote.)
+
+### Platform support
+
+macOS and Linux. Windows support requires Developer Mode (for symlinks) and lands in M11.
+
+### Multi-machine sync
+
+Coming in M10-S03 (orphan state branches + JSON merge driver). M10-S01 is just the centralization foundation.
+
 ## 🚀 Usage
 
 The template includes an example tool and commands:
