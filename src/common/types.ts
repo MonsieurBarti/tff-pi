@@ -49,6 +49,17 @@ export const ALL_PHASES: Phase[] = [
 	"ship-fix",
 ];
 
+export const SIDE_CHANNEL_PHASES: readonly Phase[] = ["ship-fix"];
+export const PIPELINE_PHASE_ORDER: readonly Phase[] = [
+	"discuss",
+	"research",
+	"plan",
+	"execute",
+	"verify",
+	"review",
+	"ship",
+];
+
 export interface Project {
 	id: string;
 	name: string;

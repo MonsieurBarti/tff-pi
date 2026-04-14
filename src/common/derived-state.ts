@@ -2,7 +2,9 @@ import type Database from "better-sqlite3";
 import { readArtifact } from "./artifacts.js";
 import { getMilestone, getSlice } from "./db.js";
 import {
+	PIPELINE_PHASE_ORDER,
 	type Phase,
+	SIDE_CHANNEL_PHASES,
 	SLICE_STATUSES,
 	type Slice,
 	type SliceStatus,
@@ -16,24 +18,12 @@ import {
 // phases without a defined rollback, return the phase's own in-progress status
 // so the agent can retry it.
 
-// Mirrors the phase-ordering portion of `forwardPath` in
-// `./state-machine.ts:nextSliceStatus`. If that sequence changes, update both.
-const FORWARD_ORDER: Phase[] = [
-	"discuss",
-	"research",
-	"plan",
-	"execute",
-	"verify",
-	"review",
-	"ship",
-];
-
 function nextPhaseFor(current: Phase, tier: Tier | null): Phase | null {
-	if (current === "ship-fix") return null; // side channel, not on the pipeline
+	if (SIDE_CHANNEL_PHASES.includes(current)) return null; // side channel, not on the pipeline
 	if (current === "discuss") return tier === "S" ? "plan" : "research";
-	const idx = FORWARD_ORDER.indexOf(current);
-	if (idx < 0 || idx === FORWARD_ORDER.length - 1) return null;
-	return FORWARD_ORDER[idx + 1] ?? null;
+	const idx = PIPELINE_PHASE_ORDER.indexOf(current);
+	if (idx < 0 || idx === PIPELINE_PHASE_ORDER.length - 1) return null;
+	return PIPELINE_PHASE_ORDER[idx + 1] ?? null;
 }
 
 function nextPhaseArtifactsReady(
@@ -106,15 +96,16 @@ function latestNonIgnoredPhaseRun(
 	db: Database.Database,
 	sliceId: string,
 ): LatestPhaseRunRow | null {
+	const placeholders = SIDE_CHANNEL_PHASES.map(() => "?").join(", ");
 	const row = db
 		.prepare(
 			`SELECT phase, status FROM phase_run
        WHERE slice_id = ?
-         AND phase != 'ship-fix'
+         AND phase NOT IN (${placeholders})
          AND status != 'abandoned'
        ORDER BY rowid DESC LIMIT 1`,
 		)
-		.get(sliceId) as LatestPhaseRunRow | undefined;
+		.get(sliceId, ...SIDE_CHANNEL_PHASES) as LatestPhaseRunRow | undefined;
 	return row ?? null;
 }
 
