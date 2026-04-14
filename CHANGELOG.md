@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `slice.status` is now a reconciled cache derived from `phase_run` + artifact files + `pr_url` via `computeSliceStatus` (src/common/derived-state.ts).
+- New `tff:derived` and `tff:override` event channels for status-change observability.
+- `/tff doctor` reconciles drifted `slice.status` values and reports them.
+- v4 schema migration reconciles all non-closed slices on upgrade.
+- `overrideSliceStatus(db, id, status, reason)` escape hatch for `/tff recover` skip-forward and milestone force-close (both audited via `tff:override`).
+
+### Changed
+- `PhaseRunStatus` enum formalized with `started | completed | failed | abandoned | retried`.
+- `applyMigrations(db, opts?: { root })` — optional root for v4 reconcile pass; tests pass no root.
+- `EventLogger` constructor takes `root` so it can reconcile status after phase_run writes.
+- `transition.ts` tool emits `phase_start` events instead of writing status directly; rejects target `closed` with a pointer to `/tff ship`.
+- Phase failure paths (`verify`, `review`, `ship`) emit `phase_failed` / `phase_retried` instead of directly rewriting `slice.status`.
+
+### Removed
+- `updateSliceStatus()` — status is no longer a directly-written column.
+
 ## [0.1.3](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.2...tff-pi-v0.1.3) (2026-04-13)
 
 
