@@ -22,7 +22,7 @@ import {
 	updateSliceTier,
 } from "../../src/common/db.js";
 import type { PhaseContext } from "../../src/common/phase.js";
-import { DEFAULT_SETTINGS, type Settings } from "../../src/common/settings.js";
+import { DEFAULT_SETTINGS } from "../../src/common/settings.js";
 import { milestoneLabel, sliceLabel } from "../../src/common/types.js";
 import { handleCreateSlice } from "../../src/tools/create-slice.js";
 import { must } from "../helpers.js";
@@ -103,15 +103,6 @@ import { verifyPhase } from "../../src/phases/verify.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeSettings(overrides: Partial<Settings> = {}): Settings {
-	return {
-		...DEFAULT_SETTINGS,
-		compress: { ...DEFAULT_SETTINGS.compress },
-		ship: { ...DEFAULT_SETTINGS.ship },
-		...overrides,
-	};
-}
 
 function makePi() {
 	return {
@@ -329,7 +320,7 @@ describe("E2E critical path", () => {
 			);
 			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("reviewing", sliceId);
 
-			// Step 11: shipPhase.prepare with auto_merge: true
+			// Step 11: shipPhase.prepare — always manual confirm path
 			const shipPi = makePi();
 			const shipSlice = must(getSlice(db, sliceId));
 			const shipResult = await shipPhase.prepare({
@@ -338,17 +329,19 @@ describe("E2E critical path", () => {
 				root,
 				slice: shipSlice,
 				milestoneNumber: msNumber,
-				settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+				settings: DEFAULT_SETTINGS,
 			});
 			expect(shipResult.success).toBe(true);
 			const shippedSlice = must(getSlice(db, sliceId));
 			expect(shippedSlice.prUrl).toContain("github.com");
-			// Reconciler rule 1: ship/completed + pr_url non-null → closed.
-			// Verify phase_complete was emitted; reconciler handles the DB write.
+			// Ship always emits phase_complete; slice is closed via override in
+			// finalizeMergedSlice (called from /tff ship-merged after user confirms).
 			expect(shipPi.events.emit).toHaveBeenCalledWith(
 				"tff:phase",
 				expect.objectContaining({ type: "phase_complete", phase: "ship" }),
 			);
+			// Override slice to closed to allow complete-milestone to proceed
+			db.prepare("UPDATE slice SET status = 'closed' WHERE id = ?").run(sliceId);
 
 			// Step 12: handleCompleteMilestone → milestone PR created
 			const completePi = makePi();
@@ -365,10 +358,10 @@ describe("E2E critical path", () => {
 	});
 
 	// -----------------------------------------------------------------------
-	// 2. Ship with auto_merge disabled
+	// 2. Ship always uses manual confirm path
 	// -----------------------------------------------------------------------
-	describe("ship with auto_merge disabled", () => {
-		it("leaves PR open and tells user it is ready for review", async () => {
+	describe("ship manual confirm path", () => {
+		it("leaves PR open and sends gate message asking user to confirm merge", async () => {
 			// Set up project, milestone, slice with all artifacts
 			initTffDirectory(root);
 			insertProject(db, { name: "TFF", vision: "Vision" });
@@ -408,13 +401,12 @@ describe("E2E critical path", () => {
 				root,
 				slice,
 				milestoneNumber: 1,
-				settings: makeSettings({ ship: { auto_merge: false, merge_method: "squash" } }),
+				settings: DEFAULT_SETTINGS,
 			});
 
 			expect(result.success).toBe(true);
 
-			// Reconciler rule 2 (ship/started → shipping) handles status; verify
-			// phase_start was emitted and PR URL was persisted.
+			// Ship emits phase_start and phase_complete; PR URL is persisted.
 			expect(pi.events.emit).toHaveBeenCalledWith(
 				"tff:phase",
 				expect.objectContaining({ type: "phase_start", phase: "ship" }),
@@ -422,7 +414,7 @@ describe("E2E critical path", () => {
 			const updated = must(getSlice(db, sliceId));
 			expect(updated.prUrl).toContain("github.com");
 
-			// pr merge should NOT have been called
+			// pr merge should NOT have been called — user must confirm
 			expect(mockMerge).not.toHaveBeenCalled();
 
 			// sendUserMessage hands the merge gate to the agent — PR URL +

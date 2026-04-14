@@ -10,6 +10,6 @@ export async function runSettings(
 ): Promise<void> {
 	const current = ctx.settings ?? DEFAULT_SETTINGS;
 	pi.sendUserMessage(
-		`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n- ship.auto_merge: ${current.ship.auto_merge}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
+		`Current TFF settings:\n\n- model_profile: ${current.model_profile}\n- compress.user_artifacts: ${current.compress.user_artifacts}\n- ship.merge_method: ${current.ship.merge_method}\n\nTo change settings, edit \`.tff/settings.yaml\` in your project root.`,
 	);
 }

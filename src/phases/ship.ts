@@ -371,56 +371,26 @@ export const shipPhase: PhaseModule = {
 				};
 			}
 
-			// Auto-merge disabled: hand control to the agent to poll the user
-			// via tff_ask_user until they report merged/changes. Mirrors
-			// TFF-CC's ship-slice merge gate (AskUserQuestion with 2 options).
-			// The agent is authorized to call tff_ship_merged or
-			// tff_ship_changes based on the user's reply — no polling of
-			// GitHub; the user's answer is the source of truth.
-			if (!settings.ship.auto_merge) {
-				pi.sendUserMessage(
-					[
-						`The slice PR is open: ${prUrl}`,
-						"",
-						`Now ask the user whether the PR was merged, using tff_ask_user with id \`pr_gate_${sLabel}\`, header "PR status", and two options:`,
-						'  1) label "PR merged"       — description "I merged the PR on GitHub."',
-						'  2) label "PR needs changes" — description "Reviewers requested changes."',
-						"",
-						"After the user replies:",
-						`  - If "PR merged": call tff_ship_merged({ sliceLabel: "${sLabel}" }).`,
-						`  - If "PR needs changes": ask the user for the reviewer feedback text in one follow-up message, then call tff_ship_changes({ sliceLabel: "${sLabel}", feedback: "<their exact feedback>" }).`,
-						"",
-						"Do NOT call these tools before the user has explicitly answered. Do NOT poll GitHub or guess the state — the user's reply is the source of truth.",
-					].join("\n"),
-				);
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_complete",
-					phase: "ship",
-					durationMs: Date.now() - startTime,
-				});
-				return { success: true, retry: false };
-			}
-
-			// Merge PR using the configured method (default: squash).
-			const mergeResult = await prTools.merge({
-				repo,
-				number: prNumber,
-				method: settings.ship.merge_method,
-			});
-			if (mergeResult.code !== 0) {
-				return {
-					success: false,
-					retry: false,
-					error: `gh pr merge failed: ${mergeResult.stderr}`,
-				};
-			}
-
-			finalizeMergedSlice(db, root, slice, milestoneNumber);
-
-			const next = suggestNextAction(db, slice.milestoneId);
-			pi.sendUserMessage(`Slice shipped and merged.\n\n${next}`);
-
+			// Ship always uses manual confirm: hand control to the agent to poll
+			// the user via tff_ask_user until they report merged/changes. The
+			// agent calls tff_ship_merged or tff_ship_changes based on the
+			// user's reply — no GitHub polling; the user's answer is the source
+			// of truth.
+			pi.sendUserMessage(
+				[
+					`The slice PR is open: ${prUrl}`,
+					"",
+					`Now ask the user whether the PR was merged, using tff_ask_user with id \`pr_gate_${sLabel}\`, header "PR status", and two options:`,
+					'  1) label "PR merged"       — description "I merged the PR on GitHub."',
+					'  2) label "PR needs changes" — description "Reviewers requested changes."',
+					"",
+					"After the user replies:",
+					`  - If "PR merged": call tff_ship_merged({ sliceLabel: "${sLabel}" }).`,
+					`  - If "PR needs changes": ask the user for the reviewer feedback text in one follow-up message, then call tff_ship_changes({ sliceLabel: "${sLabel}", feedback: "<their exact feedback>" }).`,
+					"",
+					"Do NOT call these tools before the user has explicitly answered. Do NOT poll GitHub or guess the state — the user's reply is the source of truth.",
+				].join("\n"),
+			);
 			pi.events.emit("tff:phase", {
 				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 				type: "phase_complete",

@@ -159,7 +159,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -175,7 +175,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
@@ -192,14 +192,14 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		await shipPhase.prepare(ctx);
 		const prMd = readArtifact(root, "milestones/M01/slices/M01-S01/PR.md");
 		expect(prMd).toBe("[COMPRESSED]pr");
 	});
 
-	it("emits phase_complete for ship after successful merge (reconciler rule 1 closes slice)", async () => {
+	it("emits phase_complete for ship and sends PR gate message to user", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const pi = makePi();
 		const ctx: PhaseContext = {
@@ -208,20 +208,21 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		await shipPhase.prepare(ctx);
-		// Reconciler rule 1: ship/completed + pr_url non-null → closed.
-		// Verify phase_complete was emitted; pr_url must be persisted for the rule to fire.
+		// Ship always uses manual confirm: emits phase_complete and asks user to confirm merge.
 		expect(pi.events.emit).toHaveBeenCalledWith(
 			"tff:phase",
 			expect.objectContaining({ type: "phase_complete", phase: "ship" }),
 		);
 		const updated = must(getSlice(db, sliceId));
 		expect(updated.prUrl).toContain("github.com");
+		// pr merge should NOT be called — user must confirm via /tff ship-merged
+		expect(mockMerge).not.toHaveBeenCalled();
 	});
 
-	it("with auto_merge disabled, does not squash merge", async () => {
+	it("sends PR gate message asking user to confirm merge via tff_ship_merged", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const pi = makePi();
 		const ctx: PhaseContext = {
@@ -230,7 +231,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: false, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -256,7 +257,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		await shipPhase.prepare(ctx);
 		expect(mockCreate).toHaveBeenCalledWith(
@@ -269,7 +270,7 @@ describe("shipPhase", () => {
 		);
 	});
 
-	it("re-entry: merged PR emits phase_complete (reconciler rule 1 closes slice)", async () => {
+	it("re-entry: merged PR emits phase_complete", async () => {
 		mockView.mockResolvedValue({
 			code: 0,
 			stdout: JSON.stringify({ state: "MERGED", comments: [] }),
@@ -284,11 +285,10 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		// Reconciler rule 1: ship/completed + pr_url non-null → closed.
 		expect(pi.events.emit).toHaveBeenCalledWith(
 			"tff:phase",
 			expect.objectContaining({ type: "phase_complete", phase: "ship" }),
@@ -313,7 +313,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -337,7 +337,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(true);
@@ -354,7 +354,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);
@@ -375,7 +375,7 @@ describe("shipPhase", () => {
 			root,
 			slice,
 			milestoneNumber: 1,
-			settings: makeSettings({ ship: { auto_merge: true, merge_method: "squash" } }),
+			settings: makeSettings(),
 		};
 		const result = await shipPhase.prepare(ctx);
 		expect(result.success).toBe(false);

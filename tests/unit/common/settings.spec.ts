@@ -81,18 +81,18 @@ describe("settings", () => {
 		});
 	});
 
-	describe("ship.auto_merge setting", () => {
-		it("parses ship.auto_merge as boolean (default false)", () => {
-			const s = parseSettings("ship:\n  auto_merge: true");
-			expect(s.ship.auto_merge).toBe(true);
-		});
-		it("defaults ship.auto_merge to false", () => {
+	describe("ship.merge_method setting", () => {
+		it("defaults ship.merge_method to squash", () => {
 			const s = parseSettings("");
-			expect(s.ship.auto_merge).toBe(false);
+			expect(s.ship.merge_method).toBe("squash");
 		});
-		it("defaults ship.auto_merge to false when ship section missing", () => {
+		it("parses ship.merge_method rebase", () => {
+			const s = parseSettings("ship:\n  merge_method: rebase");
+			expect(s.ship.merge_method).toBe("rebase");
+		});
+		it("defaults ship.merge_method to squash when ship section missing", () => {
 			const s = parseSettings("model_profile: quality");
-			expect(s.ship.auto_merge).toBe(false);
+			expect(s.ship.merge_method).toBe("squash");
 		});
 	});
 
@@ -186,7 +186,7 @@ describe("settings", () => {
 			const original: Settings = {
 				model_profile: "quality",
 				compress: { user_artifacts: true },
-				ship: { auto_merge: false, merge_method: "squash" },
+				ship: { merge_method: "squash" },
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);
@@ -206,7 +206,7 @@ describe("settings", () => {
 			const original: Settings = {
 				model_profile: "balanced",
 				compress: { user_artifacts: false, apply_to: ["artifacts", "phase_prompts"] },
-				ship: { auto_merge: false, merge_method: "squash" },
+				ship: { merge_method: "squash" },
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);

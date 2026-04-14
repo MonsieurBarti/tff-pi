@@ -9,7 +9,6 @@ export interface Settings {
 		apply_to?: ("artifacts" | "context_injection" | "phase_prompts")[];
 	};
 	ship: {
-		auto_merge: boolean;
 		merge_method: "squash" | "rebase" | "merge";
 	};
 	test_command?: string;
@@ -24,7 +23,6 @@ export const DEFAULT_SETTINGS: Settings = {
 		user_artifacts: false,
 	},
 	ship: {
-		auto_merge: false,
 		merge_method: "squash",
 	},
 };
@@ -64,10 +62,6 @@ export function parseSettings(yamlString: string): Settings {
 						: DEFAULT_SETTINGS.compress.user_artifacts,
 			},
 			ship: {
-				auto_merge:
-					typeof parsed.ship?.auto_merge === "boolean"
-						? parsed.ship.auto_merge
-						: DEFAULT_SETTINGS.ship.auto_merge,
 				merge_method:
 					parsed.ship?.merge_method === "rebase" || parsed.ship?.merge_method === "merge"
 						? parsed.ship.merge_method
