@@ -1,11 +1,21 @@
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleInit } from "../../../src/commands/init.js";
+import { applyMigrations, insertProject, openDatabase } from "../../../src/common/db.js";
 import {
 	StateBranchError,
+	commitStateAtPhaseEnd,
 	ensureStateBranch,
 	mirrorPortableSubset,
 	stateBranchName,
@@ -358,5 +368,129 @@ describe("ensureStateBranch — guards", () => {
 			encoding: "utf-8",
 		});
 		expect(branches.trim()).toBe("");
+	});
+});
+
+describe("commitStateAtPhaseEnd — happy path", () => {
+	const savedTffHome = process.env.TFF_HOME;
+	const savedGit: Record<string, string | undefined> = {};
+	let home: string;
+	let repo: string;
+	let projectId: string;
+
+	beforeEach(async () => {
+		for (const k of Object.keys(process.env)) {
+			if (k.startsWith("GIT_")) {
+				savedGit[k] = process.env[k];
+				Reflect.deleteProperty(process.env, k);
+			}
+		}
+		home = mkdtempSync(join(tmpdir(), "sb-home-"));
+		repo = mkdtempSync(join(tmpdir(), "sb-repo-"));
+		process.env.TFF_HOME = home;
+		execSync("git init -b main", { cwd: repo, stdio: "pipe" });
+		execSync('git config user.email "t@t.com"', { cwd: repo, stdio: "pipe" });
+		execSync('git config user.name "T"', { cwd: repo, stdio: "pipe" });
+		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
+		const r = handleInit(repo);
+		projectId = r.projectId;
+		const db = openDatabase(join(home, projectId, "state.db"));
+		applyMigrations(db, { root: repo });
+		insertProject(db, { name: "p", vision: "v", id: projectId });
+		db.close();
+		await ensureStateBranch(repo, projectId);
+	});
+	afterEach(() => {
+		rmSync(home, { recursive: true, force: true });
+		rmSync(repo, { recursive: true, force: true });
+		if (savedTffHome === undefined) Reflect.deleteProperty(process.env, "TFF_HOME");
+		else process.env.TFF_HOME = savedTffHome;
+		for (const [k, v] of Object.entries(savedGit)) if (v !== undefined) process.env[k] = v;
+	});
+
+	it("commits snapshot + artifacts to tff-state/main", async () => {
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		const files = execSync("git ls-tree -r --name-only tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		})
+			.trim()
+			.split("\n");
+		expect(files).toContain("state-snapshot.json");
+		expect(files).toContain(".gitattributes");
+
+		const snapJson = execSync("git show tff-state/main:state-snapshot.json", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		const snap = JSON.parse(snapJson);
+		expect(snap.project).toHaveLength(1);
+		expect(snap.project[0].id).toBe(projectId);
+	});
+
+	it("commit message is '<phase>: <sliceLabel>'", async () => {
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		const msg = execSync("git log -1 --format=%s tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(msg).toBe("plan: M01-S01");
+	});
+
+	it("no-ops when there are no changes (no empty commit)", async () => {
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		const firstSha = execSync("git rev-parse tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		const secondSha = execSync("git rev-parse tff-state/main", {
+			cwd: repo,
+			encoding: "utf-8",
+		}).trim();
+		expect(secondSha).toBe(firstSha);
+	});
+
+	it("leaves no temp worktree behind", async () => {
+		await commitStateAtPhaseEnd({
+			repoRoot: repo,
+			projectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S01",
+		});
+		const entries = readdirSync(join(home, projectId, ".tmp")).filter((n) =>
+			n.startsWith("state-wt-"),
+		);
+		expect(entries).toHaveLength(0);
+		const worktrees = execSync("git worktree list --porcelain", {
+			cwd: repo,
+			encoding: "utf-8",
+		});
+		expect(worktrees).not.toContain("state-wt-");
 	});
 });

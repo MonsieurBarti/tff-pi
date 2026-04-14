@@ -5,6 +5,7 @@ import {
 	existsSync,
 	lstatSync,
 	mkdirSync,
+	readFileSync,
 	readdirSync,
 	realpathSync,
 	rmSync,
@@ -12,8 +13,11 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
+import { openDatabase } from "./db.js";
 import { gitEnv } from "./git.js";
 import { projectHomeDir } from "./project-home.js";
+import { writeSnapshot } from "./state-exporter.js";
+import type { Phase } from "./types.js";
 
 export class StateBranchError extends Error {
 	constructor(message: string) {
@@ -224,6 +228,112 @@ async function createOrphanStateBranch(
 		if (!add2.ok) throw new StateBranchError(`git add failed: ${add2.stderr}`);
 		const commit = runGit(tmpDir, ["commit", "-m", `chore(state): initialize ${stateBranch}`]);
 		if (!commit.ok) throw new StateBranchError(`git commit failed: ${commit.stderr}`);
+	} finally {
+		if (wtRegistered) runGit(repoRoot, ["worktree", "remove", "--force", tmpDir]);
+		try {
+			rmSync(tmpDir, { recursive: true, force: true });
+		} catch {
+			// best-effort
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// commitStateAtPhaseEnd
+// ---------------------------------------------------------------------------
+
+export interface CommitStateOpts {
+	repoRoot: string;
+	projectId: string;
+	codeBranch: string;
+	phase: Phase;
+	sliceLabel: string;
+	freezeLogForSlice?: string;
+}
+
+export async function commitStateAtPhaseEnd(opts: CommitStateOpts): Promise<void> {
+	const { repoRoot, projectId, codeBranch, phase, sliceLabel, freezeLogForSlice } = opts;
+	if (!codeBranch) return;
+	const stateBranch = stateBranchName(codeBranch);
+	const home = projectHomeDir(projectId);
+	const tmpDir = join(home, ".tmp", `state-wt-${randomUUID()}`);
+	mkdirSync(dirname(tmpDir), { recursive: true });
+
+	let wtRegistered = false;
+	try {
+		const add = runGit(repoRoot, ["worktree", "add", tmpDir, stateBranch]);
+		if (!add.ok) {
+			console.warn(`commitStateAtPhaseEnd: worktree add failed: ${add.stderr}`);
+			return;
+		}
+		wtRegistered = true;
+
+		const dbPath = join(home, "state.db");
+		const snapshotPath = join(tmpDir, "state-snapshot.json");
+		// Read the existing snapshot (if any) before overwriting — used for no-op detection.
+		let existingSnapshotRaw: string | null = null;
+		if (existsSync(snapshotPath)) {
+			try {
+				existingSnapshotRaw = readFileSync(snapshotPath, "utf-8");
+			} catch {
+				// best-effort
+			}
+		}
+		const db = openDatabase(dbPath);
+		try {
+			writeSnapshot(db, tmpDir);
+		} finally {
+			db.close();
+		}
+		// If the only change is exportedAt (a timestamp), restore the prior snapshot so
+		// git sees no diff and we avoid an empty commit.
+		if (existingSnapshotRaw !== null) {
+			try {
+				const newRaw = readFileSync(snapshotPath, "utf-8");
+				const stripTs = (s: string): string =>
+					s.replace(/"exportedAt"\s*:\s*"[^"]*"/, '"exportedAt":""');
+				if (stripTs(existingSnapshotRaw) === stripTs(newRaw)) {
+					writeFileSync(snapshotPath, existingSnapshotRaw, "utf-8");
+				}
+			} catch {
+				// best-effort — worst case we get an extra commit
+			}
+		}
+
+		mirrorPortableSubset(home, tmpDir);
+
+		if (freezeLogForSlice) {
+			const src = join(home, "logs", `${freezeLogForSlice}.jsonl`);
+			const dst = join(tmpDir, "logs", `${freezeLogForSlice}.jsonl`);
+			if (existsSync(src)) {
+				mkdirSync(dirname(dst), { recursive: true });
+				copyFileSync(src, dst);
+			} else {
+				console.warn(`commitStateAtPhaseEnd: missing log ${src}, skipping freeze`);
+			}
+		}
+
+		const add2 = runGit(tmpDir, ["add", "-A"]);
+		if (!add2.ok) {
+			console.warn(`commitStateAtPhaseEnd: git add failed: ${add2.stderr}`);
+			return;
+		}
+
+		const status = runGit(tmpDir, ["status", "--porcelain"]);
+		if (status.ok && status.stdout.trim().length === 0) {
+			return; // no changes — avoid empty commit
+		}
+
+		const suffix = freezeLogForSlice ? " (slice complete)" : "";
+		const commit = runGit(tmpDir, ["commit", "-m", `${phase}: ${sliceLabel}${suffix}`]);
+		if (!commit.ok) {
+			console.warn(`commitStateAtPhaseEnd: commit failed: ${commit.stderr}`);
+			return;
+		}
+
+		// Push is added in Tasks 9-11.
+	} catch (err) {
+		console.warn("commitStateAtPhaseEnd: unexpected error", err);
 	} finally {
 		if (wtRegistered) runGit(repoRoot, ["worktree", "remove", "--force", tmpDir]);
 		try {
