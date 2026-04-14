@@ -3,7 +3,6 @@
 ## Unreleased
 
 ### Added
-- Protected-branch pre-push hook installed under `.tff/hooks/` — blocks direct pushes to main/master/default from both agent sessions and human use. The PI `tool_call` interceptor provides in-session defense-in-depth; the git hook persists across sessions.
 - `slice.status` is now a reconciled cache derived from `phase_run` + artifact files + `pr_url` via `computeSliceStatus` (src/common/derived-state.ts).
 - New `tff:derived` and `tff:override` event channels for status-change observability.
 - `/tff doctor` reconciles drifted `slice.status` values and reports them.
