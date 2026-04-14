@@ -19,6 +19,71 @@
 ### Removed
 - `updateSliceStatus()` — status is no longer a directly-written column.
 
+## [0.1.4](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.3...tff-pi-v0.1.4) (2026-04-14)
+
+
+### Features
+
+* **m09-s1:** add current-phase-context module-level ref ([dd0d986](https://github.com/MonsieurBarti/tff-pi/commit/dd0d98677db3f891ac00a44af910e2604b7c283f))
+* **m09-s1:** add tff:tool channel and tool call event interface ([bd05bd2](https://github.com/MonsieurBarti/tff-pi/commit/bd05bd2faf0687e4e147448dfbe8c9eaac2746a8))
+* **m09-s1:** add tool-call logger joining tool_call + tool_execution_end ([c00792b](https://github.com/MonsieurBarti/tff-pi/commit/c00792b1feeeac6636e70fe854605cf4c405dfc2))
+* **m09-s1:** route null-slice events to ambient.jsonl, coerce non-null slice_id ([10cfb6e](https://github.com/MonsieurBarti/tff-pi/commit/10cfb6e72f7ffd200f852275c210183170048641))
+* **m09-s1:** set/clear current-phase context around session lock ([24bf054](https://github.com/MonsieurBarti/tff-pi/commit/24bf054a86233cff823e17a55bc7eac54c7d300a))
+* **m09-s1:** tool-call event capture ([69216e0](https://github.com/MonsieurBarti/tff-pi/commit/69216e031ea9be579646fbbfbea521969da920ab))
+* **m09-s1:** wire tool-call logger into session lifecycle ([761c806](https://github.com/MonsieurBarti/tff-pi/commit/761c806096196dbe9f2c0ae5fe3247fc342cf2e6))
+* **m09-s2:** audit claims against event log with verdict and formatter ([f5b1f5e](https://github.com/MonsieurBarti/tff-pi/commit/f5b1f5e494bb864d4cc970711b01940f1674b457))
+* **m09-s2:** evidence auditor ([e9e83ce](https://github.com/MonsieurBarti/tff-pi/commit/e9e83cee9b262cbdacebf24e1bdf2137c728469f))
+* **m09-s2:** gate phase_complete on verification audit verdict ([27dbc40](https://github.com/MonsieurBarti/tff-pi/commit/27dbc40408f9b6256781aa21a9aba6b06b944270))
+* **m09-s2:** parse verification claims with three-pattern grammar ([a50f219](https://github.com/MonsieurBarti/tff-pi/commit/a50f219effca38089fdead0a6178f1d1ea3a27cc))
+* **m09-s2:** scaffold evidence-auditor module types and stubs ([d580c5b](https://github.com/MonsieurBarti/tff-pi/commit/d580c5b722e6a2f40b7e94f308d7f153317f31ff))
+* **m09-s3:** add recenttoolcall type and summarizeinput helper ([4b3d5d7](https://github.com/MonsieurBarti/tff-pi/commit/4b3d5d797695d1b316dc99b40917cbe2ffc8a60d))
+* **m09-s3:** attach recent tool calls to recovery evidence ([e4c63d2](https://github.com/MonsieurBarti/tff-pi/commit/e4c63d24195e5828d4695dc1fed505f1668392b4))
+* **m09-s3:** recovery forensics ([de4e0a5](https://github.com/MonsieurBarti/tff-pi/commit/de4e0a5d522c9e60f847204dbd8ab00f7675a880))
+* **m09-s3:** render recent tool calls section in recovery briefing ([dbf956f](https://github.com/MonsieurBarti/tff-pi/commit/dbf956f6fc8cbde9ddd64d7185524f1e268ee989))
+* **m09-s4:** /tff doctor reconciles and reports slice status drift ([b39f4b8](https://github.com/MonsieurBarti/tff-pi/commit/b39f4b847781dc44a85302880467a67f98300f4b))
+* **m09-s4:** add overrideSliceStatus escape hatch ([f05c77c](https://github.com/MonsieurBarti/tff-pi/commit/f05c77c49cad9dc9b8d8d401a91111bae71e7082))
+* **m09-s4:** add reconcileSliceStatus and derived/override channels ([8d1b6ff](https://github.com/MonsieurBarti/tff-pi/commit/8d1b6ffc701a85fe85001a6e49142dab69321c9b))
+* **m09-s4:** add rule 1 closed to derived-state ([c0278e1](https://github.com/MonsieurBarti/tff-pi/commit/c0278e1c379782a6cfe97901ee5b4d7ead6944a9))
+* **m09-s4:** add rule 2 in-flight phase to derived-state ([9a3c3a1](https://github.com/MonsieurBarti/tff-pi/commit/9a3c3a1a29c577114888140cea2b71b4db8ebaec))
+* **m09-s4:** add rule 3 rolled back to derived-state ([f5c7763](https://github.com/MonsieurBarti/tff-pi/commit/f5c7763635f72bee0809cda6d55aae3da5b08cf1))
+* **m09-s4:** add rule 4 completed-waiting to derived-state ([9b0254f](https://github.com/MonsieurBarti/tff-pi/commit/9b0254ff7be0b97b357734cd584e7f21522edc74))
+* **m09-s4:** derive slice.status from evidence ([b882449](https://github.com/MonsieurBarti/tff-pi/commit/b882449684a2d6e481e12a809f47b718fca4bc07))
+* **m09-s4:** formalize phaserunstatus enum ([a2921fc](https://github.com/MonsieurBarti/tff-pi/commit/a2921fc8ab6fa23e775d86674e932ae3c724b199))
+* **m09-s4:** guard against direct pushes to protected branches ([12aeb64](https://github.com/MonsieurBarti/tff-pi/commit/12aeb64e1a16d9684452eeadc36903bcadf39854))
+* **m09-s4:** make insertPhaseRun idempotent for duplicate started rows ([055dd3d](https://github.com/MonsieurBarti/tff-pi/commit/055dd3d56b1a53cc4f5626f336c3b1b952962f21))
+* **m09-s4:** reconcile slice.status via event-logger phase handling ([c44fbf7](https://github.com/MonsieurBarti/tff-pi/commit/c44fbf7b4ceacf71a24b2e626b1dc46776b5ddc2))
+* **m09-s4:** remove auto-merge; ship is always manual-confirm ([bc25799](https://github.com/MonsieurBarti/tff-pi/commit/bc25799d778384e54c82c49b0fabd2cefe76395a))
+* **m09-s4:** scaffold derived-state with rule 7 ([bd3b32c](https://github.com/MonsieurBarti/tff-pi/commit/bd3b32c924475f8f42a48c3b23d77f40a4eae873))
+* **m09-s4:** split doctor drift detection from reconciliation ([16f0b28](https://github.com/MonsieurBarti/tff-pi/commit/16f0b2871fc6bb9b8adb8bfacaeb2a1111bb5892))
+* **m09-s4:** v4 migration reconciles slice.status from evidence ([64ef669](https://github.com/MonsieurBarti/tff-pi/commit/64ef66940f5637bf2a13027e0ab03231f45f1d45))
+
+
+### Bug Fixes
+
+* **m09-s1:** gitignore .tff/state.db and .tff/logs to avoid secret leak ([233cd10](https://github.com/MonsieurBarti/tff-pi/commit/233cd1024f918eac4d7f7df7e173710af235193c))
+* **m09-s1:** make truncated payloads parseable ([3b9028e](https://github.com/MonsieurBarti/tff-pi/commit/3b9028ea4ca55f74e52cf73f77ee2555b9adb4aa))
+* **m09-s1:** set phase context before acquiring the session lock ([d185b13](https://github.com/MonsieurBarti/tff-pi/commit/d185b132b942740d0d653f85e19ddda0fef29300))
+* **m09-s1:** subscribe tool-call logger once at extension init ([be684e7](https://github.com/MonsieurBarti/tff-pi/commit/be684e79cd05db9b647a11841285c4615e4a7679))
+* **m09-s2:** clear stale verification-audit on passing retry ([d23ad30](https://github.com/MonsieurBarti/tff-pi/commit/d23ad3081e6e6026ae5eaca98f975da5b4dc7d1d))
+* **m09-s2:** couple eventpayload to toolcallevent and stable sort ([ddb32df](https://github.com/MonsieurBarti/tff-pi/commit/ddb32dfc9e9bb787a3b29af6831c2274483fe088))
+* **m09-s2:** don't terminate fenced-output scan on blank lines ([6b56c98](https://github.com/MonsieurBarti/tff-pi/commit/6b56c988b0749b07ba8bc0230eedc267b929a209))
+* **m09-s2:** persist audit block via .audit-blocked sentinel ([3b11477](https://github.com/MonsieurBarti/tff-pi/commit/3b11477f9e4718ed52763c019d6bcffac6e9133b))
+* **m09-s2:** tighten commandsoverlap to token-prefix match ([c2d0645](https://github.com/MonsieurBarti/tff-pi/commit/c2d0645628a118639d14ba5750a7556fbac51be0))
+* **m09-s3:** harden briefing against control chars, backticks, and surrogate split ([76e9959](https://github.com/MonsieurBarti/tff-pi/commit/76e995928b78a1269f9a99b163acb2d169b2f0b1))
+* **m09-s4:** atomic v4 migration; per-slice errors don't stall ([e19e812](https://github.com/MonsieurBarti/tff-pi/commit/e19e812bd30d3fe9e5ca4531eeff1b74824b9bd3))
+* **m09-s4:** close via override in ship-merged; drop rule 1 ([46b07f2](https://github.com/MonsieurBarti/tff-pi/commit/46b07f2c20000907a4dddc9910a74ec48ad16d2d))
+* **m09-s4:** defer worktree creation to new session startup ([1934c3e](https://github.com/MonsieurBarti/tff-pi/commit/1934c3e95cc15a44591c3e82d0ef5776ad42334a))
+* **m09-s4:** deliver pending-phase-message on startup too ([c73bee4](https://github.com/MonsieurBarti/tff-pi/commit/c73bee48afe720cb775e80dea02a2625525e9b05))
+* **m09-s4:** fetch+ff-only local milestone before push ([6cd1abe](https://github.com/MonsieurBarti/tff-pi/commit/6cd1abe6e8c9f80f956ebfd6f319ad80dfc7a45c))
+* **m09-s4:** phase progress counts distinct completed phases ([37e4400](https://github.com/MonsieurBarti/tff-pi/commit/37e44000f0e0231770714b69a49760daf615e879))
+* **m09-s4:** plan prompt tells agent where artifacts live ([d58fc24](https://github.com/MonsieurBarti/tff-pi/commit/d58fc2433178226d2b7045f04c987bced21dfce4))
+* **m09-s4:** reconcile after recover skip override ([f6ff863](https://github.com/MonsieurBarti/tff-pi/commit/f6ff863d1575edb2bf97d3c32bc6a20c1e7ffaaa))
+* **m09-s4:** recovery brief reminds execute to git commit ([cbb512f](https://github.com/MonsieurBarti/tff-pi/commit/cbb512f6e8bfd9afc28b8c333a7b0abbd4de589a))
+* **m09-s4:** subscribe event-logger after /tff new creates db ([703b590](https://github.com/MonsieurBarti/tff-pi/commit/703b590d3b4eaa3185cca9d0f0372fc317c8bcda))
+* **m09-s4:** test reconcile throws and type new event channels ([f6950ee](https://github.com/MonsieurBarti/tff-pi/commit/f6950ee84f7e629cf83fdda1f6635ad3715b38ee))
+* **m09-s4:** tool success text reflects plannotator approval ([f81edca](https://github.com/MonsieurBarti/tff-pi/commit/f81edcae06aa70c3d445117560e0a68290e5e32c))
+* **m09-s4:** validate status arg in override-slice-status at runtime ([cb57a3d](https://github.com/MonsieurBarti/tff-pi/commit/cb57a3d09f93cf30ab2e0ce82e4acc3230a97754))
+
 ## [0.1.3](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.2...tff-pi-v0.1.3) (2026-04-13)
 
 
