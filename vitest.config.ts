@@ -7,6 +7,7 @@ export default defineConfig({
 		environment: "node",
 		include: ["tests/**/*.spec.ts"],
 		exclude: ["node_modules", "dist"],
+		setupFiles: ["tests/setup.ts"],
 		// Alias hippo-memory-pi to a stub. The real package transitively
 		// imports `node:sqlite` at module load, which Bun on Linux x64
 		// (used in CI) does not provide. Tests don't exercise real memory

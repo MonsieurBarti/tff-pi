@@ -11,4 +11,7 @@ pre-commit:
     typecheck:
       run: bun run typecheck
     test:
-      run: bun run test
+      # Scrub GIT_* env so tests that do `execSync("git config ...", {cwd: tmpRepo})`
+      # can't leak writes into the outer repo (lefthook sets GIT_DIR at invocation).
+      # `env -u` fully unsets (empty-string is ambiguous for libgit).
+      run: env -u GIT_DIR -u GIT_WORK_TREE bun run test
