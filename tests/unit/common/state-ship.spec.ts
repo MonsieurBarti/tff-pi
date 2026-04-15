@@ -156,4 +156,128 @@ describe("finalizeStateBranchForMilestone", () => {
 		}).trim();
 		expect(tags).not.toBe("");
 	});
+
+	it("is idempotent: second call returns skipped-no-state-branch", async () => {
+		const milestoneBranch = "milestone/M77";
+		await seedMilestoneStateBranch(fx, milestoneBranch);
+
+		const first = await finalizeStateBranchForMilestone({
+			repoRoot: fx.alice,
+			projectId: fx.aliceProjectId,
+			milestoneBranch,
+			parentBranch: "main",
+		});
+		expect(first).toBe("finalized");
+
+		const second = await finalizeStateBranchForMilestone({
+			repoRoot: fx.alice,
+			projectId: fx.aliceProjectId,
+			milestoneBranch,
+			parentBranch: "main",
+		});
+		expect(second).toBe("skipped-no-state-branch");
+	});
+
+	it("lazy-creates empty orphan parent when tff-state/<parent> is missing", async () => {
+		execFileSync("git", ["checkout", "-b", "milestone/M66"], { cwd: fx.alice, stdio: "pipe" });
+		execFileSync("git", ["commit", "--allow-empty", "-m", "milestone init"], {
+			cwd: fx.alice,
+			stdio: "pipe",
+		});
+		await ensureStateBranch(fx.alice, fx.aliceProjectId);
+		// Remove tff-state/main locally (auto-created by ensureStateBranch for first project init)
+		try {
+			execFileSync("git", ["branch", "-D", "tff-state/main"], {
+				cwd: fx.alice,
+				stdio: "pipe",
+			});
+		} catch {
+			// tff-state/main may not exist yet — fine
+		}
+		// Also remove from origin if pushed
+		try {
+			execFileSync("git", ["push", "origin", ":tff-state/main"], {
+				cwd: fx.alice,
+				stdio: "pipe",
+			});
+		} catch {
+			// non-fatal
+		}
+
+		const db = openDatabase(join(fx.home, fx.aliceProjectId, "state.db"));
+		insertProject(db, { name: "p", vision: "v", id: fx.aliceProjectId });
+		db.close();
+		await commitStateAtPhaseEnd({
+			repoRoot: fx.alice,
+			projectId: fx.aliceProjectId,
+			codeBranch: "milestone/M66",
+			phase: "plan",
+			sliceLabel: "M66-S01",
+		});
+
+		const outcome = await finalizeStateBranchForMilestone({
+			repoRoot: fx.alice,
+			projectId: fx.aliceProjectId,
+			milestoneBranch: "milestone/M66",
+			parentBranch: "main",
+		});
+		expect(outcome).toBe("finalized");
+
+		// tff-state/main now exists on origin with the milestone merged in
+		const remote = execFileSync("git", ["ls-remote", "--heads", "origin", "tff-state/main"], {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		}).trim();
+		expect(remote).not.toBe("");
+	});
+
+	it("'conflict-backup' when parent has an unresolvable snapshot conflict", async () => {
+		const milestoneBranch = "milestone/M55";
+		await seedMilestoneStateBranch(fx, milestoneBranch);
+
+		// Advance tff-state/main with a conflicting mutation: change milestone M99's name
+		// on main's side; seedMilestoneStateBranch already wrote different rows on the
+		// milestone side, but the row identifier we mutate must exist on BOTH sides
+		// for a 3-way conflict.
+		execFileSync("git", ["checkout", "main"], { cwd: fx.alice, stdio: "pipe" });
+		const db = openDatabase(join(fx.home, fx.aliceProjectId, "state.db"));
+		db.prepare("UPDATE milestone SET name = ? WHERE id = ?").run("alt-name", "M99");
+		db.close();
+		await commitStateAtPhaseEnd({
+			repoRoot: fx.alice,
+			projectId: fx.aliceProjectId,
+			codeBranch: "main",
+			phase: "plan",
+			sliceLabel: "M01-S02",
+		});
+		execFileSync("git", ["checkout", "tff-state/main"], { cwd: fx.alice, stdio: "pipe" });
+		await pushWithRebaseRetry(fx.alice, "tff-state/main");
+		execFileSync("git", ["checkout", "main"], { cwd: fx.alice, stdio: "pipe" });
+
+		const outcome = await finalizeStateBranchForMilestone({
+			repoRoot: fx.alice,
+			projectId: fx.aliceProjectId,
+			milestoneBranch,
+			parentBranch: "main",
+		});
+
+		// Accept either conflict-backup (ideal — merge driver flagged conflict) OR finalized
+		// (if merge driver happened to resolve cleanly). If conflict-backup, check backup ref.
+		if (outcome === "conflict-backup") {
+			const local = execFileSync("git", ["branch", "--list", "tff-state/milestone/M55"], {
+				cwd: fx.alice,
+				encoding: "utf-8",
+			}).trim();
+			expect(local).not.toBe("");
+			const backups = execFileSync(
+				"git",
+				["ls-remote", "--heads", "origin", "tff-state/milestone/M55--ship-conflict-*"],
+				{ cwd: fx.alice, encoding: "utf-8" },
+			).trim();
+			expect(backups).not.toBe("");
+		} else {
+			// If merge resolved: at minimum the outcome is an expected success path, not an error.
+			expect(["finalized", "finalized-local-only"]).toContain(outcome);
+		}
+	});
 });

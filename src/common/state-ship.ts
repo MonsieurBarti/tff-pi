@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
 import { projectHomeDir } from "./project-home.js";
@@ -55,6 +55,7 @@ export async function finalizeStateBranchForMilestone(
 	}
 
 	// Step 4 — ensure parent state branch exists locally
+	let parentWasLazyCreated = false;
 	if (!localBranchExists(repoRoot, parentStateBranch)) {
 		if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, parentStateBranch)) {
 			const fetch = runGit(repoRoot, [
@@ -69,6 +70,7 @@ export async function finalizeStateBranchForMilestone(
 		} else {
 			const orphanOk = await createOrphanParent(repoRoot, projectId, parentStateBranch);
 			if (!orphanOk) return "conflict-backup";
+			parentWasLazyCreated = true;
 		}
 	}
 
@@ -86,13 +88,14 @@ export async function finalizeStateBranchForMilestone(
 		}
 		wtRegistered = true;
 
-		const merge = runGit(tmpDir, [
-			"merge",
-			"--no-ff",
-			"-m",
-			`ship: merge ${stateBranch}`,
-			stateBranch,
-		]);
+		const mergeArgs = ["merge", "--no-ff", "-m", `ship: merge ${stateBranch}`, stateBranch];
+		if (parentWasLazyCreated) {
+			// Lazy-created orphan parent has no shared history and only scaffold
+			// files (.gitattributes, branch-meta.json). Take the milestone side
+			// unconditionally for those — the parent is empty by construction.
+			mergeArgs.splice(1, 0, "--allow-unrelated-histories", "-X", "theirs");
+		}
+		const merge = runGit(tmpDir, mergeArgs);
 		if (!merge.ok) {
 			runGit(tmpDir, ["merge", "--abort"]);
 			const backupRef = `${stateBranch}--ship-conflict-${new Date()
@@ -154,11 +157,54 @@ export async function finalizeStateBranchForMilestone(
 	}
 }
 
-// Placeholder stub; Task 4 replaces with real lazy-orphan creation.
+const ORPHAN_GITATTRIBUTES = "state-snapshot.json merge=tff-snapshot\n";
+
 async function createOrphanParent(
-	_repoRoot: string,
-	_projectId: string,
-	_parentStateBranch: string,
+	repoRoot: string,
+	projectId: string,
+	parentStateBranch: string,
 ): Promise<boolean> {
-	return false;
+	const home = projectHomeDir(projectId);
+	const tmpDir = join(home, ".tmp", `state-wt-${randomUUID()}`);
+	mkdirSync(dirname(tmpDir), { recursive: true });
+
+	let wtRegistered = false;
+	try {
+		const add = runGit(repoRoot, ["worktree", "add", "--detach", tmpDir, "HEAD"]);
+		if (!add.ok) {
+			console.warn(`createOrphanParent: worktree add failed: ${add.stderr}`);
+			return false;
+		}
+		wtRegistered = true;
+
+		const orphan = runGit(tmpDir, ["checkout", "--orphan", parentStateBranch]);
+		if (!orphan.ok) return false;
+		runGit(tmpDir, ["rm", "-rf", "--ignore-unmatch", "."]);
+
+		writeFileSync(join(tmpDir, ".gitattributes"), ORPHAN_GITATTRIBUTES, "utf-8");
+		const meta = {
+			stateId: randomUUID(),
+			parent: null as string | null,
+			codeBranch: parentStateBranch.replace(/^tff-state\//, ""),
+			createdAt: new Date().toISOString(),
+		};
+		writeFileSync(join(tmpDir, "branch-meta.json"), `${JSON.stringify(meta, null, 2)}\n`, "utf-8");
+		const add2 = runGit(tmpDir, ["add", "-A"]);
+		if (!add2.ok) return false;
+		const commit = runGit(tmpDir, [
+			"commit",
+			"-m",
+			`chore(state): lazy-create ${parentStateBranch}`,
+		]);
+		if (!commit.ok) return false;
+
+		return true;
+	} finally {
+		if (wtRegistered) runGit(repoRoot, ["worktree", "remove", "--force", tmpDir]);
+		try {
+			rmSync(tmpDir, { recursive: true, force: true });
+		} catch {
+			// best-effort
+		}
+	}
 }
