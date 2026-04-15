@@ -105,6 +105,37 @@ describe("auto-detect rename", () => {
 		expect(yaml).toMatch(/auto_detect_rename:\s*false/);
 	});
 
+	it("Never ask preserves unknown YAML keys and writes atomically", async () => {
+		execSync("git branch -m feature/zeta", { cwd: p.repo });
+		writeFileSync(
+			join(p.repo, ".tff", "settings.yaml"),
+			`${[
+				"state_branch:",
+				"  enabled: true",
+				"# Users may add arbitrary top-level keys",
+				"custom_team_setting:",
+				"  reviewers:",
+				"    - alice",
+				"    - bob",
+				"# And unknown nested fields under state_branch",
+				"  other_nested: hello",
+			].join("\n")}\n`,
+			"utf-8",
+		);
+		const ask: AutoDetectAskUser = async () => "Never ask";
+		await detectAndHandleRename(p.repo, p.init.projectId, ask);
+
+		const yaml = readFileSync(join(p.repo, ".tff", "settings.yaml"), "utf-8");
+		// Preserved unknown keys
+		expect(yaml).toMatch(/custom_team_setting/);
+		expect(yaml).toMatch(/- alice/);
+		expect(yaml).toMatch(/- bob/);
+		// Mutation applied
+		expect(yaml).toMatch(/auto_detect_rename:\s*false/);
+		// state_branch.enabled still true
+		expect(yaml).toMatch(/enabled:\s*true/);
+	});
+
 	it("skipped-locked when session lock is held", async () => {
 		acquireLock(p.repo, { phase: "execute", sliceId: "test-slice" });
 		try {

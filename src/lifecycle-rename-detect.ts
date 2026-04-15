@@ -1,6 +1,6 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readArtifact } from "./common/artifacts.js";
+import YAML from "yaml";
 import {
 	hasOriginRemote,
 	localBranchExists,
@@ -9,7 +9,6 @@ import {
 } from "./common/git-internal.js";
 import { readRepoState, writeRepoState } from "./common/repo-state.js";
 import { readLock } from "./common/session-lock.js";
-import { parseSettings, serializeSettings } from "./common/settings.js";
 import {
 	isAutoDetectRenameEnabled,
 	isStateBranchEnabledForRoot,
@@ -53,11 +52,24 @@ function branchExistsAnywhere(root: string, branch: string): boolean {
 }
 
 function writeAutoDetectOff(root: string): void {
-	const yaml = readArtifact(root, "settings.yaml") ?? "";
-	const parsed = parseSettings(yaml);
-	parsed.state_branch.auto_detect_rename = false;
-	const p = join(root, ".tff", "settings.yaml");
-	writeFileSync(p, serializeSettings(parsed), "utf-8");
+	const settingsPath = join(root, ".tff", "settings.yaml");
+	let raw: string;
+	try {
+		raw = readFileSync(settingsPath, "utf-8");
+	} catch {
+		raw = "";
+	}
+
+	// Parse as a YAML document so we can mutate without losing unknown keys.
+	const doc = raw.trim().length > 0 ? YAML.parseDocument(raw) : new YAML.Document({});
+
+	// Ensure state_branch mapping exists, then set auto_detect_rename: false.
+	doc.setIn(["state_branch", "auto_detect_rename"], false);
+
+	// Atomic write: tmp + rename.
+	const tmp = `${settingsPath}.tmp`;
+	writeFileSync(tmp, doc.toString(), "utf-8");
+	renameSync(tmp, settingsPath);
 }
 
 /**
