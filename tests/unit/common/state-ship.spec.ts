@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { insertProject, openDatabase } from "../../../src/common/db.js";
@@ -235,24 +237,61 @@ describe("finalizeStateBranchForMilestone", () => {
 		const milestoneBranch = "milestone/M55";
 		await seedMilestoneStateBranch(fx, milestoneBranch);
 
-		// Advance tff-state/main with a conflicting mutation: change milestone M99's name
-		// on main's side; seedMilestoneStateBranch already wrote different rows on the
-		// milestone side, but the row identifier we mutate must exist on BOTH sides
-		// for a 3-way conflict.
-		execFileSync("git", ["checkout", "main"], { cwd: fx.alice, stdio: "pipe" });
-		const db = openDatabase(join(fx.home, fx.aliceProjectId, "state.db"));
-		db.prepare("UPDATE milestone SET name = ? WHERE id = ?").run("alt-name", "M99");
-		db.close();
-		await commitStateAtPhaseEnd({
-			repoRoot: fx.alice,
-			projectId: fx.aliceProjectId,
-			codeBranch: "main",
-			phase: "plan",
-			sliceLabel: "M01-S02",
+		// Force a hard conflict by editing tff-state/main's snapshot directly via a
+		// disposable worktree. We bypass commitStateAtPhaseEnd + the shared DB —
+		// otherwise the DB mutation would leak into the milestone-side terminal
+		// commit that finalize performs in Step 3 and the snapshots would agree.
+		//
+		// Base (fork point on tff-state/main) has no M99 row. The milestone side
+		// already wrote M99 with name="test" in seedMilestoneStateBranch. Here we
+		// give main its own M99 row with a different name → per-field 3-way merge
+		// sees base=undefined, ours="main-side-name", theirs="test" → conflict.
+		const wtDir = mkdtempSync(join(tmpdir(), "state-conflict-wt-"));
+		try {
+			execFileSync("git", ["worktree", "add", wtDir, "tff-state/main"], {
+				cwd: fx.alice,
+				stdio: "pipe",
+			});
+			const snapPath = join(wtDir, "state-snapshot.json");
+			const snap = JSON.parse(readFileSync(snapPath, "utf-8")) as {
+				milestone: Array<Record<string, unknown>>;
+				[k: string]: unknown;
+			};
+			snap.milestone.push({
+				id: "M99",
+				project_id: fx.aliceProjectId,
+				number: 99,
+				name: "main-side-name",
+				status: "in_progress",
+				branch: "main",
+				created_at: new Date().toISOString(),
+			});
+			writeFileSync(snapPath, `${JSON.stringify(snap, null, 2)}\n`, "utf-8");
+			execFileSync("git", ["add", "state-snapshot.json"], { cwd: wtDir, stdio: "pipe" });
+			execFileSync("git", ["commit", "-m", "test: diverge M99 on main"], {
+				cwd: wtDir,
+				stdio: "pipe",
+			});
+			execFileSync("git", ["push", "origin", "tff-state/main"], {
+				cwd: wtDir,
+				stdio: "pipe",
+			});
+		} finally {
+			try {
+				execFileSync("git", ["worktree", "remove", "--force", wtDir], {
+					cwd: fx.alice,
+					stdio: "pipe",
+				});
+			} catch {
+				// best-effort
+			}
+			rmSync(wtDir, { recursive: true, force: true });
+		}
+		// Sync the local tff-state/main to the new remote tip so finalize sees it.
+		execFileSync("git", ["fetch", "origin", "tff-state/main:tff-state/main"], {
+			cwd: fx.alice,
+			stdio: "pipe",
 		});
-		execFileSync("git", ["checkout", "tff-state/main"], { cwd: fx.alice, stdio: "pipe" });
-		await pushWithRebaseRetry(fx.alice, "tff-state/main");
-		execFileSync("git", ["checkout", "main"], { cwd: fx.alice, stdio: "pipe" });
 
 		const outcome = await finalizeStateBranchForMilestone({
 			repoRoot: fx.alice,
@@ -261,23 +300,20 @@ describe("finalizeStateBranchForMilestone", () => {
 			parentBranch: "main",
 		});
 
-		// Accept either conflict-backup (ideal — merge driver flagged conflict) OR finalized
-		// (if merge driver happened to resolve cleanly). If conflict-backup, check backup ref.
-		if (outcome === "conflict-backup") {
-			const local = execFileSync("git", ["branch", "--list", "tff-state/milestone/M55"], {
-				cwd: fx.alice,
-				encoding: "utf-8",
-			}).trim();
-			expect(local).not.toBe("");
-			const backups = execFileSync(
-				"git",
-				["ls-remote", "--heads", "origin", "tff-state/milestone/M55--ship-conflict-*"],
-				{ cwd: fx.alice, encoding: "utf-8" },
-			).trim();
-			expect(backups).not.toBe("");
-		} else {
-			// If merge resolved: at minimum the outcome is an expected success path, not an error.
-			expect(["finalized", "finalized-local-only"]).toContain(outcome);
-		}
+		expect(outcome).toBe("conflict-backup");
+
+		// Live state branch preserved locally (not deleted on conflict).
+		const local = execFileSync("git", ["branch", "--list", "tff-state/milestone/M55"], {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		}).trim();
+		expect(local).not.toBe("");
+
+		// Backup ref exists on origin.
+		const backups = execFileSync("git", ["ls-remote", "--heads", "origin"], {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		});
+		expect(backups).toMatch(/tff-state\/milestone\/M55--ship-conflict-/);
 	});
 });
