@@ -229,7 +229,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 					const projectId = readProjectIdFile(root);
 					if (projectId) await ensureStateBranch(root, projectId);
 				} catch (err) {
-					console.warn("state-branch preflight failed:", err);
+					console.warn(`state-branch preflight failed (root=${root}):`, err);
 				}
 
 				ctx.initError = null;

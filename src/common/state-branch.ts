@@ -344,7 +344,20 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 			return;
 		}
 
-		// Push is handled by pushWithRebaseRetry (Tasks 9-11), called at the lifecycle site.
+		// Push is best-effort: any outcome is acceptable.
+		try {
+			const pushOutcome = await pushWithRebaseRetry(tmpDir, stateBranch);
+			if (pushOutcome === "pushed") {
+				console.log(`commitStateAtPhaseEnd: pushed ${stateBranch}`);
+			} else if (pushOutcome === "conflict-backup") {
+				console.warn(
+					`commitStateAtPhaseEnd: conflict-backup on ${stateBranch} — backup ref created, investigate remote`,
+				);
+			}
+			// "skipped-no-remote" is silent
+		} catch (pushErr) {
+			console.warn(`commitStateAtPhaseEnd: unexpected push error on ${stateBranch}:`, pushErr);
+		}
 	} catch (err) {
 		console.warn("commitStateAtPhaseEnd: unexpected error", err);
 	} finally {
@@ -427,7 +440,7 @@ export async function pushWithRebaseRetry(
 		const fetch = runGit(worktreeDir, [
 			"fetch",
 			"origin",
-			`${stateBranch}:refs/remotes/origin/${stateBranch}`,
+			`+${stateBranch}:refs/remotes/origin/${stateBranch}`,
 		]);
 		if (!fetch.ok) {
 			console.warn(`pushWithRebaseRetry: fetch failed: ${fetch.stderr}`);

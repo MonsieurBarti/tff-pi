@@ -84,5 +84,11 @@ describe("M10-S03: commitStateAtPhaseEnd wired into runPhaseWithFreshContext", (
 		}).trim();
 
 		expect(shaAfter).not.toBe(shaBefore);
+
+		const msg = execSync("git log -1 --format=%s tff-state/main", {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		}).trim();
+		expect(msg).toBe("plan: M01-S01");
 	});
 });

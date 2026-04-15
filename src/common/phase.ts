@@ -183,7 +183,10 @@ export async function runPhaseWithFreshContext(
 			});
 		}
 	} catch (err) {
-		console.warn("state-branch phase-end commit skipped:", err);
+		console.warn(
+			`state-branch phase-end commit skipped (phase=${phase} slice=${sliceLabel(phaseCtx.milestoneNumber, phaseCtx.slice.number)}):`,
+			err,
+		);
 	}
 
 	// Stash on disk as a crash-recovery backstop before we try to switch.
