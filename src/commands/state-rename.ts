@@ -155,5 +155,21 @@ export async function runStateRename(
 	}
 
 	writeRepoState(projectId, { lastKnownCodeBranch: newCodeBranch });
+
+	try {
+		pi.events?.emit?.("tff:state-rename", {
+			timestamp: new Date().toISOString(),
+			type: "state_rename",
+			projectId,
+			oldCodeBranch,
+			newCodeBranch,
+			oldStateBranch,
+			newStateBranch,
+		});
+	} catch (err) {
+		// Non-fatal
+		console.warn(`state-rename: event emit failed: ${err}`);
+	}
+
 	pi.sendUserMessage(`Renamed state branch: ${oldStateBranch} -> ${newStateBranch}`);
 }

@@ -11,10 +11,19 @@ import { type TestProject, initTestProject } from "./helpers.js";
 
 function makePi() {
 	const messages: string[] = [];
+	const emittedEvents: Array<{ channel: string; data: unknown }> = [];
 	return {
 		messages,
+		emittedEvents,
 		sendUserMessage: (s: string) => messages.push(s),
-	} as unknown as Parameters<typeof runStateRename>[0] & { messages: string[] };
+		events: {
+			emit: (channel: string, data: unknown) => emittedEvents.push({ channel, data }),
+			on: () => () => {},
+		},
+	} as unknown as Parameters<typeof runStateRename>[0] & {
+		messages: string[];
+		emittedEvents: Array<{ channel: string; data: unknown }>;
+	};
 }
 
 function makeCtx(root: string): TffContext {
@@ -111,5 +120,18 @@ describe("/tff state rename", () => {
 			sourceCodeBranch: "bad name;rm",
 		});
 		expect(pi.messages.join("\n")).toMatch(/invalid sourceCodeBranch/i);
+	});
+
+	it("emits tff:state-rename event on happy path", async () => {
+		await runStateRename(pi, makeCtx(p.repo), null, ["feature/renamed"]);
+		const stateEvents = pi.emittedEvents.filter((e) => e.channel === "tff:state-rename");
+		expect(stateEvents).toHaveLength(1);
+		const data = stateEvents[0]?.data as {
+			type: string;
+			oldCodeBranch: string;
+			newCodeBranch: string;
+		};
+		expect(data.type).toBe("state_rename");
+		expect(data.newCodeBranch).toBe("feature/renamed");
 	});
 });
