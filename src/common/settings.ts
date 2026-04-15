@@ -15,6 +15,10 @@ export interface Settings {
 	milestone_target_branch?: string;
 	verify_commands?: { name: string; command: string }[];
 	verify_auto_detect?: boolean;
+	state_branch: {
+		enabled: boolean;
+		auto_detect_rename: boolean;
+	};
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +29,10 @@ export const DEFAULT_SETTINGS: Settings = {
 	ship: {
 		merge_method: "squash",
 	},
+	state_branch: {
+		enabled: false,
+		auto_detect_rename: true,
+	},
 };
 
 export function parseSettings(yamlString: string): Settings {
@@ -34,6 +42,7 @@ export function parseSettings(yamlString: string): Settings {
 				...DEFAULT_SETTINGS,
 				compress: { ...DEFAULT_SETTINGS.compress },
 				ship: { ...DEFAULT_SETTINGS.ship },
+				state_branch: { ...DEFAULT_SETTINGS.state_branch },
 			};
 		}
 		const parsed = YAML.parse(yamlString);
@@ -42,6 +51,7 @@ export function parseSettings(yamlString: string): Settings {
 				...DEFAULT_SETTINGS,
 				compress: { ...DEFAULT_SETTINGS.compress },
 				ship: { ...DEFAULT_SETTINGS.ship },
+				state_branch: { ...DEFAULT_SETTINGS.state_branch },
 			};
 		}
 
@@ -66,6 +76,16 @@ export function parseSettings(yamlString: string): Settings {
 					parsed.ship?.merge_method === "rebase" || parsed.ship?.merge_method === "merge"
 						? parsed.ship.merge_method
 						: DEFAULT_SETTINGS.ship.merge_method,
+			},
+			state_branch: {
+				enabled:
+					typeof parsed.state_branch?.enabled === "boolean"
+						? parsed.state_branch.enabled
+						: DEFAULT_SETTINGS.state_branch.enabled,
+				auto_detect_rename:
+					typeof parsed.state_branch?.auto_detect_rename === "boolean"
+						? parsed.state_branch.auto_detect_rename
+						: DEFAULT_SETTINGS.state_branch.auto_detect_rename,
 			},
 		};
 
@@ -103,6 +123,7 @@ export function parseSettings(yamlString: string): Settings {
 			...DEFAULT_SETTINGS,
 			compress: { ...DEFAULT_SETTINGS.compress },
 			ship: { ...DEFAULT_SETTINGS.ship },
+			state_branch: { ...DEFAULT_SETTINGS.state_branch },
 		};
 	}
 }

@@ -42,6 +42,7 @@ function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
 			model_profile: "balanced" as const,
 			compress: { user_artifacts: false },
 			ship: { merge_method: "squash" },
+			state_branch: { enabled: false, auto_detect_rename: true },
 		},
 		...overrides,
 	};
