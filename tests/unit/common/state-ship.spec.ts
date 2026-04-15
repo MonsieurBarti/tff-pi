@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { finalizeStateBranchForMilestone } from "../../../src/common/state-ship.js";
 import { type TwoClone, makeTwoClone } from "../../helpers/git-state-fixtures.js";
@@ -12,9 +12,12 @@ describe("finalizeStateBranchForMilestone", () => {
 
 	it("returns 'skipped-no-state-branch' when no tff-state/<milestoneBranch> exists", async () => {
 		// milestone branch exists as a code branch but no state branch for it
-		execSync("git checkout -b milestone/M99", { cwd: fx.alice, stdio: "pipe" });
-		execSync("git commit --allow-empty -m 'milestone init'", { cwd: fx.alice, stdio: "pipe" });
-		execSync("git checkout main", { cwd: fx.alice, stdio: "pipe" });
+		execFileSync("git", ["checkout", "-b", "milestone/M99"], { cwd: fx.alice, stdio: "pipe" });
+		execFileSync("git", ["commit", "--allow-empty", "-m", "milestone init"], {
+			cwd: fx.alice,
+			stdio: "pipe",
+		});
+		execFileSync("git", ["checkout", "main"], { cwd: fx.alice, stdio: "pipe" });
 
 		const outcome = await finalizeStateBranchForMilestone({
 			repoRoot: fx.alice,

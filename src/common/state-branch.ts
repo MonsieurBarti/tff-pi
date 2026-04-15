@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	copyFileSync,
@@ -14,7 +13,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { openDatabase } from "./db.js";
-import { gitEnv } from "./git.js";
+import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
 import { projectHomeDir } from "./project-home.js";
 import { writeSnapshot } from "./state-exporter.js";
 import type { Phase } from "./types.js";
@@ -111,53 +110,6 @@ function walk(homeReal: string, currentAbs: string, destRoot: string): void {
 			copyFileSync(resolved, destAbs);
 		}
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Internal git helpers (non-exported, used by later tasks)
-// ---------------------------------------------------------------------------
-
-interface ExecResult {
-	ok: boolean;
-	stdout: string;
-	stderr: string;
-}
-
-function runGit(cwd: string, args: string[]): ExecResult {
-	try {
-		const stdout = execFileSync("git", ["-C", cwd, ...args], {
-			encoding: "utf-8",
-			stdio: "pipe",
-			env: gitEnv(),
-		});
-		return { ok: true, stdout: stdout.toString(), stderr: "" };
-	} catch (err) {
-		const e = err as { stdout?: Buffer | string; stderr?: Buffer | string };
-		return {
-			ok: false,
-			stdout: e.stdout?.toString() ?? "",
-			stderr: e.stderr?.toString() ?? "",
-		};
-	}
-}
-
-function localBranchExists(repoRoot: string, branch: string): boolean {
-	return runGit(repoRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).ok;
-}
-
-function remoteBranchExists(repoRoot: string, branch: string): boolean {
-	const r = runGit(repoRoot, ["ls-remote", "--heads", "origin", branch]);
-	if (!r.ok) return false;
-	return r.stdout.trim().length > 0;
-}
-
-function hasOriginRemote(repoRoot: string): boolean {
-	const r = runGit(repoRoot, ["remote"]);
-	if (!r.ok) return false;
-	return r.stdout
-		.split("\n")
-		.map((s) => s.trim())
-		.includes("origin");
 }
 
 function currentBranch(repoRoot: string): string | null {
