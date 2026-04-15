@@ -87,4 +87,29 @@ describe("/tff state rename", () => {
 		await runStateRename(pi, makeCtx(p.repo), null, ["feature/renamed"]);
 		expect(pi.messages.join("\n")).not.toMatch(/error|failed/i);
 	});
+
+	it("accepts sourceCodeBranch override (used by /tff branch rename)", async () => {
+		// Read the current source branch from repo-state before we corrupt it.
+		const rs = readRepoState(p.init.projectId);
+		if (!rs) throw new Error("expected repo-state to exist after ensureStateBranch");
+		const originalLast = rs.lastKnownCodeBranch;
+
+		// Overwrite repo-state with a wrong value to prove the override wins.
+		writeRepoState(p.init.projectId, { lastKnownCodeBranch: "feature/wrong-branch" });
+
+		await runStateRename(pi, makeCtx(p.repo), null, ["feature/renamed"], {
+			sourceCodeBranch: originalLast,
+		});
+
+		expect(pi.messages.join("\n")).not.toMatch(/error|failed/i);
+		const after = readRepoState(p.init.projectId);
+		expect(after?.lastKnownCodeBranch).toBe("feature/renamed");
+	});
+
+	it("rejects invalid sourceCodeBranch in opts", async () => {
+		await runStateRename(pi, makeCtx(p.repo), null, ["feature/new"], {
+			sourceCodeBranch: "bad name;rm",
+		});
+		expect(pi.messages.join("\n")).toMatch(/invalid sourceCodeBranch/i);
+	});
 });

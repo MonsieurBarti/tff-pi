@@ -61,13 +61,7 @@ export async function runBranchRename(
 	if (isStateBranchEnabledForRoot(root)) {
 		const oldStateBranch = stateBranchName(oldCodeBranch);
 		if (localBranchExists(root, oldStateBranch)) {
-			if (projectId) {
-				// Ensure repo-state reflects the OLD code branch so runStateRename
-				// can identify the source. ensureStateBranch would have recorded it,
-				// but guard against a fresh context.
-				writeRepoState(projectId, { lastKnownCodeBranch: oldCodeBranch });
-			}
-			await runStateRename(pi, ctx, uiCtx, [newCodeBranch]);
+			await runStateRename(pi, ctx, uiCtx, [newCodeBranch], { sourceCodeBranch: oldCodeBranch });
 		} else if (projectId) {
 			writeRepoState(projectId, { lastKnownCodeBranch: newCodeBranch });
 		}

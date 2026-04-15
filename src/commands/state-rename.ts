@@ -20,6 +20,7 @@ export async function runStateRename(
 	ctx: TffContext,
 	_uiCtx: ExtensionCommandContext | null,
 	args: string[],
+	opts: { sourceCodeBranch?: string } = {},
 ): Promise<void> {
 	const root = ctx.projectRoot;
 	if (!root) {
@@ -38,6 +39,11 @@ export async function runStateRename(
 		return;
 	}
 
+	if (opts.sourceCodeBranch !== undefined && !isValidBranchName(opts.sourceCodeBranch)) {
+		pi.sendUserMessage(`Error: invalid sourceCodeBranch: ${JSON.stringify(opts.sourceCodeBranch)}`);
+		return;
+	}
+
 	if (!isStateBranchEnabledForRoot(root)) {
 		pi.sendUserMessage(
 			"Error: state branches are disabled (settings.yaml: state_branch.enabled=false); nothing to rename.",
@@ -51,15 +57,13 @@ export async function runStateRename(
 		return;
 	}
 
-	const repoState = readRepoState(projectId);
-	if (!repoState) {
+	const oldCodeBranch = opts.sourceCodeBranch ?? readRepoState(projectId)?.lastKnownCodeBranch;
+	if (!oldCodeBranch) {
 		pi.sendUserMessage(
 			"Error: no prior state recorded (repo-state.json missing). Cannot determine source state branch.",
 		);
 		return;
 	}
-
-	const oldCodeBranch = repoState.lastKnownCodeBranch;
 	const oldStateBranch = stateBranchName(oldCodeBranch);
 	const newStateBranch = stateBranchName(newCodeBranch);
 
