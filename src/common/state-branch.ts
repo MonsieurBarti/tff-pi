@@ -26,28 +26,44 @@ export class StateBranchError extends Error {
 	}
 }
 
+// Defense-in-depth: reject branch names that contain shell/arg-parsing traps
+// before passing them to `git branch`/`git checkout`. git itself already
+// rejects invalid refs via check-ref-format, but we want a hard gate at our
+// own boundary so an attacker-controlled `codeBranch` can never reach git as
+// something that could be interpreted as a flag or traversal.
+const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/\-]*$/;
+
+function assertValidBranchName(name: string, label: string): void {
+	if (!BRANCH_NAME_RE.test(name)) {
+		throw new StateBranchError(`invalid ${label} branch name: ${JSON.stringify(name)}`);
+	}
+}
+
 export function stateBranchName(codeBranch: string): string {
 	return `tff-state/${codeBranch}`;
 }
 
-const EXCLUDED_TOP = new Set<string>([
-	".tmp",
-	"worktrees",
-	"logs",
-	".gitconfig",
-	"repo-path",
-	"repo-state.json",
-	"session.lock",
-	"pending-phase-message.txt",
+// Allow-list of portable paths that may be mirrored from ~/.tff/<id>/ into the
+// state worktree. Anything not matching is skipped — this prevents future files
+// (leaked .env, OAuth tokens, debug dumps) from auto-mirroring to a pushed branch.
+// Top-level files are exact matches; directories are recursive allow-prefixes.
+const ALLOWED_TOP_FILES = new Set<string>([
+	"settings.yaml",
+	"branch-meta.json",
+	"state-snapshot.json",
+	".gitattributes",
 ]);
+const ALLOWED_TOP_DIRS = new Set<string>(["milestones"]);
 
-function isExcludedPath(relPath: string): boolean {
-	// top-level excludes
+function isAllowedPath(relPath: string): boolean {
 	const first = relPath.split("/")[0] ?? "";
-	if (EXCLUDED_TOP.has(first)) return true;
-	// state.db and sidecars (state.db, state.db-journal, state.db-wal, state.db-shm)
-	if (relPath === "state.db" || relPath.startsWith("state.db-")) return true;
-	return false;
+	if (!first) return false;
+	if (relPath === first) {
+		// top-level entry: file allow-list, or a directory allow-prefix
+		return ALLOWED_TOP_FILES.has(first) || ALLOWED_TOP_DIRS.has(first);
+	}
+	// nested entry: only allowed if under an allowed top-level directory
+	return ALLOWED_TOP_DIRS.has(first);
 }
 
 export function mirrorPortableSubset(homeDir: string, worktreeDir: string): void {
@@ -60,7 +76,7 @@ function walk(homeReal: string, currentAbs: string, destRoot: string): void {
 	for (const entry of entries) {
 		const absPath = join(currentAbs, entry.name);
 		const relPath = relative(homeReal, absPath);
-		if (isExcludedPath(relPath)) continue;
+		if (!isAllowedPath(relPath)) continue;
 		// Path-traversal guard: resolved real path must stay inside homeReal.
 		let resolved: string;
 		try {
@@ -266,6 +282,7 @@ export async function commitStateAtPhaseEnd(opts: CommitStateOpts): Promise<void
 async function runCommit(opts: CommitStateOpts): Promise<void> {
 	const { repoRoot, projectId, codeBranch, phase, sliceLabel, freezeLogForSlice } = opts;
 	if (!codeBranch) return;
+	assertValidBranchName(codeBranch, "code");
 	const stateBranch = stateBranchName(codeBranch);
 	const home = projectHomeDir(projectId);
 	const tmpDir = join(home, ".tmp", `state-wt-${randomUUID()}`);
@@ -353,6 +370,10 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 				console.warn(
 					`commitStateAtPhaseEnd: conflict-backup on ${stateBranch} — backup ref created, investigate remote`,
 				);
+			} else if (pushOutcome === "push-failed") {
+				console.warn(
+					`commitStateAtPhaseEnd: push failed on ${stateBranch} — local commit preserved, check credentials/permissions`,
+				);
 			}
 			// "skipped-no-remote" is silent
 		} catch (pushErr) {
@@ -378,6 +399,7 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 		console.warn("ensureStateBranch: detached HEAD, skipping");
 		return;
 	}
+	assertValidBranchName(codeBranch, "code");
 	const stateBranch = stateBranchName(codeBranch);
 
 	if (localBranchExists(repoRoot, stateBranch)) return;
@@ -418,7 +440,7 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 // pushWithRebaseRetry
 // ---------------------------------------------------------------------------
 
-export type PushOutcome = "pushed" | "conflict-backup" | "skipped-no-remote";
+export type PushOutcome = "pushed" | "conflict-backup" | "skipped-no-remote" | "push-failed";
 
 export async function pushWithRebaseRetry(
 	worktreeDir: string,
@@ -434,8 +456,10 @@ export async function pushWithRebaseRetry(
 			/non-fast-forward|\(fetch first\)|\(non-fast-forward\)/i.test(push.stderr) ||
 			/rejected.*\(fetch first\)/i.test(push.stderr);
 		if (!isNonFf) {
+			// Non-retryable (auth/permission/disk-full/etc). Surface distinctly so
+			// /tff doctor can spot it instead of conflating with the no-remote case.
 			console.warn(`pushWithRebaseRetry: push failed (non-retryable): ${push.stderr}`);
-			return "skipped-no-remote";
+			return "push-failed";
 		}
 		const fetch = runGit(worktreeDir, [
 			"fetch",
@@ -444,7 +468,7 @@ export async function pushWithRebaseRetry(
 		]);
 		if (!fetch.ok) {
 			console.warn(`pushWithRebaseRetry: fetch failed: ${fetch.stderr}`);
-			return "skipped-no-remote";
+			return "push-failed";
 		}
 		const rebase = runGit(worktreeDir, ["rebase", `origin/${stateBranch}`]);
 		if (!rebase.ok) {
