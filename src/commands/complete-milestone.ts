@@ -170,6 +170,27 @@ export async function handleCompleteMilestone(
 		}
 		const prUrl = createResult.stdout.trim();
 		updateMilestoneStatus(db, milestoneId, "completing");
+
+		// Hand off to the agent: ask the user whether the milestone PR was merged.
+		// Mirrors the slice-ship flow at src/phases/ship.ts.
+		pi.sendUserMessage(
+			[
+				`Milestone ${mLabel} PR is open: ${prUrl}`,
+				"",
+				"Now ask the user whether the PR was merged, using tff_ask_user with id",
+				`\`milestone_gate_${mLabel}\`, header "Milestone PR status", and two options:`,
+				'  1) label "PR merged"        — description "I merged the PR on GitHub."',
+				'  2) label "PR needs changes" — description "Reviewers requested changes."',
+				"",
+				"After the user replies:",
+				`  - If "PR merged": call tff_complete_milestone_merged({ milestoneLabel: "${mLabel}" }).`,
+				`  - If "PR needs changes": ask for the feedback text in one follow-up message, then call`,
+				`    tff_complete_milestone_changes({ milestoneLabel: "${mLabel}", feedback: "<their exact feedback>" }).`,
+				"",
+				"Do NOT call these tools before the user has explicitly answered. Do NOT poll GitHub — the user's reply is the source of truth.",
+			].join("\n"),
+		);
+
 		return { success: true, prUrl };
 	} catch (err) {
 		return {
