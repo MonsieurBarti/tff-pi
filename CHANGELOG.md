@@ -19,6 +19,69 @@
 ### Removed
 - `updateSliceStatus()` — status is no longer a directly-written column.
 
+## [0.1.5](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.4...tff-pi-v0.1.5) (2026-04-15)
+
+
+### Features
+
+* **m10-s1:** add .tff-project-id read/write with uuid v4 validation ([284ba0f](https://github.com/MonsieurBarti/tff-pi/commit/284ba0f048d06d0bcfbb51da97a4df5a448ce308))
+* **m10-s1:** add createtffsymlink with idempotency and real-dir/wrong-target guards ([8d98aa7](https://github.com/MonsieurBarti/tff-pi/commit/8d98aa7c044cc71667feb53263c8533e4fa848b9))
+* **m10-s1:** add handleinit with idempotency, recovery, windows guard ([936052d](https://github.com/MonsieurBarti/tff-pi/commit/936052d2a492e78caf917433f966a40bd3584d13))
+* **m10-s1:** add project-home module scaffold with tff_home + uuid validation ([c36bff7](https://github.com/MonsieurBarti/tff-pi/commit/c36bff7dd0aeaec0434ad3662d68b398681858f3))
+* **m10-s1:** add projecthomedir and ensureprojecthomedir ([4b7285b](https://github.com/MonsieurBarti/tff-pi/commit/4b7285bd50508997d850e039e08c961a8de0859c))
+* **m10-s1:** ensuregitignoreentries replaces .tff/ with /.tff for symlink model ([809b0db](https://github.com/MonsieurBarti/tff-pi/commit/809b0dbba4d051eba43ddbf0155c7c00dff5c9ea))
+* **m10-s1:** project home + /tff init + .tff symlink ([3d54b47](https://github.com/MonsieurBarti/tff-pi/commit/3d54b471284d37b03ebe542d6bfe4347fa2deb42))
+* **m10-s1:** run db migrations against project home in handleinit ([92e1703](https://github.com/MonsieurBarti/tff-pi/commit/92e17037081f2f3851d369dcb1bc15178abc3941))
+* **m10-s1:** slice label validation, 0o600 db perms, tff_home path checks ([9516817](https://github.com/MonsieurBarti/tff-pi/commit/95168170190ba7e64d43470cfaf4a65a61446169))
+* **m10-s1:** slice worktrees share project home via inner .tff/ symlink ([15d892a](https://github.com/MonsieurBarti/tff-pi/commit/15d892a312ad50d70ab6a9ec894579ceecf376c6))
+* **m10-s1:** stage .tff-project-id + .gitignore on fresh init ([91b1859](https://github.com/MonsieurBarti/tff-pi/commit/91b185966768339daa1a43a73481e73d4eb6f025))
+* **m10-s2:** deterministic serialize plus write and read with schema check ([fbc8f77](https://github.com/MonsieurBarti/tff-pi/commit/fbc8f77d4dc30a590f00f2566f078ef8dfaf9c5c))
+* **m10-s2:** ensure snapshot merge driver in git config ([63ec3a8](https://github.com/MonsieurBarti/tff-pi/commit/63ec3a8c98b329ddc098fb4f41facce186c3895e))
+* **m10-s2:** export all tables sorted by id with synthetic dep id ([882f9b7](https://github.com/MonsieurBarti/tff-pi/commit/882f9b7461c4b15806b5f417e8a691fe67d1d2c5))
+* **m10-s2:** insertProject accepts optional id param ([5416c76](https://github.com/MonsieurBarti/tff-pi/commit/5416c76920a2922a75025d8ad9a614c8ffc6ed08))
+* **m10-s2:** merge snapshots happy-path row-level merge ([a407b69](https://github.com/MonsieurBarti/tff-pi/commit/a407b6959aee857d232198e1c2dc1d915c366cc9))
+* **m10-s2:** per-field 3-way mergerow with free-text conflict escalation ([b33358e](https://github.com/MonsieurBarti/tff-pi/commit/b33358e47167b9b7f501283d776f2a9ae1c1a07b))
+* **m10-s2:** register snapshot merge driver during init ([720a9b7](https://github.com/MonsieurBarti/tff-pi/commit/720a9b70d9238bf36fd72d580832a1ad21666b25))
+* **m10-s2:** standalone snapshot merge node bin ([55198e6](https://github.com/MonsieurBarti/tff-pi/commit/55198e6b84951f70ca9b2aabd3fe7c1d100b01e2))
+* **m10-s2:** state-exporter skeleton with snapshot schema version ([21cc4e0](https://github.com/MonsieurBarti/tff-pi/commit/21cc4e023b2349146b584a1de69ceda4dce0eab8))
+* **m10-s2:** status precedence and terminal-wins in merge row ([417ccfc](https://github.com/MonsieurBarti/tff-pi/commit/417ccfc1217f6001624a04cec39b6c33b45822a3))
+* **m10-s2:** unify project id with tracked project-id file ([6a12e9b](https://github.com/MonsieurBarti/tff-pi/commit/6a12e9b5502620b431acfd046592692454a30cac))
+* **m10-s3:** 10s timeout guard around commitstateatphaseend ([bc674ec](https://github.com/MonsieurBarti/tff-pi/commit/bc674ec75b2c6d87107b731fc66bc4122463df11))
+* **m10-s3:** add internal git helpers for state-branch ops ([52a3e09](https://github.com/MonsieurBarti/tff-pi/commit/52a3e09a7b3789c6f654659b2a7822a106eb915c))
+* **m10-s3:** add mirrorportablesubset with allow-list and traversal guard ([6747169](https://github.com/MonsieurBarti/tff-pi/commit/6747169801b56145000995ee79c4af63bd01eedf))
+* **m10-s3:** backup branch on unresolvable rebase ([46abb99](https://github.com/MonsieurBarti/tff-pi/commit/46abb99546787408d85b933f17f90d512da45b28))
+* **m10-s3:** commitstateatphaseend happy path commit only no push ([884c0c7](https://github.com/MonsieurBarti/tff-pi/commit/884c0c75ac191d9ff9f0daa366678098f4c0093d))
+* **m10-s3:** fork tff-state/&lt;branch&gt; from parent state branch ([a22ae05](https://github.com/MonsieurBarti/tff-pi/commit/a22ae05fb7588d78c74d756d51909f833d976472))
+* **m10-s3:** orphan creation path for ensurestatebranch ([a5ec1e1](https://github.com/MonsieurBarti/tff-pi/commit/a5ec1e13d39209104ba483aac965089ca40fb63d))
+* **m10-s3:** pushwithrebaseretry clean-push branch ([849dbc7](https://github.com/MonsieurBarti/tff-pi/commit/849dbc7e45ac1543b884b7059747b0b1b60bbe3d))
+* **m10-s3:** pushwithrebaseretry rebase-and-retry loop ([c12ef7d](https://github.com/MonsieurBarti/tff-pi/commit/c12ef7db2a9a28ade4f427d57f2b8647e575f4f4))
+* **m10-s3:** skip ensurestatebranch in slice worktrees and on detached head ([9b140ab](https://github.com/MonsieurBarti/tff-pi/commit/9b140abb225d7e71631db72786f78e2519c0d23e))
+* **m10-s3:** wire commitstateatphaseend into runphasewithfreshcontext ([f162815](https://github.com/MonsieurBarti/tff-pi/commit/f1628151d40e8d5ad4f9b55bcb19e8ec21afc2d1))
+* **m10-s3:** wire ensurestatebranch into session_start preflight ([8c29d4d](https://github.com/MonsieurBarti/tff-pi/commit/8c29d4d8e6048af7024d71331eddce1f6e3a4137))
+* **m10-s4:** /tff complete-milestone ask-user handoff ([6821aec](https://github.com/MonsieurBarti/tff-pi/commit/6821aecfa6bb9b4059a3e5cfd008b2952b9fe633))
+* **m10-s4:** /tff complete-milestone-changes command handler ([6402ea2](https://github.com/MonsieurBarti/tff-pi/commit/6402ea2c3c1ff2c228a17c9ba1a14be8bea578a3))
+* **m10-s4:** /tff complete-milestone-merged command handler ([398e0f7](https://github.com/MonsieurBarti/tff-pi/commit/398e0f750eeec74554f5498e1e5e18872ecd179e))
+* **m10-s4:** ship integration — milestone close + state-branch tombstone ([5398c8d](https://github.com/MonsieurBarti/tff-pi/commit/5398c8d7b91c9be5bd5ed4a36b1bb4406ce6ed42))
+* **m10-s4:** state-ship conflict-backup + parent lazy-orphan + idempotency ([cf3eb07](https://github.com/MonsieurBarti/tff-pi/commit/cf3eb07e850419f2f0878c362d5d517d1ba4a68c))
+* **m10-s4:** state-ship finalized happy path ([c6efecb](https://github.com/MonsieurBarti/tff-pi/commit/c6efecb46ceade66a1c0f27390b4683c75879608))
+* **m10-s4:** state-ship skeleton + skipped-no-state-branch path ([8eb850b](https://github.com/MonsieurBarti/tff-pi/commit/8eb850bac6536190e232796d47d707d3e9a93017))
+* **m10-s4:** tff_complete_milestone_merged + changes agent tools ([1b99213](https://github.com/MonsieurBarti/tff-pi/commit/1b99213359ec47dd9519104bd9a0a9a6df06ab82))
+
+
+### Bug Fixes
+
+* **m10-s1:** runinit sends user message so pi unblocks ([270df49](https://github.com/MonsieurBarti/tff-pi/commit/270df4939bc7cd1e09f8d4a8b3cac51427f69767))
+* **m10-s2:** atomic snapshot writes and correct retried precedence ([0efee5c](https://github.com/MonsieurBarti/tff-pi/commit/0efee5c6b5f914d8a6edadf024bdcdd485ec8c42))
+* **m10-s2:** driver path health check tff home traversal guard and init helper ([64dce21](https://github.com/MonsieurBarti/tff-pi/commit/64dce21e642678d3c9bf9f43e92740212b8ef4d1))
+* **m10-s2:** robust deep equal and hide partial merge on conflict ([2ccc095](https://github.com/MonsieurBarti/tff-pi/commit/2ccc095b65c28a258b2c8b20cfaf35f423030637))
+* **m10-s2:** shell-quote merge driver path for spaces in repo root ([ad93d15](https://github.com/MonsieurBarti/tff-pi/commit/ad93d15e5e4d3e964e8248fef57d64de68cc94c9))
+* **m10-s3:** distinguish churn vs conflict backup refs and correct force-push outcome ([e741429](https://github.com/MonsieurBarti/tff-pi/commit/e74142908abce99a651a33a0bea172fc34e9f83e))
+* **m10-s3:** fix merge driver runtime detection and harden integration harness ([e19c487](https://github.com/MonsieurBarti/tff-pi/commit/e19c4875299d3610d8048bd20b0375a478bf51ae))
+* **m10-s3:** harden mirrorportablesubset against symlinked directories ([8d1d7a7](https://github.com/MonsieurBarti/tff-pi/commit/8d1d7a7130f2c3e93d8c3367a0847a043e2b21e7))
+* **m10-s3:** review hardening — allow-list, validation, push outcomes ([1d9e6c7](https://github.com/MonsieurBarti/tff-pi/commit/1d9e6c7dd2b63bc20d6586207959e4789b45d2a1))
+* **m10-s3:** scrub git_index_file in gitenv() to stop ghost staging ([e5c181c](https://github.com/MonsieurBarti/tff-pi/commit/e5c181caff7c1a8e55be9737517f71bda55d6ee1))
+* **m10-s3:** wire pushwithrebaseretry into commit path and add warning context ([d2807d9](https://github.com/MonsieurBarti/tff-pi/commit/d2807d9a48b056ccd7797ba1c13590ff0582461d))
+
 ## [0.1.4](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.3...tff-pi-v0.1.4) (2026-04-14)
 
 
