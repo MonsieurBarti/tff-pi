@@ -11,6 +11,7 @@ export const VALID_SUBCOMMANDS = [
 	"ship-merged",
 	"ship-changes",
 	"complete-milestone",
+	"complete-milestone-merged",
 	"recover",
 	"next",
 	"status",

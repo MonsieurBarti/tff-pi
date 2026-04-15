@@ -2,6 +2,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { TffContext } from "../common/context.js";
 import type { Subcommand } from "../common/router.js";
+import { runCompleteMilestoneMerged } from "./complete-milestone-merged.js";
 import { runCompleteMilestone } from "./complete-milestone.js";
 import { runDiscuss } from "./discuss.js";
 import { runDoctor } from "./doctor.js";
@@ -53,6 +54,7 @@ COMMANDS.set("new", runNew);
 COMMANDS.set("new-milestone", runNewMilestone);
 COMMANDS.set("recover", runRecover);
 COMMANDS.set("complete-milestone", runCompleteMilestone);
+COMMANDS.set("complete-milestone-merged", runCompleteMilestoneMerged);
 COMMANDS.set("discuss", runDiscuss);
 COMMANDS.set("research", runResearch);
 COMMANDS.set("plan", runPlan);
