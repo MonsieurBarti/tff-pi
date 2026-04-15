@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
@@ -10,6 +11,7 @@ import {
 	recoverOrphanedPhaseRuns,
 } from "../common/db.js";
 import { computeSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
+import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
 import { type SliceStatus, sliceLabel } from "../common/types.js";
 
 /**
@@ -193,6 +195,36 @@ function formatStalledReport(
 	return lines.join("\n");
 }
 
+/**
+ * Returns a warning string when state_branch is disabled in settings but
+ * tff-state/* refs still exist locally (stale from a previous enable).
+ * Returns null when the toggle is on or when no stale refs are found.
+ */
+function collectStaleStateBranchWarning(root: string): string | null {
+	if (isStateBranchEnabledForRoot(root)) return null;
+	let raw: string;
+	try {
+		raw = execFileSync(
+			"git",
+			["-C", root, "for-each-ref", "refs/heads/tff-state/", "--format=%(refname:short)"],
+			{ encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+		).toString();
+	} catch {
+		return null;
+	}
+	const refs = raw
+		.split("\n")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	if (refs.length === 0) return null;
+	return [
+		`WARNING: state_branch is disabled (settings.yaml) but ${refs.length} stale tff-state/* ref(s) exist locally:`,
+		...refs.map((r) => `    ${r}`),
+		"  Delete with: git branch -D <name>",
+		"  Or re-enable state branches: set state_branch.enabled: true in settings.yaml",
+	].join("\n");
+}
+
 export async function runDoctor(
 	pi: ExtensionAPI,
 	ctx: TffContext,
@@ -212,4 +244,10 @@ export async function runDoctor(
 		uiCtx.ui.notify(msg, "info");
 	}
 	pi.sendUserMessage(msg);
+
+	const root = ctx.projectRoot;
+	if (root) {
+		const staleWarning = collectStaleStateBranchWarning(root);
+		if (staleWarning) pi.sendUserMessage(staleWarning);
+	}
 }
