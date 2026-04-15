@@ -4,6 +4,8 @@ import * as addRemote from "./add-remote.js";
 import * as askUser from "./ask-user.js";
 import * as checkpoint from "./checkpoint.js";
 import * as classify from "./classify.js";
+import * as completeMilestoneChanges from "./complete-milestone-changes.js";
+import * as completeMilestoneMerged from "./complete-milestone-merged.js";
 import * as createProject from "./create-project.js";
 import * as createSlice from "./create-slice.js";
 import * as queryState from "./query-state.js";
@@ -37,6 +39,8 @@ export const TOOL_REGISTRARS = [
 	writeReview.register,
 	shipMerged.register,
 	shipChanges.register,
+	completeMilestoneMerged.register,
+	completeMilestoneChanges.register,
 	shipFix.register,
 	shipApplyDone.register,
 	checkpoint.register,
