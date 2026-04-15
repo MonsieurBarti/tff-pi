@@ -25,7 +25,7 @@ import { loadSettings } from "./common/settings.js";
 import { ensureStateBranch } from "./common/state-branch.js";
 import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
 import { ensureSliceWorktree } from "./common/worktree.js";
-import { detectAndHandleRename } from "./lifecycle-rename-detect.js";
+import { detectRenameAlert } from "./lifecycle-rename-detect.js";
 import { type PendingWorktreeMarker, pendingWorktreeMarkerPath } from "./phases/execute.js";
 import { checkForUpdates } from "./update-check.js";
 
@@ -224,28 +224,15 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				applyMigrations(ctx.db, { root: ctx.projectRoot });
 				loadSettings(ctx, root);
 
-				// M10-S03: ensure tff-state/<codeBranch> exists. Best-effort:
-				// a broken state branch must never block session start.
+				// M10-S03/S5: ensure tff-state/<codeBranch> exists and alert on rename.
+				// Best-effort: a broken state branch must never block session start.
+				// Detect BEFORE ensureStateBranch so lastKnownCodeBranch still
+				// reflects the previous code branch during comparison.
 				try {
 					const projectId = readProjectIdFile(root);
 					if (projectId) {
+						await detectRenameAlert(root, projectId, (msg) => pi.sendUserMessage(msg));
 						await ensureStateBranch(root, projectId);
-						await detectAndHandleRename(root, projectId, async (oldBranch, current) => {
-							// Surface the prompt via PI so the agent can ask the user via tff_ask_user
-							pi.sendUserMessage(
-								[
-									`Detected branch rename: ${oldBranch} -> ${current}.`,
-									"Ask the user whether to rename the state branch too, via tff_ask_user with id",
-									`\`state_rename_detect_${current}\`, header "Branch rename detected", and three options:`,
-									`  1) "Yes"       — rename tff-state/${oldBranch} to tff-state/${current}`,
-									`  2) "No"        — leave state as-is; update last-known branch only`,
-									`  3) "Never ask" — same as No, plus disable this prompt in settings`,
-									"",
-									"After the user replies, the rename has already been recorded. No further tool calls required.",
-								].join("\n"),
-							);
-							return "No"; // conservative default for the preflight path
-						});
 					}
 				} catch (err) {
 					console.warn(`state-branch preflight failed (root=${root}):`, err);

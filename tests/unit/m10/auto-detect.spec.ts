@@ -1,13 +1,14 @@
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readRepoState } from "../../../src/common/repo-state.js";
 import { acquireLock, releaseLock } from "../../../src/common/session-lock.js";
 import { ensureStateBranch } from "../../../src/common/state-branch.js";
 import {
 	type AutoDetectAskUser,
 	detectAndHandleRename,
+	detectRenameAlert,
 } from "../../../src/lifecycle-rename-detect.js";
 import { seedEnabledSettings } from "../../helpers/settings.js";
 import { type TestProject, initTestProject } from "./helpers.js";
@@ -112,6 +113,65 @@ describe("auto-detect rename", () => {
 			};
 			const result = await detectAndHandleRename(p.repo, p.init.projectId, ask);
 			expect(result).toBe("skipped-locked");
+		} finally {
+			releaseLock(p.repo);
+		}
+	});
+});
+
+describe("detectRenameAlert", () => {
+	let p: TestProject;
+
+	beforeEach(async () => {
+		p = initTestProject();
+		seedEnabledSettings(p.repo);
+		execSync("git checkout -b feature/alpha", { cwd: p.repo });
+		await ensureStateBranch(p.repo, p.init.projectId);
+	});
+	afterEach(() => {
+		p.cleanup();
+		p.restoreEnv();
+	});
+
+	it("alerted when true rename candidate: emit called and repo-state updated", async () => {
+		execSync("git branch -m feature/gamma", { cwd: p.repo });
+		const emit = vi.fn();
+		const result = await detectRenameAlert(p.repo, p.init.projectId, emit);
+		expect(result).toBe("alerted");
+		expect(emit).toHaveBeenCalledOnce();
+		const message = emit.mock.calls[0]?.[0] as string;
+		expect(message).toMatch(/^Detected branch rename: feature\/alpha -> feature\/gamma\./);
+		expect(message).toContain("/tff state rename feature/gamma");
+		expect(readRepoState(p.init.projectId)?.lastKnownCodeBranch).toBe("feature/gamma");
+	});
+
+	it("not-a-rename when old branch still exists: emit NOT called", async () => {
+		execSync("git checkout -b feature/beta", { cwd: p.repo });
+		const emit = vi.fn();
+		const result = await detectRenameAlert(p.repo, p.init.projectId, emit);
+		expect(result).toBe("not-a-rename");
+		expect(emit).not.toHaveBeenCalled();
+	});
+
+	it("skipped-disabled when state_branch toggle is off: emit NOT called", async () => {
+		writeFileSync(
+			join(p.repo, ".tff", "settings.yaml"),
+			"state_branch:\n  enabled: false\n",
+			"utf-8",
+		);
+		const emit = vi.fn();
+		const result = await detectRenameAlert(p.repo, p.init.projectId, emit);
+		expect(result).toBe("skipped-disabled");
+		expect(emit).not.toHaveBeenCalled();
+	});
+
+	it("skipped-locked when session lock is held: emit NOT called", async () => {
+		acquireLock(p.repo, { phase: "execute", sliceId: "test-slice" });
+		try {
+			const emit = vi.fn();
+			const result = await detectRenameAlert(p.repo, p.init.projectId, emit);
+			expect(result).toBe("skipped-locked");
+			expect(emit).not.toHaveBeenCalled();
 		} finally {
 			releaseLock(p.repo);
 		}
