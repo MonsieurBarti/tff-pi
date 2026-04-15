@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { isValidBranchName } from "../common/branch-names.js";
 import type { TffContext } from "../common/context.js";
 import {
 	hasOriginRemote,
@@ -13,8 +14,6 @@ import { projectHomeDir, readProjectIdFile } from "../common/project-home.js";
 import { readRepoState, writeRepoState } from "../common/repo-state.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
 import { pushWithRebaseRetry, stateBranchName } from "../common/state-branch.js";
-
-const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/\-]*$/;
 
 export async function runStateRename(
 	pi: ExtensionAPI,
@@ -34,7 +33,7 @@ export async function runStateRename(
 		pi.sendUserMessage("Usage: /tff state rename <newCodeBranch>");
 		return;
 	}
-	if (!BRANCH_NAME_RE.test(newCodeBranch)) {
+	if (!isValidBranchName(newCodeBranch)) {
 		pi.sendUserMessage(`Error: invalid branch name: ${JSON.stringify(newCodeBranch)}`);
 		return;
 	}

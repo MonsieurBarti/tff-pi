@@ -1,13 +1,12 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isValidBranchName } from "./branch-names.js";
 import { projectHomeDir } from "./project-home.js";
 
 export interface RepoState {
 	lastKnownCodeBranch: string;
 	lastKnownCodeBranchSeenAt: string;
 }
-
-const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/\-]*$/;
 
 function repoStatePath(projectId: string): string {
 	return join(projectHomeDir(projectId), "repo-state.json");
@@ -28,7 +27,7 @@ export function readRepoState(projectId: string): RepoState | null {
 			parsed &&
 			typeof parsed.lastKnownCodeBranch === "string" &&
 			typeof parsed.lastKnownCodeBranchSeenAt === "string" &&
-			BRANCH_NAME_RE.test(parsed.lastKnownCodeBranch)
+			isValidBranchName(parsed.lastKnownCodeBranch)
 		) {
 			return parsed as RepoState;
 		}
@@ -40,7 +39,7 @@ export function readRepoState(projectId: string): RepoState | null {
 }
 
 export function writeRepoState(projectId: string, state: { lastKnownCodeBranch: string }): void {
-	if (!BRANCH_NAME_RE.test(state.lastKnownCodeBranch)) {
+	if (!isValidBranchName(state.lastKnownCodeBranch)) {
 		throw new Error(
 			`writeRepoState: invalid branch name ${JSON.stringify(state.lastKnownCodeBranch)}`,
 		);

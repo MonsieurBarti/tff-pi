@@ -12,6 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
+import { isValidBranchName } from "./branch-names.js";
 import { openDatabase } from "./db.js";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
 import { projectHomeDir } from "./project-home.js";
@@ -32,10 +33,10 @@ export class StateBranchError extends Error {
 // rejects invalid refs via check-ref-format, but we want a hard gate at our
 // own boundary so an attacker-controlled `codeBranch` can never reach git as
 // something that could be interpreted as a flag or traversal.
-const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/\-]*$/;
-
+// Path-traversal rejection (`.`, `..`, empty segments) is enforced by
+// isValidBranchName in branch-names.ts.
 function assertValidBranchName(name: string, label: string): void {
-	if (!BRANCH_NAME_RE.test(name)) {
+	if (!isValidBranchName(name)) {
 		throw new StateBranchError(`invalid ${label} branch name: ${JSON.stringify(name)}`);
 	}
 }

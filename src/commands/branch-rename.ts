@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { isValidBranchName } from "../common/branch-names.js";
 import type { TffContext } from "../common/context.js";
 import {
 	hasOriginRemote,
@@ -11,8 +12,6 @@ import { writeRepoState } from "../common/repo-state.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
 import { stateBranchName } from "../common/state-branch.js";
 import { runStateRename } from "./state-rename.js";
-
-const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/\-]*$/;
 
 function currentBranch(repoRoot: string): string | null {
 	const r = runGit(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -39,7 +38,7 @@ export async function runBranchRename(
 		pi.sendUserMessage("Usage: /tff branch rename <newCodeBranch>");
 		return;
 	}
-	if (!BRANCH_NAME_RE.test(newCodeBranch)) {
+	if (!isValidBranchName(newCodeBranch)) {
 		pi.sendUserMessage(`Error: invalid branch name: ${JSON.stringify(newCodeBranch)}`);
 		return;
 	}
