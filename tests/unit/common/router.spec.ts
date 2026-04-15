@@ -34,6 +34,7 @@ describe("router", () => {
 				"help",
 				"logs",
 				"doctor",
+				"state",
 			]);
 		});
 	});

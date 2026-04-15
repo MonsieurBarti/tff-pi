@@ -23,6 +23,7 @@ import { runSettings } from "./settings.js";
 import { runShipChanges } from "./ship-changes.js";
 import { runShipMerged } from "./ship-merged.js";
 import { runShip } from "./ship.js";
+import { runStateRename } from "./state-rename.js";
 import { runStatus } from "./status.js";
 import { runVerify } from "./verify.js";
 
@@ -66,3 +67,12 @@ COMMANDS.set("ship", runShip);
 COMMANDS.set("ship-merged", runShipMerged);
 COMMANDS.set("ship-changes", runShipChanges);
 COMMANDS.set("next", runNext);
+
+// Dispatch /tff state <sub>
+const runStateSub: CommandHandler = async (pi, ctx, uiCtx, args) => {
+	const sub = args[0];
+	const rest = args.slice(1);
+	if (sub === "rename") return runStateRename(pi, ctx, uiCtx, rest);
+	pi.sendUserMessage(`Unknown /tff state subcommand: ${sub ?? "(none)"}. Try: rename`);
+};
+COMMANDS.set("state", runStateSub);
