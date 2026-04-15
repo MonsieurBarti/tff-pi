@@ -21,6 +21,7 @@ import {
 	pushWithRebaseRetry,
 	stateBranchName,
 } from "../../../src/common/state-branch.js";
+import { seedEnabledSettings } from "../../helpers/settings.js";
 
 describe("stateBranchName", () => {
 	it("prefixes with tff-state/", () => {
@@ -158,6 +159,7 @@ describe("ensureStateBranch — orphan creation (no parent)", () => {
 
 	it("creates an orphan tff-state/main with .gitattributes and branch-meta.json", async () => {
 		const r = handleInit(repo);
+		seedEnabledSettings(repo);
 		await ensureStateBranch(repo, r.projectId);
 
 		const branches = execSync("git branch --list tff-state/main", { cwd: repo, encoding: "utf-8" });
@@ -188,6 +190,7 @@ describe("ensureStateBranch — orphan creation (no parent)", () => {
 
 	it("is idempotent — second call is a no-op", async () => {
 		const r = handleInit(repo);
+		seedEnabledSettings(repo);
 		await ensureStateBranch(repo, r.projectId);
 		const firstSha = execSync("git rev-parse tff-state/main", {
 			cwd: repo,
@@ -233,6 +236,7 @@ describe("ensureStateBranch — fork from parent state branch", () => {
 
 	it("forks tff-state/feature/foo from local tff-state/main", async () => {
 		const r = handleInit(repo);
+		seedEnabledSettings(repo);
 		await ensureStateBranch(repo, r.projectId); // creates tff-state/main
 		const mainSha = execSync("git rev-parse tff-state/main", {
 			cwd: repo,
@@ -251,6 +255,7 @@ describe("ensureStateBranch — fork from parent state branch", () => {
 
 	it("3-branch heuristic: picks feature/base over main as parent for feature/foo", async () => {
 		const r = handleInit(repo);
+		seedEnabledSettings(repo);
 
 		// Ensure tff-state/main exists (on main branch)
 		await ensureStateBranch(repo, r.projectId);
@@ -291,6 +296,7 @@ describe("ensureStateBranch — fork from parent state branch", () => {
 
 			// Create tff-state/main locally, then push it to origin.
 			const r = handleInit(repo);
+			seedEnabledSettings(repo);
 			await ensureStateBranch(repo, r.projectId);
 			execSync("git push origin tff-state/main", { cwd: repo, stdio: "pipe" });
 
@@ -395,6 +401,7 @@ describe("commitStateAtPhaseEnd — happy path", () => {
 		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
 		const r = handleInit(repo);
 		projectId = r.projectId;
+		seedEnabledSettings(repo);
 		const db = openDatabase(join(home, projectId, "state.db"));
 		applyMigrations(db, { root: repo });
 		insertProject(db, { name: "p", vision: "v", id: projectId });
@@ -598,6 +605,7 @@ describe("commitStateAtPhaseEnd — non-blocking", () => {
 		execSync("git commit --allow-empty -m 'initial'", { cwd: repo, stdio: "pipe" });
 		const r = handleInit(repo);
 		projectId = r.projectId;
+		seedEnabledSettings(repo);
 		await ensureStateBranch(repo, projectId);
 	});
 	afterEach(() => {
@@ -656,6 +664,7 @@ describe("pushWithRebaseRetry — clean push", () => {
 		execSync("git push -u origin main", { cwd: repo, stdio: "pipe" });
 		const r = handleInit(repo);
 		projectId = r.projectId;
+		seedEnabledSettings(repo);
 		await ensureStateBranch(repo, projectId);
 	});
 	afterEach(() => {
@@ -721,6 +730,7 @@ describe("pushWithRebaseRetry — non-ff with clean rebase", () => {
 		execSync(`git remote add origin ${origin}`, { cwd: alice, stdio: "pipe" });
 		execSync("git push -u origin main", { cwd: alice, stdio: "pipe" });
 		const aRes = handleInit(alice);
+		seedEnabledSettings(alice);
 		await ensureStateBranch(alice, aRes.projectId);
 		execSync("git checkout tff-state/main", { cwd: alice, stdio: "pipe" });
 		await pushWithRebaseRetry(alice, "tff-state/main");
@@ -731,6 +741,7 @@ describe("pushWithRebaseRetry — non-ff with clean rebase", () => {
 		execSync('git config user.email "b@b.com"', { cwd: bob, stdio: "pipe" });
 		execSync('git config user.name "B"', { cwd: bob, stdio: "pipe" });
 		handleInit(bob);
+		seedEnabledSettings(bob);
 	});
 	afterEach(() => {
 		rmSync(home, { recursive: true, force: true });
@@ -832,8 +843,12 @@ describe("pushWithRebaseRetry — backup branch on unresolvable conflict", () =>
 		// default text merge conflicts (the snapshot merge driver handles JSON
 		// cleanly, so to force an unresolvable we use a non-JSON file).
 		const aRes = handleInit(alice);
+		seedEnabledSettings(alice);
 		await ensureStateBranch(alice, aRes.projectId);
-		writeFileSync(join(home, aRes.projectId, "settings.yaml"), "ownedBy: alice\n");
+		writeFileSync(
+			join(home, aRes.projectId, "settings.yaml"),
+			"state_branch:\n  enabled: true\nownedBy: alice\n",
+		);
 		await commitStateAtPhaseEnd({
 			repoRoot: alice,
 			projectId: aRes.projectId,
@@ -849,7 +864,11 @@ describe("pushWithRebaseRetry — backup branch on unresolvable conflict", () =>
 		execSync('git config user.email "b@b.com"', { cwd: bob, stdio: "pipe" });
 		execSync('git config user.name "B"', { cwd: bob, stdio: "pipe" });
 		const bRes = handleInit(bob);
-		writeFileSync(join(home, bRes.projectId, "settings.yaml"), "ownedBy: bob\n");
+		seedEnabledSettings(bob);
+		writeFileSync(
+			join(home, bRes.projectId, "settings.yaml"),
+			"state_branch:\n  enabled: true\nownedBy: bob\n",
+		);
 		await commitStateAtPhaseEnd({
 			repoRoot: bob,
 			projectId: bRes.projectId,
@@ -860,7 +879,10 @@ describe("pushWithRebaseRetry — backup branch on unresolvable conflict", () =>
 		execSync("git checkout tff-state/main", { cwd: bob, stdio: "pipe" });
 
 		// alice now pushes a conflicting settings.yaml change
-		writeFileSync(join(home, aRes.projectId, "settings.yaml"), "ownedBy: alice-v2\n");
+		writeFileSync(
+			join(home, aRes.projectId, "settings.yaml"),
+			"state_branch:\n  enabled: true\nownedBy: alice-v2\n",
+		);
 		await commitStateAtPhaseEnd({
 			repoRoot: alice,
 			projectId: aRes.projectId,

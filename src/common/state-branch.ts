@@ -15,6 +15,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { openDatabase } from "./db.js";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
 import { projectHomeDir } from "./project-home.js";
+import { isStateBranchEnabledForRoot } from "./state-branch-toggle.js";
 import { writeSnapshot } from "./state-exporter.js";
 import type { Phase } from "./types.js";
 
@@ -222,6 +223,7 @@ export interface CommitStateOpts {
 const COMMIT_TIMEOUT_MS = 10_000;
 
 export async function commitStateAtPhaseEnd(opts: CommitStateOpts): Promise<void> {
+	if (!isStateBranchEnabledForRoot(opts.repoRoot)) return;
 	const deadline = new Promise<void>((resolve) => {
 		setTimeout(() => {
 			console.warn("commitStateAtPhaseEnd: timed out after 10s");
@@ -344,6 +346,7 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 }
 
 export async function ensureStateBranch(repoRoot: string, projectId: string): Promise<void> {
+	if (!isStateBranchEnabledForRoot(repoRoot)) return;
 	if (isSliceWorktree(projectId)) return;
 
 	const codeBranch = currentBranch(repoRoot);

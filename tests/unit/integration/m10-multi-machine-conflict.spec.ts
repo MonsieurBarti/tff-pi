@@ -8,18 +8,24 @@ import {
 	pushWithRebaseRetry,
 } from "../../../src/common/state-branch.js";
 import { type TwoClone, makeTwoClone } from "../../helpers/git-state-fixtures.js";
+import { seedEnabledSettings } from "../../helpers/settings.js";
 
 describe("M10-S03: multi-machine unresolvable conflict", () => {
 	let fx: TwoClone;
 	beforeEach(async () => {
 		fx = await makeTwoClone();
+		seedEnabledSettings(fx.alice);
+		seedEnabledSettings(fx.bob);
 	});
 	afterEach(() => fx.cleanup());
 
 	it("creates tff-state/main--conflict-<ts> and force-pushes local", async () => {
 		// Alice sets up state branch, writes settings.yaml (non-JSON), commits + pushes
 		await ensureStateBranch(fx.alice, fx.aliceProjectId);
-		writeFileSync(join(fx.home, fx.aliceProjectId, "settings.yaml"), "ownedBy: alice\n");
+		writeFileSync(
+			join(fx.home, fx.aliceProjectId, "settings.yaml"),
+			"state_branch:\n  enabled: true\nownedBy: alice\n",
+		);
 		await commitStateAtPhaseEnd({
 			repoRoot: fx.alice,
 			projectId: fx.aliceProjectId,
@@ -33,7 +39,10 @@ describe("M10-S03: multi-machine unresolvable conflict", () => {
 
 		// Bob fetches state branch, writes conflicting settings.yaml, commits
 		execSync("git fetch origin tff-state/main:tff-state/main", { cwd: fx.bob, stdio: "pipe" });
-		writeFileSync(join(fx.home, fx.bobProjectId, "settings.yaml"), "ownedBy: bob\n");
+		writeFileSync(
+			join(fx.home, fx.bobProjectId, "settings.yaml"),
+			"state_branch:\n  enabled: true\nownedBy: bob\n",
+		);
 		await commitStateAtPhaseEnd({
 			repoRoot: fx.bob,
 			projectId: fx.bobProjectId,
@@ -44,7 +53,10 @@ describe("M10-S03: multi-machine unresolvable conflict", () => {
 		execSync("git checkout tff-state/main", { cwd: fx.bob, stdio: "pipe" });
 
 		// Alice writes another conflicting settings.yaml change and pushes again
-		writeFileSync(join(fx.home, fx.aliceProjectId, "settings.yaml"), "ownedBy: alice-v2\n");
+		writeFileSync(
+			join(fx.home, fx.aliceProjectId, "settings.yaml"),
+			"state_branch:\n  enabled: true\nownedBy: alice-v2\n",
+		);
 		await commitStateAtPhaseEnd({
 			repoRoot: fx.alice,
 			projectId: fx.aliceProjectId,

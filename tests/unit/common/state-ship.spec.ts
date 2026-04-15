@@ -11,6 +11,7 @@ import {
 } from "../../../src/common/state-branch.js";
 import { finalizeStateBranchForMilestone } from "../../../src/common/state-ship.js";
 import { type TwoClone, makeTwoClone } from "../../helpers/git-state-fixtures.js";
+import { seedEnabledSettings } from "../../helpers/settings.js";
 
 async function seedMilestoneStateBranch(fx: TwoClone, milestoneBranch: string): Promise<void> {
 	await ensureStateBranch(fx.alice, fx.aliceProjectId);
@@ -61,6 +62,8 @@ describe("finalizeStateBranchForMilestone", () => {
 	let fx: TwoClone;
 	beforeEach(async () => {
 		fx = await makeTwoClone();
+		seedEnabledSettings(fx.alice);
+		seedEnabledSettings(fx.bob);
 	});
 	afterEach(() => fx.cleanup());
 

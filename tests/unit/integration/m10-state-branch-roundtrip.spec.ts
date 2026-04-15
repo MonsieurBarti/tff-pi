@@ -8,11 +8,14 @@ import {
 	pushWithRebaseRetry,
 } from "../../../src/common/state-branch.js";
 import { type TwoClone, makeTwoClone } from "../../helpers/git-state-fixtures.js";
+import { seedEnabledSettings } from "../../helpers/settings.js";
 
 describe("M10-S03: state-branch roundtrip", () => {
 	let fx: TwoClone;
 	beforeEach(async () => {
 		fx = await makeTwoClone();
+		seedEnabledSettings(fx.alice);
+		seedEnabledSettings(fx.bob);
 	});
 	afterEach(() => fx.cleanup());
 
