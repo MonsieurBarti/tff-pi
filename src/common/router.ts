@@ -23,6 +23,7 @@ export const VALID_SUBCOMMANDS = [
 	"logs",
 	"doctor",
 	"state",
+	"branch",
 ] as const;
 
 export type Subcommand = (typeof VALID_SUBCOMMANDS)[number];

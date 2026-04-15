@@ -2,6 +2,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { TffContext } from "../common/context.js";
 import type { Subcommand } from "../common/router.js";
+import { runBranchRename } from "./branch-rename.js";
 import { runCompleteMilestoneChanges } from "./complete-milestone-changes.js";
 import { runCompleteMilestoneMerged } from "./complete-milestone-merged.js";
 import { runCompleteMilestone } from "./complete-milestone.js";
@@ -76,3 +77,12 @@ const runStateSub: CommandHandler = async (pi, ctx, uiCtx, args) => {
 	pi.sendUserMessage(`Unknown /tff state subcommand: ${sub ?? "(none)"}. Try: rename`);
 };
 COMMANDS.set("state", runStateSub);
+
+// Dispatch /tff branch <sub>
+const runBranchSub: CommandHandler = async (pi, ctx, uiCtx, args) => {
+	const sub = args[0];
+	const rest = args.slice(1);
+	if (sub === "rename") return runBranchRename(pi, ctx, uiCtx, rest);
+	pi.sendUserMessage(`Unknown /tff branch subcommand: ${sub ?? "(none)"}. Try: rename`);
+};
+COMMANDS.set("branch", runBranchSub);
