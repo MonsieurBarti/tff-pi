@@ -7,6 +7,7 @@ export const VALID_SUBCOMMANDS = [
 	"plan",
 	"execute",
 	"verify",
+	"review",
 	"ship",
 	"ship-merged",
 	"ship-changes",
