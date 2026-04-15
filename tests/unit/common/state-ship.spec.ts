@@ -126,4 +126,34 @@ describe("finalizeStateBranchForMilestone", () => {
 		}).trim();
 		expect(log.split(" ").length).toBeGreaterThanOrEqual(2);
 	});
+
+	it("'finalized-local-only' when no origin remote", async () => {
+		const milestoneBranch = "milestone/M88";
+		await seedMilestoneStateBranch(fx, milestoneBranch);
+		// Remove the origin remote to simulate no-origin
+		execFileSync("git", ["remote", "remove", "origin"], { cwd: fx.alice, stdio: "pipe" });
+
+		const outcome = await finalizeStateBranchForMilestone({
+			repoRoot: fx.alice,
+			projectId: fx.aliceProjectId,
+			milestoneBranch,
+			parentBranch: "main",
+		});
+
+		expect(outcome).toBe("finalized-local-only");
+
+		// Local deletion happened
+		const local = execFileSync("git", ["branch", "--list", "tff-state/milestone/M88"], {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		}).trim();
+		expect(local).toBe("");
+
+		// Tag exists locally
+		const tags = execFileSync("git", ["tag", "--list", "tff-state/_archived/milestone/M88-*"], {
+			cwd: fx.alice,
+			encoding: "utf-8",
+		}).trim();
+		expect(tags).not.toBe("");
+	});
 });
