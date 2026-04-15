@@ -15,6 +15,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { openDatabase } from "./db.js";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
 import { projectHomeDir } from "./project-home.js";
+import { writeRepoState } from "./repo-state.js";
 import { isStateBranchEnabledForRoot } from "./state-branch-toggle.js";
 import { writeSnapshot } from "./state-exporter.js";
 import type { Phase } from "./types.js";
@@ -357,12 +358,26 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 	assertValidBranchName(codeBranch, "code");
 	const stateBranch = stateBranchName(codeBranch);
 
-	if (localBranchExists(repoRoot, stateBranch)) return;
+	const recordBranch = (): void => {
+		try {
+			writeRepoState(projectId, { lastKnownCodeBranch: codeBranch });
+		} catch (err) {
+			console.warn(`ensureStateBranch: writeRepoState failed: ${err}`);
+		}
+	};
+
+	if (localBranchExists(repoRoot, stateBranch)) {
+		recordBranch();
+		return;
+	}
 
 	// Try remote tracking ref for this exact stateBranch first.
 	if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, stateBranch)) {
 		const fetch = runGit(repoRoot, ["fetch", "origin", `${stateBranch}:refs/heads/${stateBranch}`]);
-		if (fetch.ok) return;
+		if (fetch.ok) {
+			recordBranch();
+			return;
+		}
 		console.warn(`ensureStateBranch: fetch of ${stateBranch} failed: ${fetch.stderr}`);
 	}
 
@@ -372,7 +387,10 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 		const parentState = stateBranchName(parentCode);
 		if (localBranchExists(repoRoot, parentState)) {
 			const br = runGit(repoRoot, ["branch", stateBranch, parentState]);
-			if (br.ok) return;
+			if (br.ok) {
+				recordBranch();
+				return;
+			}
 			console.warn(`ensureStateBranch: branch from ${parentState} failed: ${br.stderr}`);
 		}
 		if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, parentState)) {
@@ -383,12 +401,16 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 			]);
 			if (fetch.ok) {
 				const br = runGit(repoRoot, ["branch", stateBranch, parentState]);
-				if (br.ok) return;
+				if (br.ok) {
+					recordBranch();
+					return;
+				}
 			}
 		}
 	}
 
 	await createOrphanStateBranch(repoRoot, projectId, stateBranch, codeBranch);
+	recordBranch();
 }
 
 // ---------------------------------------------------------------------------
