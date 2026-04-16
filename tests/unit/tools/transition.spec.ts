@@ -11,6 +11,8 @@ import {
 	insertSlice,
 	openDatabase,
 } from "../../../src/common/db.js";
+import { expectedInProgressStatusFor } from "../../../src/common/derived-state.js";
+import type { Phase } from "../../../src/common/types.js";
 import { handleTransition } from "../../../src/tools/transition.js";
 import { must } from "../../helpers.js";
 
@@ -20,10 +22,22 @@ function createTestDb(): Database.Database {
 	return db;
 }
 
-function makeMockPi(): ExtensionAPI {
+// Simulates the event-logger's reconcile effect: on phase_start, sets
+// slice.status to the phase's in-progress value. This keeps these validation
+// tests focused on transition.ts logic without wiring up a full EventLogger.
+function makeMockPi(db: Database.Database): ExtensionAPI {
+	const emit = vi.fn((channel: string, data: unknown) => {
+		if (channel !== "tff:phase") return;
+		const event = data as { type?: string; phase?: Phase; sliceId?: string };
+		if (event.type !== "phase_start" || !event.phase || !event.sliceId) return;
+		const expected = expectedInProgressStatusFor(event.phase);
+		if (expected) {
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(expected, event.sliceId);
+		}
+	});
 	return {
 		events: {
-			emit: vi.fn(),
+			emit,
 			on: vi.fn(),
 		},
 	} as unknown as ExtensionAPI;
@@ -36,7 +50,7 @@ describe("handleTransition", () => {
 
 	beforeEach(() => {
 		db = createTestDb();
-		pi = makeMockPi();
+		pi = makeMockPi(db);
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });

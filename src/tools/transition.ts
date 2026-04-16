@@ -5,6 +5,7 @@ import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
+import { expectedInProgressStatusFor } from "../common/derived-state.js";
 import { makeBaseEvent } from "../common/events.js";
 import { SLICE_TRANSITIONS, canTransitionSlice, nextSliceStatus } from "../common/state-machine.js";
 import { type Phase, SLICE_STATUSES, type SliceStatus, sliceLabel } from "../common/types.js";
@@ -113,6 +114,32 @@ export function handleTransition(
 		phase: phaseForTarget,
 	});
 
+	// pi's event emitter invokes listeners synchronously, so the event-logger
+	// has already run reconcileSliceStatus by the time we reach this line.
+	// Re-read to confirm the transition actually persisted.
+	const expected = expectedInProgressStatusFor(phaseForTarget);
+	const after = getSlice(db, sliceId);
+	if (!after || (expected !== null && after.status !== expected)) {
+		const actual = after?.status ?? "<missing>";
+		return {
+			content: [
+				{
+					type: "text",
+					text: `Transition event fired for ${sliceId} (${slice.status} → ${target}) but slice.status is still "${actual}". The event handler likely threw — check event_log where channel='tff:error' for details. Recovery: inspect the logged error, fix the root cause, and re-run the transition.`,
+				},
+			],
+			details: {
+				sliceId,
+				from: slice.status,
+				expected,
+				actual,
+				phaseEmitted: phaseForTarget,
+				persistenceVerified: false,
+			},
+			isError: true,
+		};
+	}
+
 	return {
 		content: [
 			{
@@ -120,7 +147,13 @@ export function handleTransition(
 				text: `Slice ${sliceId} transitioned: ${slice.status} → ${target}`,
 			},
 		],
-		details: { sliceId, from: slice.status, to: target, phaseEmitted: phaseForTarget },
+		details: {
+			sliceId,
+			from: slice.status,
+			to: target,
+			phaseEmitted: phaseForTarget,
+			persistenceVerified: true,
+		},
 	};
 }
 
