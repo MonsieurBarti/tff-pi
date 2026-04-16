@@ -2,9 +2,10 @@ import { execFileSync } from "node:child_process";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
+import { milestoneBranchName, sliceBranchName } from "../common/branch-naming.js";
 import { cleanupCheckpoints } from "../common/checkpoint.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { getSlices, resetTasksToOpen, updateSlicePrUrl } from "../common/db.js";
+import { getMilestone, getSlices, resetTasksToOpen, updateSlicePrUrl } from "../common/db.js";
 import { overrideSliceStatus } from "../common/derived-state.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
@@ -35,14 +36,17 @@ export function finalizeMergedSlice(
 	milestoneNumber: number,
 	pi: ExtensionAPI,
 ): void {
-	const mLabel = milestoneLabel(milestoneNumber);
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
-	const milestoneBranch = `milestone/${mLabel}`;
-	const sliceBranch = `slice/${sLabel}`;
+	const milestoneRow = getMilestone(db, slice.milestoneId);
+	if (!milestoneRow) {
+		throw new Error(`Milestone not found for slice ${sLabel}`);
+	}
+	const milestoneBranch = milestoneBranchName(milestoneRow);
+	const sliceBranch = sliceBranchName(slice);
 	const env = gitEnv();
 
 	cleanupCheckpoints(root, sLabel);
-	removeWorktree(root, sLabel);
+	removeWorktree(root, sLabel, slice);
 
 	// Stash any uncommitted work before swapping branches.
 	const status = execFileSync("git", ["status", "--porcelain"], {
@@ -166,8 +170,12 @@ export const shipPhase: PhaseModule = {
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
 		const wtPath = getWorktreePath(root, sLabel);
-		const milestoneBranch = `milestone/${mLabel}`;
-		const sliceBranch = `slice/${sLabel}`;
+		const milestoneRow = getMilestone(db, slice.milestoneId);
+		if (!milestoneRow) {
+			return { success: false, retry: false, error: `Milestone not found for slice ${sLabel}` };
+		}
+		const milestoneBranch = milestoneBranchName(milestoneRow);
+		const sliceBranch = sliceBranchName(slice);
 		const env = gitEnv();
 
 		const startTime = Date.now();
@@ -340,12 +348,12 @@ export const shipPhase: PhaseModule = {
 			// Prepend PR metadata to the existing PR.md (body authored in verify)
 			const compressed = settings.compress.user_artifacts;
 			const header = compressed
-				? `# PR: ${sLabel}\nURL: ${prUrl} | Base: ${milestoneBranch}\n\n`
+				? `# PR: ${sLabel}\nURL: ${prUrl} | Base: ${mLabel} (${milestoneBranch})\n\n`
 				: [
 						"# Pull Request",
 						"",
 						`**URL:** ${prUrl}`,
-						`**Base:** ${milestoneBranch}`,
+						`**Base:** ${mLabel} (branch: \`${milestoneBranch}\`)`,
 						`**Title:** feat(${sLabel}): ${slice.title}`,
 						"",
 						"---",

@@ -14,6 +14,7 @@ import {
 import { compressIfEnabled } from "../../../src/common/compress.js";
 import {
 	applyMigrations,
+	getMilestone,
 	getMilestones,
 	getProject,
 	insertProject,
@@ -71,7 +72,7 @@ describe("createMilestone", () => {
 	it("creates M01 milestone", () => {
 		const result = createMilestone(db, root, projectId, "Foundation");
 		expect(result.number).toBe(1);
-		expect(result.branch).toBe("milestone/M01");
+		expect(result.branch).toMatch(/^milestone\/[0-9a-f]{8}$/);
 		expect(result.milestoneId).toBeDefined();
 
 		const milestones = getMilestones(db, projectId);
@@ -84,7 +85,7 @@ describe("createMilestone", () => {
 		createMilestone(db, root, projectId, "Foundation");
 		const result = createMilestone(db, root, projectId, "Core Features");
 		expect(result.number).toBe(2);
-		expect(result.branch).toBe("milestone/M02");
+		expect(result.branch).toMatch(/^milestone\/[0-9a-f]{8}$/);
 
 		const milestones = getMilestones(db, projectId);
 		expect(milestones).toHaveLength(2);
@@ -104,16 +105,16 @@ describe("createMilestone", () => {
 		expect(content).toContain("Requirements");
 	});
 
-	it("creates milestone/M01 git branch", () => {
-		createMilestone(db, root, projectId, "Foundation");
-		expect(branchExists("milestone/M01", root)).toBe(true);
+	it("creates milestone git branch with UUID form", () => {
+		const result = createMilestone(db, root, projectId, "Foundation");
+		expect(branchExists(result.branch, root)).toBe(true);
 	});
 
 	it("creates separate branches for each milestone", () => {
-		createMilestone(db, root, projectId, "Foundation");
-		createMilestone(db, root, projectId, "Core");
-		expect(branchExists("milestone/M01", root)).toBe(true);
-		expect(branchExists("milestone/M02", root)).toBe(true);
+		const r1 = createMilestone(db, root, projectId, "Foundation");
+		const r2 = createMilestone(db, root, projectId, "Core");
+		expect(branchExists(r1.branch, root)).toBe(true);
+		expect(branchExists(r2.branch, root)).toBe(true);
 	});
 
 	it("compresses content when enabled", () => {
@@ -121,5 +122,12 @@ describe("createMilestone", () => {
 		createMilestone(db, root, projectId, "Foundation");
 		const written = readArtifact(root, "milestones/M01/REQUIREMENTS.md");
 		expect(written).toBe("[COMPRESSED]req");
+	});
+
+	it("stores the UUID-form branch in milestone.branch", () => {
+		const r = createMilestone(db, root, projectId, "first");
+		const stored = getMilestone(db, r.milestoneId);
+		expect(stored?.branch).toMatch(/^milestone\/[0-9a-f]{8}$/);
+		expect(r.branch).toBe(stored?.branch);
 	});
 });

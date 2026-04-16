@@ -241,16 +241,21 @@ describe("lifecycle — pending-execute-worktree marker", () => {
 		vi.clearAllMocks();
 	});
 
-	function writeMarker(r: string, sliceLabel: string, milestoneBranch: string): void {
+	function writeMarker(
+		r: string,
+		sliceLabel: string,
+		sliceId: string,
+		milestoneBranch: string,
+	): void {
 		writeFileSync(
 			pendingWorktreeMarkerPath(r),
-			JSON.stringify({ sliceLabel, milestoneBranch }),
+			JSON.stringify({ sliceLabel, sliceId, milestoneBranch }),
 			"utf-8",
 		);
 	}
 
 	it("session_start 'new' calls ensureSliceWorktree and deletes the marker", async () => {
-		writeMarker(root, "M01-S01", "milestone/M01");
+		writeMarker(root, "M01-S01", "deadbeef00000000aaaaaaaaaaaaaaaa", "milestone/M01");
 		writePendingMessage(root, "execute-prompt");
 
 		const { pi, trigger } = makePi();
@@ -259,12 +264,17 @@ describe("lifecycle — pending-execute-worktree marker", () => {
 
 		await trigger("session_start", { reason: "new" }, uiCtx);
 
-		expect(ensureSliceWorktree).toHaveBeenCalledWith(root, "M01-S01", "milestone/M01");
+		expect(ensureSliceWorktree).toHaveBeenCalledWith(
+			root,
+			"M01-S01",
+			{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+			"milestone/M01",
+		);
 		expect(existsSync(pendingWorktreeMarkerPath(root))).toBe(false);
 	});
 
 	it("session_start 'startup' calls ensureSliceWorktree when pending message present", async () => {
-		writeMarker(root, "M02-S03", "milestone/M02");
+		writeMarker(root, "M02-S03", "deadbeef00000000aaaaaaaaaaaaaaaa", "milestone/M02");
 		writePendingMessage(root, "execute-prompt-startup");
 
 		const { pi, trigger } = makePi();
@@ -273,12 +283,17 @@ describe("lifecycle — pending-execute-worktree marker", () => {
 
 		await trigger("session_start", { reason: "startup" }, uiCtx);
 
-		expect(ensureSliceWorktree).toHaveBeenCalledWith(root, "M02-S03", "milestone/M02");
+		expect(ensureSliceWorktree).toHaveBeenCalledWith(
+			root,
+			"M02-S03",
+			{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+			"milestone/M02",
+		);
 		expect(existsSync(pendingWorktreeMarkerPath(root))).toBe(false);
 	});
 
 	it("session_start 'new' leaves marker when ensureSliceWorktree throws", async () => {
-		writeMarker(root, "M01-S01", "milestone/M01");
+		writeMarker(root, "M01-S01", "deadbeef00000000aaaaaaaaaaaaaaaa", "milestone/M01");
 		writePendingMessage(root, "execute-prompt");
 
 		vi.mocked(ensureSliceWorktree).mockImplementationOnce(() => {

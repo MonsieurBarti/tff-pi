@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { initMilestoneDir, writeArtifact } from "../common/artifacts.js";
+import { milestoneBranchName } from "../common/branch-naming.js";
 import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, requireProject } from "../common/context.js";
 import { getNextMilestoneNumber, getProject, insertMilestone } from "../common/db.js";
@@ -23,8 +25,9 @@ export function createMilestone(
 ): MilestoneResult {
 	const number = getNextMilestoneNumber(db, projectId);
 	const label = milestoneLabel(number);
-	const branch = `milestone/${label}`;
-	const milestoneId = insertMilestone(db, { projectId, number, name, branch });
+	const id = randomUUID();
+	const branch = milestoneBranchName({ id });
+	const milestoneId = insertMilestone(db, { id, projectId, number, name, branch });
 	initMilestoneDir(root, number);
 
 	// Create the milestone branch — git repo must exist at this point

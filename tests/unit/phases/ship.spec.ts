@@ -264,8 +264,8 @@ describe("shipPhase", () => {
 			expect.objectContaining({
 				repo: "org/repo",
 				title: expect.stringContaining("M01-S01"),
-				head: "slice/M01-S01",
-				base: "milestone/M01",
+				head: expect.stringMatching(/^slice\/[0-9a-f]{8}$/),
+				base: expect.stringMatching(/^milestone\/[0-9a-f]{8}$/),
 			}),
 		);
 	});

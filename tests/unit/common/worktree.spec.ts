@@ -90,28 +90,50 @@ describe("worktree", () => {
 
 	describe("createWorktree", () => {
 		it("creates a worktree and slice branch", () => {
-			const wtPath = createWorktree(repoDir, "M01-S01", "milestone/M01");
+			const wtPath = createWorktree(
+				repoDir,
+				"M01-S01",
+				{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+				"milestone/M01",
+			);
 			expect(existsSync(wtPath)).toBe(true);
 			expect(worktreeExists(repoDir, "M01-S01")).toBe(true);
 		});
 
 		it("returns existing worktree path if already created", () => {
-			const first = createWorktree(repoDir, "M01-S01", "milestone/M01");
-			const second = createWorktree(repoDir, "M01-S01", "milestone/M01");
+			const first = createWorktree(
+				repoDir,
+				"M01-S01",
+				{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+				"milestone/M01",
+			);
+			const second = createWorktree(
+				repoDir,
+				"M01-S01",
+				{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+				"milestone/M01",
+			);
 			expect(first).toBe(second);
 		});
 	});
 
 	describe("removeWorktree", () => {
 		it("removes worktree and deletes slice branch", () => {
-			createWorktree(repoDir, "M01-S01", "milestone/M01");
-			removeWorktree(repoDir, "M01-S01");
+			createWorktree(
+				repoDir,
+				"M01-S01",
+				{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+				"milestone/M01",
+			);
+			removeWorktree(repoDir, "M01-S01", { id: "deadbeef00000000aaaaaaaaaaaaaaaa" });
 			expect(worktreeExists(repoDir, "M01-S01")).toBe(false);
 			expect(existsSync(join(repoDir, ".tff", "worktrees", "M01-S01"))).toBe(false);
 		});
 
 		it("is a no-op if worktree does not exist", () => {
-			expect(() => removeWorktree(repoDir, "M01-S01")).not.toThrow();
+			expect(() =>
+				removeWorktree(repoDir, "M01-S01", { id: "deadbeef00000000aaaaaaaaaaaaaaaa" }),
+			).not.toThrow();
 		});
 	});
 });
@@ -156,7 +178,12 @@ describe("createWorktree — M10-S01 inner symlink", () => {
 			cwd: repo,
 			encoding: "utf-8",
 		}).trim();
-		const wtPath = createWorktree(repo, "M01-S01", mainBranch);
+		const wtPath = createWorktree(
+			repo,
+			"M01-S01",
+			{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+			mainBranch,
+		);
 
 		const innerLink = join(wtPath, ".tff");
 		expect(lstatSync(innerLink).isSymbolicLink()).toBe(true);
@@ -205,9 +232,14 @@ describe("createWorktree — slice label validation (H1)", () => {
 			cwd: repo,
 			encoding: "utf-8",
 		}).trim();
-		expect(() => createWorktree(repo, "../../etc/passwd", mainBranch)).toThrow(
-			/Invalid slice label/,
-		);
+		expect(() =>
+			createWorktree(
+				repo,
+				"../../etc/passwd",
+				{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+				mainBranch,
+			),
+		).toThrow(/Invalid slice label/);
 	});
 
 	it("rejects labels with shell metacharacters", () => {
@@ -215,9 +247,14 @@ describe("createWorktree — slice label validation (H1)", () => {
 			cwd: repo,
 			encoding: "utf-8",
 		}).trim();
-		expect(() => createWorktree(repo, "M01-S01; rm -rf /", mainBranch)).toThrow(
-			/Invalid slice label/,
-		);
+		expect(() =>
+			createWorktree(
+				repo,
+				"M01-S01; rm -rf /",
+				{ id: "deadbeef00000000aaaaaaaaaaaaaaaa" },
+				mainBranch,
+			),
+		).toThrow(/Invalid slice label/);
 	});
 
 	it("accepts canonical M##-S## labels", () => {
@@ -225,6 +262,8 @@ describe("createWorktree — slice label validation (H1)", () => {
 			cwd: repo,
 			encoding: "utf-8",
 		}).trim();
-		expect(() => createWorktree(repo, "M99-S88", mainBranch)).not.toThrow();
+		expect(() =>
+			createWorktree(repo, "M99-S88", { id: "deadbeef00000000aaaaaaaaaaaaaaaa" }, mainBranch),
+		).not.toThrow();
 	});
 });

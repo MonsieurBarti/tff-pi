@@ -177,7 +177,7 @@ describe("executePhase", () => {
 		expect(existsSync(markerPath)).toBe(true);
 		const marker = JSON.parse(readFileSync(markerPath, "utf-8")) as PendingWorktreeMarker;
 		expect(marker.sliceLabel).toBe("M01-S01");
-		expect(marker.milestoneBranch).toBe("milestone/M01");
+		expect(marker.milestoneBranch).toMatch(/^milestone\/[0-9a-f]{8}$/);
 	});
 
 	it("fails with phase_failed when no tasks exist in DB", async () => {

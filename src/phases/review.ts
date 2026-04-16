@@ -1,4 +1,6 @@
 import { readArtifact } from "../common/artifacts.js";
+import { milestoneBranchName, sliceBranchName } from "../common/branch-naming.js";
+import { getMilestone } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
@@ -37,8 +39,12 @@ export const reviewPhase: PhaseModule = {
 
 		const { agentPrompt, protocol } = loadPhaseResources("review");
 		const securityReviewerPrompt = loadAgentResource("security-reviewer");
-		const milestoneBranch = `milestone/${mLabel}`;
-		const sliceBranch = `slice/${sLabel}`;
+		const milestoneRow = getMilestone(db, slice.milestoneId);
+		if (!milestoneRow) {
+			return { success: false, retry: false, error: `Milestone not found: ${slice.milestoneId}` };
+		}
+		const milestoneBranch = milestoneBranchName(milestoneRow);
+		const sliceBranch = sliceBranchName(slice);
 
 		const message = [
 			agentPrompt,
@@ -48,8 +54,8 @@ export const reviewPhase: PhaseModule = {
 			"",
 			`## Slice: ${sLabel}`,
 			`Working directory: ${wtPath}`,
-			`Milestone branch: ${milestoneBranch}`,
-			`Slice branch: ${sliceBranch}`,
+			`Milestone: ${mLabel} (branch: ${milestoneBranch})`,
+			`Slice: ${sLabel} (branch: ${sliceBranch})`,
 			"",
 			"## SPEC.md",
 			specMd,

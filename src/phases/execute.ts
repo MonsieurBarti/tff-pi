@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readArtifact } from "../common/artifacts.js";
-import { getTasksByWave, resetTasksToOpen } from "../common/db.js";
+import { milestoneBranchName } from "../common/branch-naming.js";
+import { getMilestone, getTasksByWave, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
@@ -22,8 +23,12 @@ import {
 
 export const PENDING_WORKTREE_MARKER = "pending-execute-worktree.json";
 
+// sliceLabel identifies the worktree's filesystem path (.tff/worktrees/<label>);
+// sliceId identifies the git branch (slice/<8hex>). Both travel together so the
+// session_start marker handler can materialise the worktree without a DB lookup.
 export interface PendingWorktreeMarker {
 	sliceLabel: string;
+	sliceId: string;
 	milestoneBranch: string;
 }
 
@@ -50,13 +55,17 @@ export const executePhase: PhaseModule = {
 
 		closePredecessorIfReady(pi, db, root, slice, "execute", predecessorPhase, verifyPhaseArtifacts);
 
-		const milestoneBranch = `milestone/${mLabel}`;
+		const milestoneRow = getMilestone(db, slice.milestoneId);
+		if (!milestoneRow) {
+			return { success: false, retry: false, error: `Milestone not found: ${slice.milestoneId}` };
+		}
+		const milestoneBranch = milestoneBranchName(milestoneRow);
 		// Worktree creation is deferred to the new session's session_start handler
 		// (via ensureSliceWorktree) so synchronous git work does not block the
 		// prepare() → newSession() transition. The path is deterministic and can
 		// be embedded in the message before the worktree materialises.
 		const wtPath = getWorktreePath(root, sLabel);
-		writePendingWorktreeMarker(root, { sliceLabel: sLabel, milestoneBranch });
+		writePendingWorktreeMarker(root, { sliceLabel: sLabel, sliceId: slice.id, milestoneBranch });
 
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
 		const planMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PLAN.md`) ?? "";

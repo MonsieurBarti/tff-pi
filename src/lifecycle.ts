@@ -49,7 +49,7 @@ function maybeEnsureWorktreeFromMarker(root: string): void {
 		return;
 	}
 	try {
-		ensureSliceWorktree(root, marker.sliceLabel, marker.milestoneBranch);
+		ensureSliceWorktree(root, marker.sliceLabel, { id: marker.sliceId }, marker.milestoneBranch);
 	} catch {
 		// best-effort: leave marker so next session can retry
 		return;

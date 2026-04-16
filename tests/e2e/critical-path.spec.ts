@@ -187,7 +187,7 @@ describe("E2E critical path", () => {
 				branch,
 			} = createMilestone(db, root, projectId, "Foundation");
 			expect(msNumber).toBe(1);
-			expect(branch).toBe("milestone/M01");
+			expect(branch).toMatch(/^milestone\/[0-9a-f]{8}$/);
 			const milestones = getMilestones(db, projectId);
 			expect(milestones).toHaveLength(1);
 
