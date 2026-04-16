@@ -481,5 +481,22 @@ describe("recovery", () => {
 
 			expect(briefing).not.toMatch(/git discipline/i);
 		});
+
+		it("uses milestone.branch verbatim (not derived label) in git diff hint", () => {
+			const mId = insertMilestone(db, {
+				projectId: getProjectId(db),
+				number: 1,
+				name: "M1",
+				branch: "milestone/deadbeef",
+			});
+			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
+
+			const diag = diagnoseRecovery(root, db, sId, 1);
+			const briefing = formatRecoveryBriefing(diag);
+
+			expect(briefing).toContain("git diff milestone/deadbeef...HEAD");
+			expect(briefing).not.toContain("git diff milestone/M01");
+		});
 	});
 });

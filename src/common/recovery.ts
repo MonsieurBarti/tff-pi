@@ -225,6 +225,10 @@ export function diagnoseRecovery(
 	};
 
 	if (milestoneRow?.branch) {
+		// Read milestone.branch (DB-truthful) rather than deriving via the
+		// branch-naming helper: the briefing must show the agent the exact ref
+		// `git diff` will resolve, including legacy/fixture rows whose branch
+		// was persisted before M11-S04's UUID convention.
 		result.milestoneBranch = milestoneRow.branch;
 	}
 
