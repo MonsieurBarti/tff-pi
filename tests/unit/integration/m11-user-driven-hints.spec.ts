@@ -46,36 +46,38 @@ describe("M11-S03: user-driven hints across a slice lifecycle", () => {
 		return must(getSlices(db, milestoneId).find((s) => s.id === sliceId));
 	}
 
-	it("emits the correct hint after each artifact-writer phase completes", () => {
+	it("returns the correct hint after each artifact-writer phase completes", () => {
 		const verifyOk = vi.fn().mockReturnValue({ ok: true, missing: [] });
 		const pi = makePi();
+		const hints: (string | null)[] = [];
 
 		// discuss → research (SS tier)
 		db.prepare("UPDATE slice SET status = 'discussing' WHERE id = ?").run(sliceId);
-		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "discuss", verifyOk);
+		hints.push(emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "discuss", verifyOk));
 
 		// research → plan
 		db.prepare("UPDATE slice SET status = 'researching' WHERE id = ?").run(sliceId);
-		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "research", verifyOk);
+		hints.push(
+			emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "research", verifyOk),
+		);
 
 		// plan → execute
 		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
-		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "plan", verifyOk);
+		hints.push(emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "plan", verifyOk));
 
 		// execute → verify (simulates tff_execute_done path)
 		db.prepare("UPDATE slice SET status = 'executing' WHERE id = ?").run(sliceId);
-		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "execute", verifyOk);
+		hints.push(emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "execute", verifyOk));
 
 		// verify → review
 		db.prepare("UPDATE slice SET status = 'verifying' WHERE id = ?").run(sliceId);
-		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "verify", verifyOk);
+		hints.push(emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "verify", verifyOk));
 
 		// review → ship
 		db.prepare("UPDATE slice SET status = 'reviewing' WHERE id = ?").run(sliceId);
-		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "review", verifyOk);
+		hints.push(emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "review", verifyOk));
 
-		const messages = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
-		expect(messages).toEqual([
+		expect(hints).toEqual([
 			"→ Next: /tff research M01-S01",
 			"→ Next: /tff plan M01-S01",
 			"→ Next: /tff execute M01-S01",
@@ -83,17 +85,18 @@ describe("M11-S03: user-driven hints across a slice lifecycle", () => {
 			"→ Next: /tff review M01-S01",
 			"→ Next: /tff ship M01-S01",
 		]);
+		// The helper should no longer pipe anything through sendUserMessage;
+		// the hint is returned for the caller (tool) to render.
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("emits /tff complete-milestone after the final slice ships", () => {
+	it("returns /tff complete-milestone after the final slice ships", () => {
 		db.prepare("UPDATE slice SET status = 'shipping' WHERE id = ?").run(sliceId);
 		const verifyOk = vi.fn().mockReturnValue({ ok: true, missing: [] });
 		const pi = makePi();
 		// Close the slice to simulate the post-ship state
 		db.prepare("UPDATE slice SET status = 'closed' WHERE id = ?").run(sliceId);
-		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "ship", verifyOk);
-
-		const messages = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
-		expect(messages).toContain("→ Next: /tff complete-milestone");
+		const hint = emitPhaseCompleteIfArtifactsReady(pi, db, "/root", getSlice(), "ship", verifyOk);
+		expect(hint).toBe("→ Next: /tff complete-milestone");
 	});
 });

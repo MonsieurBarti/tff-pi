@@ -78,7 +78,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 					}
 					const result = handleClassify(database, slice.id, tier);
 					if (!result.isError && ctx.projectRoot) {
-						emitPhaseCompleteIfArtifactsReady(
+						const hint = emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
 							ctx.projectRoot,
@@ -86,6 +86,17 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							"discuss",
 							verifyPhaseArtifacts,
 						);
+						if (hint) {
+							return {
+								...result,
+								content: [
+									{
+										type: "text" as const,
+										text: `${result.content[0]?.text ?? ""}\n\n${hint}`,
+									},
+								],
+							};
+						}
 					}
 					return result;
 				} catch (err) {

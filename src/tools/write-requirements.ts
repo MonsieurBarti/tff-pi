@@ -78,7 +78,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
-						emitPhaseCompleteIfArtifactsReady(
+						const hint = emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
 							root,
@@ -86,6 +86,17 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							"discuss",
 							verifyPhaseArtifacts,
 						);
+						if (hint) {
+							return {
+								...writeResult,
+								content: [
+									{
+										type: "text" as const,
+										text: `${writeResult.content[0]?.text ?? ""}\n\n${hint}`,
+									},
+								],
+							};
+						}
 					}
 					return writeResult;
 				} catch (err) {

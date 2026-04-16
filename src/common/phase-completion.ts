@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { countOpenSlicesInMilestone, getLatestPhaseRun, getMilestone } from "./db.js";
+import { determineNextPhase } from "../orchestrator.js";
+import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone } from "./db.js";
 import { makeBaseEvent } from "./events.js";
 import { type Phase, type Slice, sliceLabel } from "./types.js";
 
@@ -68,6 +69,15 @@ export function closePredecessorIfReady(
 	});
 }
 
+/**
+ * Called by writer tools (tff_write_plan, tff_write_spec, …) after a
+ * successful write. If the target phase's on-disk artifacts are now all
+ * present, emit `phase_complete` on the event bus AND return the next-step
+ * hint string so the caller can surface it to the user via tool-return text.
+ *
+ * Returns `null` when the milestone is missing or artifacts are not yet
+ * ready (i.e., nothing to announce).
+ */
 export function emitPhaseCompleteIfArtifactsReady(
 	pi: ExtensionAPI,
 	db: Database.Database,
@@ -81,48 +91,18 @@ export function emitPhaseCompleteIfArtifactsReady(
 		milestoneNumber: number,
 		phase: Phase,
 	) => { ok: boolean; missing: string[] },
-): void {
+): string | null {
 	const milestone = getMilestone(db, slice.milestoneId);
-	if (!milestone) return;
+	if (!milestone) return null;
 	const check = verifyPhaseArtifacts(db, root, slice, milestone.number, phase);
-	if (!check.ok) return;
+	if (!check.ok) return null;
 	const sLabel = sliceLabel(milestone.number, slice.number);
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(slice.id, sLabel, milestone.number),
 		type: "phase_complete",
 		phase,
 	});
-	const hint = computeNextHint(db, slice, milestone.number);
-	if (hint) {
-		pi.sendUserMessage(hint);
-	}
-}
-
-// Mirrors orchestrator.ts:determineNextPhase — kept separate to avoid a
-// circular import (phase-completion.ts must not import from orchestrator.ts).
-// If determineNextPhase changes, this function must change in lockstep.
-function nextPhaseFor(
-	status: Slice["status"],
-	tier: Slice["tier"] | null | undefined,
-): Phase | null {
-	switch (status) {
-		case "created":
-			return "discuss";
-		case "discussing":
-			return tier === "S" ? "plan" : "research";
-		case "researching":
-			return "plan";
-		case "planning":
-			return "execute";
-		case "executing":
-			return "verify";
-		case "verifying":
-			return "review";
-		case "reviewing":
-			return "ship";
-		default:
-			return null;
-	}
+	return computeNextHint(db, slice, milestone.number);
 }
 
 export function computeNextHint(
@@ -130,14 +110,18 @@ export function computeNextHint(
 	slice: Slice,
 	milestoneNumber: number,
 ): string | null {
-	const nextPhase = nextPhaseFor(slice.status, slice.tier);
+	const nextPhase = determineNextPhase(slice.status, slice.tier);
 	const label = sliceLabel(milestoneNumber, slice.number);
 	if (nextPhase) {
 		return `→ Next: /tff ${nextPhase} ${label}`;
 	}
-	const openCount = countOpenSlicesInMilestone(db, slice.milestoneId);
-	if (openCount > 0) {
-		return "→ Next: /tff new";
+	// Slice has no next phase (i.e., it's shipped/closed). Find the next open
+	// slice in the same milestone and point at its next phase.
+	const nextOpen = getNextOpenSliceInMilestone(db, slice.milestoneId, slice.id);
+	if (nextOpen) {
+		const nextOpenPhase = determineNextPhase(nextOpen.status, nextOpen.tier) ?? "discuss";
+		const nextOpenLabel = sliceLabel(milestoneNumber, nextOpen.number);
+		return `→ Next: /tff ${nextOpenPhase} ${nextOpenLabel}`;
 	}
 	return "→ Next: /tff complete-milestone";
 }

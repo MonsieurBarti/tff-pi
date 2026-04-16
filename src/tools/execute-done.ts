@@ -38,12 +38,19 @@ export function handleExecuteDone(
 			isError: true,
 		};
 	}
-	emitPhaseCompleteIfArtifactsReady(pi, db, root, slice, "execute", verifyPhaseArtifacts);
+	const hint = emitPhaseCompleteIfArtifactsReady(
+		pi,
+		db,
+		root,
+		slice,
+		"execute",
+		verifyPhaseArtifacts,
+	);
 	return {
 		content: [
 			{
 				type: "text",
-				text: `Execute phase marked complete for slice ${sliceRef}. Stop here. The user will advance to verify.`,
+				text: `Execute phase marked complete for slice ${sliceRef}. Stop here. The user will advance to verify.${hint ? `\n\n${hint}` : ""}`,
 			},
 		],
 		details: { sliceId: slice.id },

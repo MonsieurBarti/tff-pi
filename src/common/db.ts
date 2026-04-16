@@ -469,6 +469,27 @@ export function countOpenSlicesInMilestone(db: Database.Database, milestoneId: s
 	return row?.n ?? 0;
 }
 
+/**
+ * Returns the open (non-closed) slice with the lowest `number` in the given
+ * milestone, excluding `excludeSliceId`. Used by the next-phase hint when a
+ * slice has just shipped and we need to point the user at the next one.
+ */
+export function getNextOpenSliceInMilestone(
+	db: Database.Database,
+	milestoneId: string,
+	excludeSliceId: string,
+): Slice | null {
+	const row = db
+		.prepare(
+			`SELECT * FROM slice
+			 WHERE milestone_id = ? AND status != 'closed' AND id != ?
+			 ORDER BY number ASC
+			 LIMIT 1`,
+		)
+		.get(milestoneId, excludeSliceId) as SliceRow | undefined;
+	return row ? rowToSlice(row) : null;
+}
+
 // ---------------------------------------------------------------------------
 // Task
 // ---------------------------------------------------------------------------

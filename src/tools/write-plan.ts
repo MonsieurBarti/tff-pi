@@ -200,7 +200,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
-						emitPhaseCompleteIfArtifactsReady(
+						const hint = emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
 							root,
@@ -213,7 +213,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							content: [
 								{
 									type: "text" as const,
-									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared. Plan phase complete. Stop here; the user will advance.`,
+									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared. Plan phase complete. Stop here; the user will advance.${hint ? `\n\n${hint}` : ""}`,
 								},
 							],
 						};

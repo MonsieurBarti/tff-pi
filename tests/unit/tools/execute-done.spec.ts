@@ -62,15 +62,15 @@ describe("handleExecuteDone", () => {
 
 		expect(result.isError).toBeFalsy();
 		expect(result.content[0]?.text ?? "").toMatch(/stop/i);
+		expect(result.content[0]?.text ?? "").toContain("→ Next: /tff verify M01-S01");
 
 		const phaseCompleteCalls = (pi.events.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "execute",
 		);
 		expect(phaseCompleteCalls).toHaveLength(1);
 
-		const sendCalls = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls;
-		expect(sendCalls).toHaveLength(1);
-		expect(sendCalls[0]?.[0]).toBe("→ Next: /tff verify M01-S01");
+		// sendUserMessage is no longer the transport for the hint
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	it("accepts an M##-S## label as sliceId", () => {

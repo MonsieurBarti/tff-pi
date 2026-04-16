@@ -70,12 +70,13 @@ describe("computeNextHint", () => {
 		expect(computeNextHint(db, slice, 1)).toBe("→ Next: /tff ship M01-S01");
 	});
 
-	it("shipped slice + more open slices in milestone → /tff new", () => {
+	it("shipped slice + more open slices → next open slice's discuss", () => {
 		const { db, slice, milestoneId } = setupOneSlice("shipping");
 		insertSlice(db, { milestoneId, number: 2, title: "S2" });
 		db.prepare("UPDATE slice SET status = 'closed' WHERE id = ?").run(slice.id);
 		const closedSlice: Slice = { ...slice, status: "closed" };
-		expect(computeNextHint(db, closedSlice, 1)).toBe("→ Next: /tff new");
+		// The next open slice (S2) has status 'created', so its next phase is 'discuss'
+		expect(computeNextHint(db, closedSlice, 1)).toBe("→ Next: /tff discuss M01-S02");
 	});
 
 	it("shipped final slice (no more open slices) → /tff complete-milestone", () => {
