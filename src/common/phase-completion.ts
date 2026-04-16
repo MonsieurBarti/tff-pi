@@ -92,6 +92,10 @@ export function emitPhaseCompleteIfArtifactsReady(
 		type: "phase_complete",
 		phase,
 	});
+	const hint = computeNextHint(db, slice, milestone.number);
+	if (hint) {
+		pi.sendUserMessage(hint);
+	}
 }
 
 // Mirrors orchestrator.ts:determineNextPhase — kept separate to avoid a

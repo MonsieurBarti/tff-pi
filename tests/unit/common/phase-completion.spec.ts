@@ -13,7 +13,10 @@ import {
 	updatePhaseRun,
 	updateSliceTier,
 } from "../../../src/common/db.js";
-import { closePredecessorIfReady } from "../../../src/common/phase-completion.js";
+import {
+	closePredecessorIfReady,
+	emitPhaseCompleteIfArtifactsReady,
+} from "../../../src/common/phase-completion.js";
 import type { Phase, Slice } from "../../../src/common/types.js";
 import { must } from "../../helpers.js";
 
@@ -151,5 +154,58 @@ describe("closePredecessorIfReady", () => {
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete" && e.phase === "execute",
 		);
 		expect(completeCalls).toHaveLength(1);
+	});
+});
+
+describe("emitPhaseCompleteIfArtifactsReady — hint emission", () => {
+	let db: Database.Database;
+	let sliceId: string;
+
+	beforeEach(() => {
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+		insertProject(db, { name: "TFF", vision: "V" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
+		sliceId = must(getSlices(db, milestoneId)[0]).id;
+		updateSliceTier(db, sliceId, "SS");
+		db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("planning", sliceId);
+	});
+
+	it("calls pi.sendUserMessage with the next-phase hint when artifacts are ready", () => {
+		const pi = makePi();
+		const slice = makeSlice(db, sliceId);
+		const verify = vi.fn().mockReturnValue({ ok: true, missing: [] });
+
+		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", slice, "plan", verify);
+
+		const calls = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls;
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.[0]).toBe("→ Next: /tff execute M01-S01");
+	});
+
+	it("does not emit a hint when artifacts are not ready", () => {
+		const pi = makePi();
+		const slice = makeSlice(db, sliceId);
+		const verify = vi.fn().mockReturnValue({ ok: false, missing: ["PLAN.md"] });
+
+		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", slice, "plan", verify);
+
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("emits /tff complete-milestone hint when the final slice ships", () => {
+		db.prepare("UPDATE slice SET status = 'closed' WHERE id = ?").run(sliceId);
+		const pi = makePi();
+		const slice = makeSlice(db, sliceId);
+		const verify = vi.fn().mockReturnValue({ ok: true, missing: [] });
+
+		emitPhaseCompleteIfArtifactsReady(pi, db, "/root", slice, "ship", verify);
+
+		const calls = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls;
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.[0]).toBe("→ Next: /tff complete-milestone");
 	});
 });
