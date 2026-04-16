@@ -16,7 +16,7 @@ Parse SPEC.md for:
 Formulate as explicit questions: Q1, Q2, ...
 
 ### 2. Query Codebase
-For each question, use gitnexus to:
+For each question, use grep/glob/read to:
 - Search for existing patterns/implementations
 - Identify relevant APIs, types, modules
 - Check for conflicts or constraints
