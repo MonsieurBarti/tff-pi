@@ -8,6 +8,7 @@ import * as completeMilestoneChanges from "./complete-milestone-changes.js";
 import * as completeMilestoneMerged from "./complete-milestone-merged.js";
 import * as createProject from "./create-project.js";
 import * as createSlice from "./create-slice.js";
+import * as executeDone from "./execute-done.js";
 import * as queryState from "./query-state.js";
 import * as shipApplyDone from "./ship-apply-done.js";
 import * as shipChanges from "./ship-changes.js";
@@ -29,6 +30,7 @@ export const TOOL_REGISTRARS = [
 	createProject.register,
 	addRemote.register,
 	createSlice.register,
+	executeDone.register,
 	writeSpec.register,
 	writeRequirements.register,
 	writeResearch.register,
