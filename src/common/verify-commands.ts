@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
-import { getMemory } from "./memory.js";
 import type { Settings } from "./settings.js";
 
 export interface VerifyCommand {
@@ -30,44 +29,7 @@ export async function detectVerifyCommands(
 		return [];
 	}
 
-	// 2. Check hippo-memory cache
-	const memory = getMemory();
-	if (memory) {
-		try {
-			const result = await memory.recall("tff-verify-commands-cache", { limit: 1 });
-			const hit = result.results[0];
-			if (hit) {
-				try {
-					const cached = JSON.parse(hit.entry.content) as VerifyCommand[];
-					if (Array.isArray(cached) && cached.length > 0) {
-						return cached;
-					}
-				} catch {
-					// corrupted — fall through to re-detect
-				}
-			}
-		} catch {
-			// memory failure — fall through
-		}
-	}
-
-	// 3. Auto-detect
-	const detected = runAutoDetection(root);
-
-	// 4. Cache result (best-effort)
-	if (memory && detected.length > 0) {
-		try {
-			await memory.remember({
-				content: JSON.stringify(detected),
-				tags: ["tff-verify-commands-cache", "auto-detected"],
-				pin: true,
-			});
-		} catch {
-			// best-effort
-		}
-	}
-
-	return detected;
+	return runAutoDetection(root);
 }
 
 function runAutoDetection(root: string): VerifyCommand[] {
