@@ -155,10 +155,13 @@ function statusToPhase(status: string): string {
 		planning: "plan",
 		executing: "execute",
 		verifying: "verify",
-		reviewing: "next",
+		reviewing: "ship",
 		shipping: "ship",
 	};
-	return map[status] ?? "next";
+	// `status` fallback: /tff status is always safe and tells the user where
+	// the slice stands after a recovery action. Never point at /tff next —
+	// that command was removed in M11-S03.
+	return map[status] ?? "status";
 }
 
 export async function runRecover(
