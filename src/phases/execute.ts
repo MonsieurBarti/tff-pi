@@ -24,6 +24,7 @@ export const PENDING_WORKTREE_MARKER = "pending-execute-worktree.json";
 
 export interface PendingWorktreeMarker {
 	sliceLabel: string;
+	sliceId: string;
 	milestoneBranch: string;
 }
 
@@ -56,7 +57,7 @@ export const executePhase: PhaseModule = {
 		// prepare() → newSession() transition. The path is deterministic and can
 		// be embedded in the message before the worktree materialises.
 		const wtPath = getWorktreePath(root, sLabel);
-		writePendingWorktreeMarker(root, { sliceLabel: sLabel, milestoneBranch });
+		writePendingWorktreeMarker(root, { sliceLabel: sLabel, sliceId: slice.id, milestoneBranch });
 
 		const specMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/SPEC.md`) ?? "";
 		const planMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PLAN.md`) ?? "";

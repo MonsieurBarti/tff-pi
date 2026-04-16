@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { type SliceBranchInput, sliceBranchName } from "./branch-naming.js";
 import { createCheckpoint } from "./checkpoint.js";
 import { gitEnv } from "./git.js";
 import { ProjectHomeError, createTffSymlink, readProjectIdFile } from "./project-home.js";
@@ -35,7 +36,12 @@ export function worktreeExists(root: string, sliceLabel: string): boolean {
 	}
 }
 
-export function createWorktree(root: string, sliceLabel: string, milestoneBranch: string): string {
+export function createWorktree(
+	root: string,
+	sliceLabel: string,
+	slice: SliceBranchInput,
+	milestoneBranch: string,
+): string {
 	validateSliceLabel(sliceLabel);
 	const wtPath = getWorktreePath(root, sliceLabel);
 	if (worktreeExists(root, sliceLabel)) {
@@ -44,10 +50,10 @@ export function createWorktree(root: string, sliceLabel: string, milestoneBranch
 
 	mkdirSync(join(root, ".tff", "worktrees"), { recursive: true });
 
-	const branchName = `slice/${sliceLabel}`;
+	const branchName = sliceBranchName(slice);
 	const env = gitEnv();
 
-	let branchExists = false;
+	let branchAlreadyExists = false;
 	try {
 		execFileSync("git", ["rev-parse", "--verify", branchName], {
 			cwd: root,
@@ -55,12 +61,12 @@ export function createWorktree(root: string, sliceLabel: string, milestoneBranch
 			stdio: "pipe",
 			env,
 		});
-		branchExists = true;
+		branchAlreadyExists = true;
 	} catch {
 		// Branch does not exist
 	}
 
-	if (branchExists) {
+	if (branchAlreadyExists) {
 		execFileSync("git", ["worktree", "add", wtPath, branchName], {
 			cwd: root,
 			encoding: "utf-8",
@@ -95,14 +101,19 @@ export function createWorktree(root: string, sliceLabel: string, milestoneBranch
  * times (e.g. from both execute.prepare and session_start marker delivery).
  * Returns the worktree path.
  */
-export function ensureSliceWorktree(root: string, sLabel: string, milestoneBranch: string): string {
+export function ensureSliceWorktree(
+	root: string,
+	sLabel: string,
+	slice: SliceBranchInput,
+	milestoneBranch: string,
+): string {
 	validateSliceLabel(sLabel);
-	const wtPath = createWorktree(root, sLabel, milestoneBranch);
+	const wtPath = createWorktree(root, sLabel, slice, milestoneBranch);
 	createCheckpoint(wtPath, sLabel, "pre-execute");
 	return wtPath;
 }
 
-export function removeWorktree(root: string, sliceLabel: string): void {
+export function removeWorktree(root: string, sliceLabel: string, slice: SliceBranchInput): void {
 	validateSliceLabel(sliceLabel);
 	const wtPath = getWorktreePath(root, sliceLabel);
 	const env = gitEnv();
@@ -115,7 +126,7 @@ export function removeWorktree(root: string, sliceLabel: string): void {
 		});
 	}
 
-	const branchName = `slice/${sliceLabel}`;
+	const branchName = sliceBranchName(slice);
 	try {
 		execFileSync("git", ["branch", "-D", branchName], {
 			cwd: root,

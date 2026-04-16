@@ -42,7 +42,7 @@ export function finalizeMergedSlice(
 	const env = gitEnv();
 
 	cleanupCheckpoints(root, sLabel);
-	removeWorktree(root, sLabel);
+	removeWorktree(root, sLabel, slice);
 
 	// Stash any uncommitted work before swapping branches.
 	const status = execFileSync("git", ["status", "--porcelain"], {
