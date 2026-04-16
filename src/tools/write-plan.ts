@@ -213,7 +213,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							content: [
 								{
 									type: "text" as const,
-									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared. Plan phase complete. Stop here; the user will advance.${hint ? `\n\n${hint}` : ""}`,
+									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared.${hint ? ` Plan phase complete. Stop here; the user will advance.\n\n${hint}` : ""}`,
 								},
 							],
 						};

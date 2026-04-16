@@ -67,6 +67,6 @@ describe("/tff next deprecation stub", () => {
 		const calls = (pi.sendUserMessage as ReturnType<typeof vi.fn>).mock.calls;
 		expect(calls.length).toBeGreaterThanOrEqual(1);
 		const joined = calls.map((c) => c[0]).join(" ");
-		expect(joined).toMatch(/removed/i);
+		expect(joined).toMatch(/no longer needed/i);
 	});
 });

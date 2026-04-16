@@ -92,7 +92,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								content: [
 									{
 										type: "text" as const,
-										text: `${result.content[0]?.text ?? ""}\n\n${hint}`,
+										text: `${result.content[0]?.text ?? ""}\n\nDiscuss phase complete. Stop here; the user will advance.\n\n${hint}`,
 									},
 								],
 							};

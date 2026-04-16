@@ -77,7 +77,7 @@ export function handleWriteReview(
 		content: [
 			{
 				type: "text",
-				text: `REVIEW.md written for ${label} (approved). Review phase complete. Stop here; the user will advance.`,
+				text: `REVIEW.md written for ${label} (approved).`,
 			},
 		],
 		details: { sliceId, path, verdict },
@@ -152,7 +152,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								content: [
 									{
 										type: "text" as const,
-										text: `${writeResult.content[0]?.text ?? ""}\n\n${hint}`,
+										text: `${writeResult.content[0]?.text ?? ""} Review phase complete. Stop here; the user will advance.\n\n${hint}`,
 									},
 								],
 							};
