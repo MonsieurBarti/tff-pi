@@ -24,8 +24,8 @@ export interface ToolResult {
 }
 
 const MIN_OPTIONS = 2;
-const MAX_OPTIONS_SINGLE = 3;
-const MAX_HEADER_LEN = 12;
+const MAX_OPTIONS_SINGLE = 5;
+const MAX_HEADER_LEN = 32;
 
 /**
  * Returns null if questions are valid, otherwise an error ToolResult the LLM can
