@@ -129,7 +129,7 @@ export const verifyPhase: PhaseModule = {
 				return {
 					success: false,
 					retry: true,
-					feedback: `Mechanical verification found failures:\n${failures}\n\nFull report written to VERIFICATION-MECHANICAL.md. Run \`/tff next\` to route back to execute and fix.`,
+					feedback: `Mechanical verification found failures:\n${failures}\n\nFull report written to VERIFICATION-MECHANICAL.md. Verify phase failed. Stop here; the user will decide whether to retry with \`/tff execute ${sLabel}\`.`,
 				};
 			}
 		}

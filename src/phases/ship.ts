@@ -156,7 +156,7 @@ export function suggestNextAction(db: Database.Database, milestoneId: string): s
 	if (openSlices.length === 0) {
 		return "All slices closed. Run `/tff complete-milestone` to create the milestone PR.";
 	}
-	return `${openSlices.length} slice(s) remaining. Run \`/tff discuss\` to start the next slice or \`/tff next\` to advance.`;
+	return `${openSlices.length} slice(s) remaining. Stop here; the user will run \`/tff new\` or \`/tff discuss\` for the next slice.`;
 }
 
 export const shipPhase: PhaseModule = {

@@ -46,7 +46,8 @@ export const discussPhase: PhaseModule = {
 		].join("\n");
 
 		// Interactive mode does NOT emit phase_complete — completion is
-		// tracked when `/tff next` verifies artifacts.
+		// tracked when the user runs the next phase and closePredecessorIfReady
+		// verifies artifacts on its behalf.
 		// Message returned for delivery into fresh session.
 		return { success: true, retry: false, message };
 	},
