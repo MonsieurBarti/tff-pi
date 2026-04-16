@@ -16,7 +16,7 @@ export type FinalizeOutcome =
 export interface FinalizeOpts {
 	repoRoot: string;
 	projectId: string;
-	milestoneBranch: string; // e.g. "milestone/M10"
+	milestoneBranch: string; // e.g. "milestone/<8hex>" (UUID-form post-M11-S04)
 	parentBranch: string; // e.g. "main"
 }
 
