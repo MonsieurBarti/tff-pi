@@ -1,4 +1,3 @@
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -8,16 +7,6 @@ export default defineConfig({
 		include: ["tests/**/*.spec.ts"],
 		exclude: ["node_modules", "dist"],
 		setupFiles: ["tests/setup.ts"],
-		// Alias hippo-memory-pi to a stub. The real package transitively
-		// imports `node:sqlite` at module load, which Bun on Linux x64
-		// (used in CI) does not provide. Tests don't exercise real memory
-		// anyway — memory.spec.ts uses its own vi.mock which takes
-		// precedence over this alias inside that file.
-		alias: {
-			"@the-forge-flow/hippo-memory-pi": fileURLToPath(
-				new URL("./tests/stubs/hippo-memory-pi.ts", import.meta.url),
-			),
-		},
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json", "html"],

@@ -67,7 +67,6 @@
 		"@the-forge-flow/fff-pi": "*",
 		"@the-forge-flow/gh-pi": "*",
 		"@the-forge-flow/camoufox-pi": "*",
-		"@the-forge-flow/hippo-memory-pi": "*",
 		"@the-forge-flow/sub-agents-pi": "*",
 		"@the-forge-flow/ultra-compress-pi": "*"
 	},
