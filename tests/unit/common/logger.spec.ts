@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getSessionId,
 	logError,
@@ -12,9 +12,27 @@ import {
 	setStderrLoggingEnabled,
 } from "../../../src/common/logger.js";
 
+const { appendFileSyncMock } = vi.hoisted(() => ({
+	appendFileSyncMock: { impl: null as null | (() => void) },
+}));
+
+vi.mock("node:fs", async () => {
+	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+	return {
+		...actual,
+		appendFileSync: (path: string, data: string) => {
+			if (appendFileSyncMock.impl !== null) {
+				appendFileSyncMock.impl();
+				return;
+			}
+			return actual.appendFileSync(path, data);
+		},
+	};
+});
+
 describe("logger", () => {
 	let root: string;
-	let stderrSpy: ReturnType<typeof vi.spyOn>;
+	let stderrSpy: MockInstance;
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "tff-logger-"));
@@ -173,11 +191,10 @@ describe("logger", () => {
 		expect(parsed[1]?.message).toBe("two");
 	});
 
-	it("audit-append failure surfaces one stderr line and does not loop", async () => {
-		const fs = await import("node:fs");
-		const appendSpy = vi.spyOn(fs, "appendFileSync").mockImplementation(() => {
+	it("audit-append failure surfaces one stderr line and does not loop", () => {
+		appendFileSyncMock.impl = () => {
 			throw new Error("read-only-fs");
-		});
+		};
 		try {
 			logError("logger", "will-fail-to-append");
 			const lines = stderrLines();
@@ -188,7 +205,7 @@ describe("logger", () => {
 			expect(failLine).toBeDefined();
 			expect((failLine as { component: string }).component).toBe("logger");
 		} finally {
-			appendSpy.mockRestore();
+			appendFileSyncMock.impl = null;
 		}
 	});
 });

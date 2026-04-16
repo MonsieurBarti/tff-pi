@@ -25,7 +25,7 @@
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"fmt": "biome format --write .",
-		"typecheck": "tsc --noEmit -p tsconfig.src.json",
+		"typecheck": "tsc --noEmit",
 		"clean": "rm -rf dist",
 		"prepare": "lefthook install || true"
 	},
