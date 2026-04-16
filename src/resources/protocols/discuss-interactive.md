@@ -38,11 +38,11 @@ Red Flags — thoughts that mean STOP:
 ## 4. APPROACH COMPARISON (mandatory)
 
 <HARD-GATE>
-You MUST present 2-3 approaches with trade-offs and get user
+You MUST present 2-5 approaches with trade-offs and get user
 selection BEFORE proceeding. No exceptions.
 
 Present approaches via `tff_ask_user` — NEVER as free-form prose.
-The tool enforces 2-3 mutually exclusive options per question
+The tool enforces 2-5 mutually exclusive options per question
 so you cannot invent alternatives on the fly.
 </HARD-GATE>
 
