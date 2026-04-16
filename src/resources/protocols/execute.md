@@ -31,6 +31,7 @@ worktree diff and the work is effectively lost.
    IMMEDIATELY proceed to the next wave in the same session. Do NOT stop,
    summarize, or ask the user to continue between waves. The phase only
    ends when every wave's tasks are implemented and committed.
+6. **After the final wave is checkpointed, call `tff_execute_done` exactly once** with the slice label. This is the ONLY signal that execute finished — without it, the user has no hint for what to run next. After `tff_execute_done` returns, STOP. Do not call `/tff verify` yourself.
 
 ## Rules
 - Only modify files in task scope
