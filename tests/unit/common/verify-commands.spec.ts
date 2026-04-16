@@ -1,14 +1,10 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Settings } from "../../../src/common/settings.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
-import { type VerifyCommand, detectVerifyCommands } from "../../../src/common/verify-commands.js";
-
-vi.mock("../../../src/common/memory.js", () => ({
-	getMemory: vi.fn(() => null),
-}));
+import { detectVerifyCommands } from "../../../src/common/verify-commands.js";
 
 describe("verify-commands", () => {
 	let root: string;
@@ -154,79 +150,5 @@ describe("verify-commands", () => {
 		const cmds = await detectVerifyCommands(root, AUTO);
 		const bunTestCmds = cmds.filter((c) => c.command === "bun test");
 		expect(bunTestCmds).toHaveLength(1);
-	});
-
-	it("returns cached commands from hippo-memory when available", async () => {
-		const cached: VerifyCommand[] = [{ name: "test", command: "echo cached", source: "ci" }];
-		const memoryMock = await import("../../../src/common/memory.js");
-		vi.mocked(memoryMock.getMemory).mockReturnValueOnce({
-			recall: vi.fn().mockResolvedValue({
-				results: [{ entry: { content: JSON.stringify(cached) } }],
-			}),
-			remember: vi.fn(),
-		} as unknown as ReturnType<typeof memoryMock.getMemory>);
-
-		const settings: Settings = {
-			...DEFAULT_SETTINGS,
-			compress: { ...DEFAULT_SETTINGS.compress },
-			ship: { ...DEFAULT_SETTINGS.ship },
-			verify_auto_detect: true,
-		};
-		const result = await detectVerifyCommands(root, settings);
-		expect(result).toEqual(cached);
-	});
-
-	it("caches detected commands to hippo-memory after auto-detection", async () => {
-		writeFileSync(
-			join(root, "package.json"),
-			JSON.stringify({ scripts: { test: "bun test" } }),
-			"utf-8",
-		);
-		const rememberSpy = vi.fn().mockResolvedValue({ id: "x" });
-		const memoryMock = await import("../../../src/common/memory.js");
-		vi.mocked(memoryMock.getMemory).mockReturnValueOnce({
-			recall: vi.fn().mockResolvedValue({ results: [] }),
-			remember: rememberSpy,
-		} as unknown as ReturnType<typeof memoryMock.getMemory>);
-
-		const settings: Settings = {
-			...DEFAULT_SETTINGS,
-			compress: { ...DEFAULT_SETTINGS.compress },
-			ship: { ...DEFAULT_SETTINGS.ship },
-			verify_auto_detect: true,
-		};
-		await detectVerifyCommands(root, settings);
-		expect(rememberSpy).toHaveBeenCalledWith(
-			expect.objectContaining({
-				tags: expect.arrayContaining(["tff-verify-commands-cache"]),
-				pin: true,
-			}),
-		);
-	});
-
-	it("falls through to auto-detection when cache is corrupted", async () => {
-		writeFileSync(
-			join(root, "package.json"),
-			JSON.stringify({ scripts: { test: "bun test" } }),
-			"utf-8",
-		);
-		const memoryMock = await import("../../../src/common/memory.js");
-		vi.mocked(memoryMock.getMemory).mockReturnValueOnce({
-			recall: vi.fn().mockResolvedValue({
-				results: [{ entry: { content: "not json" } }],
-			}),
-			remember: vi.fn().mockResolvedValue({ id: "x" }),
-		} as unknown as ReturnType<typeof memoryMock.getMemory>);
-
-		const settings: Settings = {
-			...DEFAULT_SETTINGS,
-			compress: { ...DEFAULT_SETTINGS.compress },
-			ship: { ...DEFAULT_SETTINGS.ship },
-			verify_auto_detect: true,
-		};
-		const result = await detectVerifyCommands(root, settings);
-		// Should have fallen through and detected the package.json command
-		expect(result.length).toBeGreaterThan(0);
-		expect(result[0]?.source).toBe("package.json");
 	});
 });

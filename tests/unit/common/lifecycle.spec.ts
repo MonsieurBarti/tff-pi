@@ -15,12 +15,6 @@ vi.mock("../../../src/common/git.js", () => ({
 	gitEnv: vi.fn(() => ({})),
 }));
 
-vi.mock("../../../src/common/memory.js", () => ({
-	initMemory: vi.fn().mockResolvedValue(undefined),
-	shutdownMemory: vi.fn().mockResolvedValue(undefined),
-	getMemory: vi.fn(() => null),
-}));
-
 vi.mock("../../../src/common/compress.js", () => ({
 	refreshCompressionLevel: vi.fn().mockResolvedValue(undefined),
 }));

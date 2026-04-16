@@ -56,13 +56,6 @@ vi.mock("@the-forge-flow/gh-pi", () => ({
 	})),
 }));
 
-vi.mock("../../src/common/memory.js", () => ({
-	getMemory: vi.fn(() => null),
-	initMemory: vi.fn().mockResolvedValue(null),
-	shutdownMemory: vi.fn().mockResolvedValue(undefined),
-	resetMemoryForTest: vi.fn(),
-}));
-
 vi.mock("../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	removeWorktree: vi.fn(),
