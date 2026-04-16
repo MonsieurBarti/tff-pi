@@ -37,8 +37,25 @@ export class EventLogger {
 					if (channel === "tff:phase") {
 						this.handlePhaseRun(event as unknown as PhaseEvent);
 					}
-				} catch {
-					// Monitoring must not fail the pipeline
+				} catch (err) {
+					const e = err instanceof Error ? err : new Error(String(err));
+					const sliceId = (data as { sliceId?: string | null })?.sliceId ?? "";
+					console.error(`[event-logger] ${channel} handler failed:`, e.message, e.stack);
+					try {
+						insertEventLog(this.db, {
+							channel: "tff:error",
+							type: "handler_failed",
+							sliceId,
+							payload: JSON.stringify({
+								component: "event-logger",
+								sourceChannel: channel,
+								message: e.message,
+								stack: e.stack,
+							}),
+						});
+					} catch {
+						// Even event_log insert failed — already on stderr, don't loop.
+					}
 				}
 			});
 			this.unsubscribers.push(unsub);
@@ -143,9 +160,7 @@ export class EventLogger {
 				});
 			}
 		} catch (err) {
-			// Monitoring must not fail the pipeline, but reconciler errors must be
-			// observable for forensics. Write a reconcile_error row; if even that
-			// fails, we're in unrecoverable territory and must stay silent.
+			console.error(`[event-logger] reconcileSliceStatus failed for ${sliceId}:`, err);
 			try {
 				insertEventLog(this.db, {
 					channel: "tff:derived",
@@ -153,6 +168,7 @@ export class EventLogger {
 					sliceId,
 					payload: JSON.stringify({
 						error: String(err),
+						stack: err instanceof Error ? err.stack : undefined,
 						timestamp: new Date().toISOString(),
 					}),
 				});
