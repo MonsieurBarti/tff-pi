@@ -460,6 +460,15 @@ export function getActiveSlice(db: Database.Database, milestoneId: string): Slic
 	return row ? rowToSlice(row) : null;
 }
 
+export function countOpenSlicesInMilestone(db: Database.Database, milestoneId: string): number {
+	const row = db
+		.prepare<[string], { n: number }>(
+			"SELECT COUNT(*) as n FROM slice WHERE milestone_id = ? AND status != 'closed'",
+		)
+		.get(milestoneId);
+	return row?.n ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Task
 // ---------------------------------------------------------------------------
