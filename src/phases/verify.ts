@@ -1,7 +1,8 @@
 import { readArtifact, writeArtifact } from "../common/artifacts.js";
+import { milestoneBranchName } from "../common/branch-naming.js";
 import { createCheckpoint } from "../common/checkpoint.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { resetTasksToOpen } from "../common/db.js";
+import { getMilestone, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getDiff } from "../common/git.js";
 import {
@@ -51,7 +52,11 @@ export const verifyPhase: PhaseModule = {
 			"\n\nAfter VERIFICATION.md is written and tests pass, call `tff_write_pr` to author PR.md — the pull request description. Use concise, reviewer-facing copy; do not dump internal process notes. Ship will use this verbatim as the PR body, so projects can override the template at .tff/templates/pr-body.md.";
 
 		const { agentPrompt, protocol } = loadPhaseResources("verify");
-		const milestoneBranch = `milestone/${mLabel}`;
+		const milestoneRow = getMilestone(db, slice.milestoneId);
+		if (!milestoneRow) {
+			return { success: false, retry: false, error: `Milestone not found: ${slice.milestoneId}` };
+		}
+		const milestoneBranch = milestoneBranchName(milestoneRow);
 		const rawDiff = getDiff(milestoneBranch, wtPath) ?? "";
 		const diffLines = rawDiff.split("\n");
 		const MAX_DIFF_LINES = 800;
