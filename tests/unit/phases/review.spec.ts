@@ -113,7 +113,7 @@ describe("reviewPhase", () => {
 		expect(msg).toContain("VERIFICATION.md");
 		// Diff is no longer inlined — agent runs `git diff` itself
 		expect(msg).not.toContain("diff content");
-		expect(msg).toMatch(/git .* diff .*milestone\/M01\.\.\.slice\/M01-S01/);
+		expect(msg).toMatch(/git .* diff .*milestone\/[0-9a-f]{8}\.\.\.slice\/[0-9a-f]{8}/);
 	});
 
 	it("message includes security reviewer content", async () => {
