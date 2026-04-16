@@ -60,7 +60,7 @@ export function executeRecovery(
 			releaseLock(root);
 			return {
 				success: true,
-				message: `Lock cleared. Re-run the current phase with \`/tff next\` or \`/tff ${statusToPhase(slice.status)}\`.`,
+				message: `Lock cleared. Re-run: \`/tff ${statusToPhase(slice.status)} ${sLabel}\`.`,
 			};
 		}
 
@@ -110,7 +110,7 @@ export function executeRecovery(
 
 			return {
 				success: true,
-				message: `Rolled back to ${last}. Re-run the phase with \`/tff next\`.${undoHint}`,
+				message: `Rolled back to ${last}. Re-run: \`/tff ${statusToPhase(slice.status)} ${sLabel}\`.${undoHint}`,
 			};
 		}
 
@@ -131,7 +131,7 @@ export function executeRecovery(
 			releaseLock(root);
 			return {
 				success: true,
-				message: `Fast-forwarded ${sLabel} from ${slice.status} to ${nextStatus ?? "unchanged"}. Run \`/tff next\` to continue.`,
+				message: `Fast-forwarded ${sLabel} from ${slice.status} to ${nextStatus ?? "unchanged"}. Next: \`/tff ${nextStatus ? statusToPhase(nextStatus) : statusToPhase(slice.status)} ${sLabel}\`.`,
 			};
 		}
 
