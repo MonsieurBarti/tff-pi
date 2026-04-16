@@ -1,6 +1,15 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
+	resolve: {
+		alias: {
+			"node:fs": join(__dirname, "tests/mocks/node-fs.cjs"),
+		},
+	},
 	test: {
 		globals: true,
 		environment: "node",
