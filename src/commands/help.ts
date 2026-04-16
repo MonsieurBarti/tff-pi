@@ -27,6 +27,7 @@ export async function runHelp(
 			"**Execution:**\n" +
 			"- `/tff execute [sliceId]` — Run the execute phase (wave-based task dispatch)\n" +
 			"- `/tff verify [sliceId]` — Run verification (AC check + tests)\n" +
+			"- `/tff review [sliceId]` — Run code + security review on the slice diff\n" +
 			"- `/tff ship [sliceId]` — Open the slice PR and run CI\n" +
 			"- `/tff ship-merged [sliceId]` — You merged the PR: cleanup worktree + close slice\n" +
 			"- `/tff ship-changes [sliceId] <feedback>` — Reviewer requested changes: reopen for fixes\n" +

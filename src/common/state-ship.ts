@@ -3,12 +3,14 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
 import { projectHomeDir } from "./project-home.js";
+import { isStateBranchEnabledForRoot } from "./state-branch-toggle.js";
 import { commitStateAtPhaseEnd, pushWithRebaseRetry, stateBranchName } from "./state-branch.js";
 
 export type FinalizeOutcome =
 	| "finalized"
 	| "finalized-local-only"
 	| "skipped-no-state-branch"
+	| "skipped-disabled"
 	| "conflict-backup";
 
 export interface FinalizeOpts {
@@ -27,6 +29,7 @@ function archiveTagName(milestoneBranch: string): string {
 export async function finalizeStateBranchForMilestone(
 	opts: FinalizeOpts,
 ): Promise<FinalizeOutcome> {
+	if (!isStateBranchEnabledForRoot(opts.repoRoot)) return "skipped-disabled";
 	const { repoRoot, projectId, milestoneBranch, parentBranch } = opts;
 	const stateBranch = stateBranchName(milestoneBranch);
 	const parentStateBranch = stateBranchName(parentBranch);

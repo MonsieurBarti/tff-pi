@@ -9,6 +9,7 @@ export const TFF_CHANNELS = [
 	"tff:tool",
 	"tff:derived",
 	"tff:override",
+	"tff:state-rename",
 ] as const;
 
 export type TffChannel = (typeof TFF_CHANNELS)[number];
@@ -95,6 +96,16 @@ export interface OverrideEvent extends TffEvent {
 	reason: string;
 }
 
+export interface StateRenameEvent {
+	timestamp: string;
+	type: "state_rename";
+	projectId: string;
+	oldCodeBranch: string;
+	newCodeBranch: string;
+	oldStateBranch: string;
+	newStateBranch: string;
+}
+
 export type TffEventMap = {
 	"tff:phase": PhaseEvent;
 	"tff:task": TaskEvent;
@@ -104,6 +115,7 @@ export type TffEventMap = {
 	"tff:tool": ToolCallEvent;
 	"tff:derived": DerivedEvent;
 	"tff:override": OverrideEvent;
+	"tff:state-rename": StateRenameEvent;
 };
 
 export interface EventBus {

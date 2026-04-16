@@ -7,6 +7,7 @@ export const VALID_SUBCOMMANDS = [
 	"plan",
 	"execute",
 	"verify",
+	"review",
 	"ship",
 	"ship-merged",
 	"ship-changes",
@@ -22,6 +23,8 @@ export const VALID_SUBCOMMANDS = [
 	"help",
 	"logs",
 	"doctor",
+	"state",
+	"branch",
 ] as const;
 
 export type Subcommand = (typeof VALID_SUBCOMMANDS)[number];

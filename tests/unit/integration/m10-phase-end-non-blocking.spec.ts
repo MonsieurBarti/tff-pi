@@ -2,11 +2,14 @@ import { execSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { commitStateAtPhaseEnd, ensureStateBranch } from "../../../src/common/state-branch.js";
 import { type TwoClone, makeTwoClone } from "../../helpers/git-state-fixtures.js";
+import { seedEnabledSettings } from "../../helpers/settings.js";
 
 describe("M10-S03: phase-end is non-blocking", () => {
 	let fx: TwoClone;
 	beforeEach(async () => {
 		fx = await makeTwoClone();
+		seedEnabledSettings(fx.alice);
+		seedEnabledSettings(fx.bob);
 	});
 	afterEach(() => fx.cleanup());
 

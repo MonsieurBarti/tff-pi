@@ -25,6 +25,7 @@ import { loadSettings } from "./common/settings.js";
 import { ensureStateBranch } from "./common/state-branch.js";
 import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
 import { ensureSliceWorktree } from "./common/worktree.js";
+import { detectRenameAlert } from "./lifecycle-rename-detect.js";
 import { type PendingWorktreeMarker, pendingWorktreeMarkerPath } from "./phases/execute.js";
 import { checkForUpdates } from "./update-check.js";
 
@@ -223,11 +224,16 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				applyMigrations(ctx.db, { root: ctx.projectRoot });
 				loadSettings(ctx, root);
 
-				// M10-S03: ensure tff-state/<codeBranch> exists. Best-effort:
-				// a broken state branch must never block session start.
+				// M10-S03/S5: ensure tff-state/<codeBranch> exists and alert on rename.
+				// Best-effort: a broken state branch must never block session start.
+				// Detect BEFORE ensureStateBranch so lastKnownCodeBranch still
+				// reflects the previous code branch during comparison.
 				try {
 					const projectId = readProjectIdFile(root);
-					if (projectId) await ensureStateBranch(root, projectId);
+					if (projectId) {
+						await detectRenameAlert(root, projectId, (msg) => pi.sendUserMessage(msg));
+						await ensureStateBranch(root, projectId);
+					}
 				} catch (err) {
 					console.warn(`state-branch preflight failed (root=${root}):`, err);
 				}

@@ -81,6 +81,12 @@ export async function handleCompleteMilestoneMerged(
 				success: true,
 				message: `${mLabel} closed. (No state branch to archive.)`,
 			};
+		case "skipped-disabled":
+			updateMilestoneStatus(db, milestone.id, "closed");
+			return {
+				success: true,
+				message: `${mLabel} closed. (State branch disabled; nothing to archive.)`,
+			};
 		case "conflict-backup":
 			return {
 				success: false,

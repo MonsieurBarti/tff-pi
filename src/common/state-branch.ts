@@ -12,9 +12,12 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
+import { isValidBranchName } from "./branch-names.js";
 import { openDatabase } from "./db.js";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
 import { projectHomeDir } from "./project-home.js";
+import { writeRepoState } from "./repo-state.js";
+import { isStateBranchEnabledForRoot } from "./state-branch-toggle.js";
 import { writeSnapshot } from "./state-exporter.js";
 import type { Phase } from "./types.js";
 
@@ -30,10 +33,10 @@ export class StateBranchError extends Error {
 // rejects invalid refs via check-ref-format, but we want a hard gate at our
 // own boundary so an attacker-controlled `codeBranch` can never reach git as
 // something that could be interpreted as a flag or traversal.
-const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/\-]*$/;
-
+// Path-traversal rejection (`.`, `..`, empty segments) is enforced by
+// isValidBranchName in branch-names.ts.
 function assertValidBranchName(name: string, label: string): void {
-	if (!BRANCH_NAME_RE.test(name)) {
+	if (!isValidBranchName(name)) {
 		throw new StateBranchError(`invalid ${label} branch name: ${JSON.stringify(name)}`);
 	}
 }
@@ -222,6 +225,7 @@ export interface CommitStateOpts {
 const COMMIT_TIMEOUT_MS = 10_000;
 
 export async function commitStateAtPhaseEnd(opts: CommitStateOpts): Promise<void> {
+	if (!isStateBranchEnabledForRoot(opts.repoRoot)) return;
 	const deadline = new Promise<void>((resolve) => {
 		setTimeout(() => {
 			console.warn("commitStateAtPhaseEnd: timed out after 10s");
@@ -344,6 +348,7 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 }
 
 export async function ensureStateBranch(repoRoot: string, projectId: string): Promise<void> {
+	if (!isStateBranchEnabledForRoot(repoRoot)) return;
 	if (isSliceWorktree(projectId)) return;
 
 	const codeBranch = currentBranch(repoRoot);
@@ -354,12 +359,26 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 	assertValidBranchName(codeBranch, "code");
 	const stateBranch = stateBranchName(codeBranch);
 
-	if (localBranchExists(repoRoot, stateBranch)) return;
+	const recordBranch = (): void => {
+		try {
+			writeRepoState(projectId, { lastKnownCodeBranch: codeBranch });
+		} catch (err) {
+			console.warn(`ensureStateBranch: writeRepoState failed: ${err}`);
+		}
+	};
+
+	if (localBranchExists(repoRoot, stateBranch)) {
+		recordBranch();
+		return;
+	}
 
 	// Try remote tracking ref for this exact stateBranch first.
 	if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, stateBranch)) {
 		const fetch = runGit(repoRoot, ["fetch", "origin", `${stateBranch}:refs/heads/${stateBranch}`]);
-		if (fetch.ok) return;
+		if (fetch.ok) {
+			recordBranch();
+			return;
+		}
 		console.warn(`ensureStateBranch: fetch of ${stateBranch} failed: ${fetch.stderr}`);
 	}
 
@@ -369,7 +388,10 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 		const parentState = stateBranchName(parentCode);
 		if (localBranchExists(repoRoot, parentState)) {
 			const br = runGit(repoRoot, ["branch", stateBranch, parentState]);
-			if (br.ok) return;
+			if (br.ok) {
+				recordBranch();
+				return;
+			}
 			console.warn(`ensureStateBranch: branch from ${parentState} failed: ${br.stderr}`);
 		}
 		if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, parentState)) {
@@ -380,12 +402,16 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 			]);
 			if (fetch.ok) {
 				const br = runGit(repoRoot, ["branch", stateBranch, parentState]);
-				if (br.ok) return;
+				if (br.ok) {
+					recordBranch();
+					return;
+				}
 			}
 		}
 	}
 
 	await createOrphanStateBranch(repoRoot, projectId, stateBranch, codeBranch);
+	recordBranch();
 }
 
 // ---------------------------------------------------------------------------

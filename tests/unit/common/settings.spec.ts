@@ -187,6 +187,7 @@ describe("settings", () => {
 				model_profile: "quality",
 				compress: { user_artifacts: true },
 				ship: { merge_method: "squash" },
+				state_branch: { enabled: false, auto_detect_rename: true },
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);
@@ -207,6 +208,7 @@ describe("settings", () => {
 				model_profile: "balanced",
 				compress: { user_artifacts: false, apply_to: ["artifacts", "phase_prompts"] },
 				ship: { merge_method: "squash" },
+				state_branch: { enabled: false, auto_detect_rename: true },
 			};
 			const yaml = serializeSettings(original);
 			const parsed = parseSettings(yaml);

@@ -19,6 +19,7 @@ describe("router", () => {
 				"plan",
 				"execute",
 				"verify",
+				"review",
 				"ship",
 				"ship-merged",
 				"ship-changes",
@@ -34,6 +35,8 @@ describe("router", () => {
 				"help",
 				"logs",
 				"doctor",
+				"state",
+				"branch",
 			]);
 		});
 	});
