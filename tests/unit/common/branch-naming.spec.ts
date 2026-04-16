@@ -1,15 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyMigrations, openDatabase } from "../../../src/common/db.js";
 import {
 	milestoneBranchName,
 	resolveBranchToEntity,
 	sliceBranchName,
 } from "../../../src/common/branch-naming.js";
+import { applyMigrations, openDatabase } from "../../../src/common/db.js";
 
 describe("branch-naming", () => {
 	let dbPath: string;
@@ -46,9 +46,12 @@ describe("branch-naming", () => {
 			"INSERT INTO milestone (id, project_id, number, name, branch) VALUES (?, ?, ?, ?, ?)",
 		).run(milestoneId, projectId, 1, "M1", "milestone/foo");
 		const sliceId = randomUUID();
-		db.prepare(
-			"INSERT INTO slice (id, milestone_id, number, title) VALUES (?, ?, ?, ?)",
-		).run(sliceId, milestoneId, 1, "first");
+		db.prepare("INSERT INTO slice (id, milestone_id, number, title) VALUES (?, ?, ?, ?)").run(
+			sliceId,
+			milestoneId,
+			1,
+			"first",
+		);
 
 		const branchName = sliceBranchName({ id: sliceId } as { id: string });
 		const resolved = resolveBranchToEntity(branchName, db);

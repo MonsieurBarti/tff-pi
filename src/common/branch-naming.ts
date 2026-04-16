@@ -1,18 +1,22 @@
+// Compose and resolve TFF-domain git branch names (`slice/<8hex>` and
+// `milestone/<8hex>`) against entities in the SQLite store.
+// For raw branch-name string validation (allow-list, traversal rejection),
+// see ./branch-names.ts.
+
 import type Database from "better-sqlite3";
-import { milestoneLabel, sliceLabel } from "./types.js";
+import { type Milestone, type Slice, milestoneLabel, sliceLabel } from "./types.js";
 
 const SLUG_LEN = 8;
 const SLUG_RE = /^[0-9a-f]{8}$/;
 
-export interface HasId {
-	id: string;
-}
+export type SliceBranchInput = Pick<Slice, "id">;
+export type MilestoneBranchInput = Pick<Milestone, "id">;
 
-export function sliceBranchName(slice: HasId): string {
+export function sliceBranchName(slice: SliceBranchInput): string {
 	return `slice/${slice.id.slice(0, SLUG_LEN)}`;
 }
 
-export function milestoneBranchName(milestone: HasId): string {
+export function milestoneBranchName(milestone: MilestoneBranchInput): string {
 	return `milestone/${milestone.id.slice(0, SLUG_LEN)}`;
 }
 

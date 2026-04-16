@@ -1,4 +1,9 @@
-// Centralized branch-name validation. Two layers of defense:
+// Validates raw branch-name strings against an allow-list and rejects
+// path-traversal segments. Boundary defense before any value reaches `git`.
+// For composing TFF-domain branch names from slice/milestone entities,
+// see ./branch-naming.ts.
+//
+// Two layers of defense:
 //   1. Allow-list regex for safe characters.
 //   2. Explicit rejection of path-traversal components (`..`, absolute paths).
 // git's check-ref-format provides a third layer, but we want to reject

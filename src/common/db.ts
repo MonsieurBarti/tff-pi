@@ -331,9 +331,9 @@ export function getProject(db: Database.Database): Project | null {
 
 export function insertMilestone(
 	db: Database.Database,
-	params: { projectId: string; number: number; name: string; branch: string },
+	params: { id?: string; projectId: string; number: number; name: string; branch: string },
 ): string {
-	const id = randomUUID();
+	const id = params.id ?? randomUUID();
 	db.prepare(
 		"INSERT INTO milestone (id, project_id, number, name, branch) VALUES (?, ?, ?, ?, ?)",
 	).run(id, params.projectId, params.number, params.name, params.branch);
