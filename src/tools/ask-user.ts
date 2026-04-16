@@ -24,8 +24,8 @@ export interface ToolResult {
 }
 
 const MIN_OPTIONS = 2;
-const MAX_OPTIONS_SINGLE = 3;
-const MAX_HEADER_LEN = 12;
+const MAX_OPTIONS_SINGLE = 5;
+const MAX_HEADER_LEN = 32;
 
 /**
  * Returns null if questions are valid, otherwise an error ToolResult the LLM can
@@ -118,12 +118,12 @@ export function register(pi: ExtensionAPI, _ctx: TffContext): void {
 			name: "tff_ask_user",
 			label: "TFF Ask User",
 			description:
-				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-3 bounded options (single-select) or 2+ (multi-select). The tool blocks until the user submits via the TUI; you do not need to wait or stop manually. Use this INSTEAD of free-form questions to prevent agent-invented options.",
+				"Present 1+ curated multiple-choice questions to the user. Each question must have 2-5 bounded options (single-select) or 2+ (multi-select). The tool blocks until the user submits via the TUI; you do not need to wait or stop manually. Use this INSTEAD of free-form questions to prevent agent-invented options.",
 			promptGuidelines: [
 				"Use for any user decision that has a discrete set of valid answers",
-				"Single-select questions: 2-3 options; an escape hatch ('None of the above') is auto-injected",
+				"Single-select questions: 2-5 options; an escape hatch ('None of the above') is auto-injected",
 				"Multi-select: set allowMultiple=true; any number of options",
-				"Headers must be ≤12 characters (TUI label)",
+				"Headers must be ≤32 characters (TUI label)",
 				"Do not paraphrase user input into your own options — if the user gave a free-form answer, reflect it back literally",
 				"This tool blocks until the user submits — you will receive their actual answer in the result; never assume an answer",
 			],
@@ -134,7 +134,7 @@ export function register(pi: ExtensionAPI, _ctx: TffContext): void {
 							description: "Stable snake_case id for mapping the user's answer back",
 						}),
 						header: Type.String({
-							description: "Short header shown in the UI (≤12 chars)",
+							description: "Short header shown in the UI (≤32 chars)",
 						}),
 						question: Type.String({
 							description: "Single-sentence prompt shown to the user",
@@ -148,7 +148,7 @@ export function register(pi: ExtensionAPI, _ctx: TffContext): void {
 							}),
 							{
 								description:
-									"2-3 mutually-exclusive options for single-select, or 2+ for multi-select",
+									"2-5 mutually-exclusive options for single-select, or 2+ for multi-select",
 							},
 						),
 						allowMultiple: Type.Optional(

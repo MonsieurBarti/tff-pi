@@ -28,10 +28,10 @@ describe("validateQuestions", () => {
 		expect(result?.content[0]?.text).toContain("Duplicate question id");
 	});
 
-	it("rejects header longer than 12 chars", () => {
-		const result = validateQuestions([{ ...valid, header: "X".repeat(13) }]);
+	it("rejects header longer than 32 chars", () => {
+		const result = validateQuestions([{ ...valid, header: "X".repeat(33) }]);
 		expect(result?.isError).toBe(true);
-		expect(result?.content[0]?.text).toContain("exceeds 12 characters");
+		expect(result?.content[0]?.text).toContain("exceeds 32 characters");
 	});
 
 	it("rejects fewer than 2 options", () => {
@@ -42,7 +42,7 @@ describe("validateQuestions", () => {
 		expect(result?.content[0]?.text).toContain("minimum is 2");
 	});
 
-	it("rejects more than 3 options for single-select", () => {
+	it("rejects more than 5 options for single-select", () => {
 		const result = validateQuestions([
 			{
 				...valid,
@@ -51,28 +51,13 @@ describe("validateQuestions", () => {
 					{ label: "B", description: "" },
 					{ label: "C", description: "" },
 					{ label: "D", description: "" },
+					{ label: "E", description: "" },
+					{ label: "F", description: "" },
 				],
 			},
 		]);
 		expect(result?.isError).toBe(true);
-		expect(result?.content[0]?.text).toContain("single-select allows at most 3");
-	});
-
-	it("allows >3 options when allowMultiple is true", () => {
-		expect(
-			validateQuestions([
-				{
-					...valid,
-					allowMultiple: true,
-					options: [
-						{ label: "A", description: "" },
-						{ label: "B", description: "" },
-						{ label: "C", description: "" },
-						{ label: "D", description: "" },
-					],
-				},
-			]),
-		).toBeNull();
+		expect(result?.content[0]?.text).toContain("single-select allows at most 5");
 	});
 
 	it("rejects duplicate option labels (case-insensitive)", () => {
@@ -87,5 +72,45 @@ describe("validateQuestions", () => {
 		]);
 		expect(result?.isError).toBe(true);
 		expect(result?.content[0]?.text).toContain("duplicate option label");
+	});
+
+	it("accepts 5-option single-select", () => {
+		expect(
+			validateQuestions([
+				{
+					...valid,
+					options: [
+						{ label: "A", description: "" },
+						{ label: "B", description: "" },
+						{ label: "C", description: "" },
+						{ label: "D", description: "" },
+						{ label: "E", description: "" },
+					],
+				},
+			]),
+		).toBeNull();
+	});
+
+	it("accepts a 32-char header", () => {
+		expect(validateQuestions([{ ...valid, header: "X".repeat(32) }])).toBeNull();
+	});
+
+	it("accepts >5 options when allowMultiple is true", () => {
+		expect(
+			validateQuestions([
+				{
+					...valid,
+					allowMultiple: true,
+					options: [
+						{ label: "A", description: "" },
+						{ label: "B", description: "" },
+						{ label: "C", description: "" },
+						{ label: "D", description: "" },
+						{ label: "E", description: "" },
+						{ label: "F", description: "" },
+					],
+				},
+			]),
+		).toBeNull();
 	});
 });

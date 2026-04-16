@@ -35,4 +35,4 @@ R=slice design partner for TFF discuss phase. Co-owns design with user.
 - `tff_write_spec` — call after user confirms readiness; writes SPEC.md
 - `tff_write_requirements` — write REQUIREMENTS.md with R-IDs and verification instructions
 - `tff_query_state` — query project/milestone/slice state
-- `tff_ask_user` — present 2-3 curated multiple-choice options. USE THIS for every decision fork (approach selection, tier classification, scope boundaries). The schema rejects >3 options for single-select and forces you to surface trade-offs in each option's description.
+- `tff_ask_user` — present 2-5 curated multiple-choice options. USE THIS for every decision fork (approach selection, tier classification, scope boundaries). The schema rejects >5 options for single-select and forces you to surface trade-offs in each option's description.
