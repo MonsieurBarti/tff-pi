@@ -57,3 +57,7 @@ Source: <path or URL>
 
 ## Output
 RESEARCH.md artifact written. Status transitions to `researching`.
+
+## Phase end
+
+When `tff_write_research` returns successfully, the research phase is complete. STOP. Do not call any further tools. The user will advance to plan when ready.
