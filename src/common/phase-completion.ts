@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { getLatestPhaseRun, getMilestone } from "./db.js";
+import { countOpenSlicesInMilestone, getLatestPhaseRun, getMilestone } from "./db.js";
 import { makeBaseEvent } from "./events.js";
 import { type Phase, type Slice, sliceLabel } from "./types.js";
 
@@ -92,4 +92,45 @@ export function emitPhaseCompleteIfArtifactsReady(
 		type: "phase_complete",
 		phase,
 	});
+}
+
+function nextPhaseFor(
+	status: Slice["status"],
+	tier: Slice["tier"] | null | undefined,
+): Phase | null {
+	switch (status) {
+		case "created":
+			return "discuss";
+		case "discussing":
+			return tier === "S" ? "plan" : "research";
+		case "researching":
+			return "plan";
+		case "planning":
+			return "execute";
+		case "executing":
+			return "verify";
+		case "verifying":
+			return "review";
+		case "reviewing":
+			return "ship";
+		default:
+			return null;
+	}
+}
+
+export function computeNextHint(
+	db: Database.Database,
+	slice: Slice,
+	milestoneNumber: number,
+): string | null {
+	const nextPhase = nextPhaseFor(slice.status, slice.tier);
+	const label = sliceLabel(milestoneNumber, slice.number);
+	if (nextPhase) {
+		return `→ Next: /tff ${nextPhase} ${label}`;
+	}
+	const openCount = countOpenSlicesInMilestone(db, slice.milestoneId);
+	if (openCount > 0) {
+		return "→ Next: /tff new";
+	}
+	return "→ Next: /tff complete-milestone";
 }
