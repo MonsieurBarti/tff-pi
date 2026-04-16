@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readArtifact } from "../common/artifacts.js";
-import { getTasksByWave, resetTasksToOpen } from "../common/db.js";
+import { milestoneBranchName } from "../common/branch-naming.js";
+import { getMilestone, getTasksByWave, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
@@ -54,7 +55,11 @@ export const executePhase: PhaseModule = {
 
 		closePredecessorIfReady(pi, db, root, slice, "execute", predecessorPhase, verifyPhaseArtifacts);
 
-		const milestoneBranch = `milestone/${mLabel}`;
+		const milestoneRow = getMilestone(db, slice.milestoneId);
+		if (!milestoneRow) {
+			return { success: false, retry: false, error: `Milestone not found: ${slice.milestoneId}` };
+		}
+		const milestoneBranch = milestoneBranchName(milestoneRow);
 		// Worktree creation is deferred to the new session's session_start handler
 		// (via ensureSliceWorktree) so synchronous git work does not block the
 		// prepare() → newSession() transition. The path is deterministic and can
