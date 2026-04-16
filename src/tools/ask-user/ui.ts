@@ -405,10 +405,30 @@ export function makeUI(theme: Theme, width: number): UI {
 		},
 
 		questionTabs: (headers, currentIndex, answeredIndices) => {
+			// Reserve a small budget for the bar chrome:
+			//   ` ← `  = 3 cols on the left
+			//   ` →`   = 2 cols on the right
+			//   ` `    = 1 col between each tab
+			//   per-tab chrome: ` X HEADER ` = `GLYPH + 2 spaces + header + 1 space` = 4 cols
+			const leftRight = 3 + 2;
+			const gaps = Math.max(0, headers.length - 1);
+			const perTabChrome = 4;
+			const availableForHeaders = width - leftRight - gaps - perTabChrome * headers.length;
+			const naiveTotal = headers.reduce((a, h) => a + h.length, 0);
+
+			// Truncate per-tab only when the naive layout doesn't fit.
+			const budget =
+				naiveTotal <= availableForHeaders
+					? Number.POSITIVE_INFINITY
+					: Math.max(4, Math.floor(availableForHeaders / headers.length));
+
+			const render = (h: string) =>
+				h.length <= budget ? h : `${h.slice(0, Math.max(1, budget - 1))}…`;
+
 			const parts = headers.map((header, i) => {
 				const isCurrent = i === currentIndex;
 				const isAnswered = answeredIndices.has(i);
-				const label = ` ${isAnswered ? GLYPH.squareFilled : GLYPH.squareEmpty} ${header} `;
+				const label = ` ${isAnswered ? GLYPH.squareFilled : GLYPH.squareEmpty} ${render(header)} `;
 				return isCurrent
 					? theme.bg("selectedBg", theme.fg("text", label))
 					: theme.fg(isAnswered ? "success" : "muted", label);
