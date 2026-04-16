@@ -87,6 +87,10 @@ const PHASE_TO_IN_PROGRESS_STATUS: Record<Phase, SliceStatus | null> = {
 	"ship-fix": null,
 };
 
+export function expectedInProgressStatusFor(phase: Phase): SliceStatus | null {
+	return PHASE_TO_IN_PROGRESS_STATUS[phase];
+}
+
 interface LatestPhaseRunRow {
 	phase: string;
 	status: string;
