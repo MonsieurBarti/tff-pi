@@ -22,6 +22,9 @@ import {
 
 export const PENDING_WORKTREE_MARKER = "pending-execute-worktree.json";
 
+// sliceLabel identifies the worktree's filesystem path (.tff/worktrees/<label>);
+// sliceId identifies the git branch (slice/<8hex>). Both travel together so the
+// session_start marker handler can materialise the worktree without a DB lookup.
 export interface PendingWorktreeMarker {
 	sliceLabel: string;
 	sliceId: string;
