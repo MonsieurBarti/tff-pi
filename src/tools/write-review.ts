@@ -23,7 +23,7 @@ export type ReviewVerdict = "approved" | "denied";
  * Writes REVIEW.md and, on 'denied' verdict, routes the slice back to
  * execute (resetting the listed tasks to 'open') so the agent can rework
  * the flagged issues. On 'approved' the slice stays in 'reviewing' and the
- * user can advance to ship via /tff next.
+ * user can advance to ship via /tff ship.
  */
 export function handleWriteReview(
 	pi: ExtensionAPI,
@@ -77,7 +77,7 @@ export function handleWriteReview(
 		content: [
 			{
 				type: "text",
-				text: `REVIEW.md written for ${label} (approved). Run /tff next to proceed to ship.`,
+				text: `REVIEW.md written for ${label} (approved).`,
 			},
 		],
 		details: { sliceId, path, verdict },
@@ -138,7 +138,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						params.verdict as ReviewVerdict,
 					);
 					if (!writeResult.isError && params.verdict === "approved") {
-						emitPhaseCompleteIfArtifactsReady(
+						const hint = emitPhaseCompleteIfArtifactsReady(
 							pi,
 							database,
 							root,
@@ -146,6 +146,17 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							"review",
 							verifyPhaseArtifacts,
 						);
+						if (hint) {
+							return {
+								...writeResult,
+								content: [
+									{
+										type: "text" as const,
+										text: `${writeResult.content[0]?.text ?? ""} Review phase complete. Stop here; the user will advance.\n\n${hint}`,
+									},
+								],
+							};
+						}
 					}
 					return writeResult;
 				} catch (err) {

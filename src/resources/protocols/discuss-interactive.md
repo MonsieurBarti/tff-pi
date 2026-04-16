@@ -83,3 +83,7 @@ After each `tff_write_*` call returns successfully, STOP. Do NOT call `plannotat
 
 ## 8. COMPLETION
 Confirm artifacts written. User can request changes in conversation.
+
+## Phase end
+
+The discuss phase is complete when SPEC.md, REQUIREMENTS.md, and the slice tier are all set. The tool-call that completes the set will return a message containing "Stop here; the user will advance." followed by the `→ Next:` hint. When you see that, STOP. Do not call any further tools.

@@ -23,3 +23,7 @@ phase complete — only this tool emits phase_complete.
 ## Honesty — audit of bash claims
 
 Any shell command you cite in VERIFICATION.md (e.g., ``ran `bun run test` — all pass``) is audited against the actual tool-call records captured during this phase. If the captured command's exit doesn't match your claim, `tff_write_verification` returns an audit error and DOES NOT mark the phase complete. Fix the claim to match reality, then call the tool again. Do NOT retry with the same content.
+
+## Phase end
+
+When `tff_write_verification` returns successfully, the verify phase is complete. STOP. Do not call any further tools. The user will advance to review when ready.

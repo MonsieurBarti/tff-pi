@@ -93,7 +93,7 @@ describe("researchPhase", () => {
 		expect(startCalls).toHaveLength(1);
 	});
 
-	it("does NOT emit phase_complete (tracked on /tff next)", async () => {
+	it("does NOT emit phase_complete (user advances manually)", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const mockEmit = vi.fn();
 		const ctx: PhaseContext = {

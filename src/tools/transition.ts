@@ -136,7 +136,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 			promptGuidelines: [
 				"Do NOT call tff_transition automatically after writing specs or plans",
 				"Always ask the user before transitioning to the next phase",
-				"Users advance phases explicitly with `/tff next` or the specific phase command",
+				"Users advance phases explicitly with the specific phase command (e.g., /tff plan M01-S01).",
 			],
 			parameters: Type.Object({
 				sliceId: Type.String({

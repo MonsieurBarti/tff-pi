@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
+	countOpenSlicesInMilestone,
 	exportState,
 	getActiveMilestone,
 	getActiveSlice,
@@ -563,5 +564,45 @@ describe("insertProject with explicit id", () => {
 		expect(returned).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
 		);
+	});
+});
+
+describe("countOpenSlicesInMilestone", () => {
+	it("returns 0 for a milestone with no slices", () => {
+		const db = openDatabase(":memory:");
+		applyMigrations(db);
+		insertProject(db, { name: "TFF", vision: "V" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		expect(countOpenSlicesInMilestone(db, milestoneId)).toBe(0);
+	});
+
+	it("returns the count of slices whose status is not 'closed'", () => {
+		const db = openDatabase(":memory:");
+		applyMigrations(db);
+		insertProject(db, { name: "TFF", vision: "V" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "S1" });
+		insertSlice(db, { milestoneId, number: 2, title: "S2" });
+		insertSlice(db, { milestoneId, number: 3, title: "S3" });
+		const slices = getSlices(db, milestoneId);
+		db.prepare("UPDATE slice SET status = 'closed' WHERE id = ?").run(must(slices[0]).id);
+		expect(countOpenSlicesInMilestone(db, milestoneId)).toBe(2);
+	});
+
+	it("returns 0 when every slice is closed", () => {
+		const db = openDatabase(":memory:");
+		applyMigrations(db);
+		insertProject(db, { name: "TFF", vision: "V" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "S1" });
+		const slice = must(getSlices(db, milestoneId)[0]);
+		db.prepare("UPDATE slice SET status = 'closed' WHERE id = ?").run(slice.id);
+		expect(countOpenSlicesInMilestone(db, milestoneId)).toBe(0);
 	});
 });

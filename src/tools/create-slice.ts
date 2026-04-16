@@ -35,7 +35,7 @@ export function handleCreateSlice(
 		content: [
 			{
 				type: "text",
-				text: `Slice ${label} "${title}" created (id: ${sliceId}). Use this ID or '${label}' in subsequent tool calls. To begin working on this slice, tell the user to run \`/tff discuss ${label}\` (or \`/tff next\` if it's the active slice). Do NOT suggest a non-existent command like /tff start — the valid phase subcommands are: discuss, research, plan, execute, verify, ship, next.`,
+				text: `Slice ${label} "${title}" created (id: ${sliceId}). Use this ID or '${label}' in subsequent tool calls. To begin working on this slice, tell the user to run \`/tff discuss ${label}\`. Do NOT suggest a non-existent command like /tff start — the valid phase subcommands are: discuss, research, plan, execute, verify, ship.`,
 			},
 		],
 		details: { sliceId, label, milestoneId, number },

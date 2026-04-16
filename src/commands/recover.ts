@@ -60,7 +60,7 @@ export function executeRecovery(
 			releaseLock(root);
 			return {
 				success: true,
-				message: `Lock cleared. Re-run the current phase with \`/tff next\` or \`/tff ${statusToPhase(slice.status)}\`.`,
+				message: `Lock cleared. Re-run: \`/tff ${statusToPhase(slice.status)} ${sLabel}\`.`,
 			};
 		}
 
@@ -110,7 +110,7 @@ export function executeRecovery(
 
 			return {
 				success: true,
-				message: `Rolled back to ${last}. Re-run the phase with \`/tff next\`.${undoHint}`,
+				message: `Rolled back to ${last}. Re-run: \`/tff ${statusToPhase(slice.status)} ${sLabel}\`.${undoHint}`,
 			};
 		}
 
@@ -131,7 +131,7 @@ export function executeRecovery(
 			releaseLock(root);
 			return {
 				success: true,
-				message: `Fast-forwarded ${sLabel} from ${slice.status} to ${nextStatus ?? "unchanged"}. Run \`/tff next\` to continue.`,
+				message: `Fast-forwarded ${sLabel} from ${slice.status} to ${nextStatus ?? "unchanged"}. Next: \`/tff ${nextStatus ? statusToPhase(nextStatus) : statusToPhase(slice.status)} ${sLabel}\`.`,
 			};
 		}
 
@@ -155,10 +155,13 @@ function statusToPhase(status: string): string {
 		planning: "plan",
 		executing: "execute",
 		verifying: "verify",
-		reviewing: "next",
+		reviewing: "ship",
 		shipping: "ship",
 	};
-	return map[status] ?? "next";
+	// `status` fallback: /tff status is always safe and tells the user where
+	// the slice stands after a recovery action. Never point at /tff next —
+	// that command was removed in M11-S03.
+	return map[status] ?? "status";
 }
 
 export async function runRecover(

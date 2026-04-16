@@ -66,7 +66,7 @@ describe("discuss phase rewrite", () => {
 		expect(result.message).toContain("s1");
 	});
 
-	it("emits phase_start but NOT phase_complete (completion tracked on /tff next)", async () => {
+	it("emits phase_start but NOT phase_complete (user advances manually)", async () => {
 		const ctx = makeCtx();
 		await discussPhase.prepare(ctx);
 

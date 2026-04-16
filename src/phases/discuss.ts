@@ -45,8 +45,10 @@ export const discussPhase: PhaseModule = {
 			sliceContext,
 		].join("\n");
 
-		// Interactive mode does NOT emit phase_complete — completion is
-		// tracked when `/tff next` verifies artifacts.
+		// Interactive mode: phase_complete is emitted by the tool that completes
+		// the artifact set (tff_write_spec / tff_write_requirements / tff_classify),
+		// not by this prepare() call. The completing tool's return text carries
+		// the → Next: hint to the user.
 		// Message returned for delivery into fresh session.
 		return { success: true, retry: false, message };
 	},

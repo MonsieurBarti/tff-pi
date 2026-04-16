@@ -1,7 +1,10 @@
 // src/commands/registry.ts
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { TffContext } from "../common/context.js";
+import { getMilestone } from "../common/db.js";
+import { computeNextHint } from "../common/phase-completion.js";
 import type { Subcommand } from "../common/router.js";
+import { findActiveSlice } from "../orchestrator.js";
 import { runBranchRename } from "./branch-rename.js";
 import { runCompleteMilestoneChanges } from "./complete-milestone-changes.js";
 import { runCompleteMilestoneMerged } from "./complete-milestone-merged.js";
@@ -15,7 +18,6 @@ import { runInit } from "./init.js";
 import { runLogs } from "./logs.js";
 import { runNewMilestone } from "./new-milestone.js";
 import { runNew } from "./new.js";
-import { runNext } from "./next.js";
 import { runPlan } from "./plan.js";
 import { runProgress } from "./progress.js";
 import { runRecover } from "./recover.js";
@@ -69,7 +71,29 @@ COMMANDS.set("review", runReview);
 COMMANDS.set("ship", runShip);
 COMMANDS.set("ship-merged", runShipMerged);
 COMMANDS.set("ship-changes", runShipChanges);
-COMMANDS.set("next", runNext);
+const runNextDeprecated: CommandHandler = async (pi, ctx, _uiCtx, _args) => {
+	if (!ctx.db || !ctx.projectRoot) {
+		pi.sendUserMessage("/tff next is removed in M11. Start a slice with /tff discuss M##-S##.");
+		return;
+	}
+	const slice = findActiveSlice(ctx.db);
+	if (!slice) {
+		pi.sendUserMessage(
+			"/tff next is removed in M11. No active slice; start one with /tff discuss M##-S##.",
+		);
+		return;
+	}
+	const milestone = getMilestone(ctx.db, slice.milestoneId);
+	if (!milestone) {
+		pi.sendUserMessage("/tff next is removed in M11. Type /tff status to inspect state.");
+		return;
+	}
+	const hint = computeNextHint(ctx.db, slice, milestone.number);
+	pi.sendUserMessage(
+		`${hint ?? "No next phase computable."} (tip: the next phase is shown automatically at the end of each tool result — /tff next is no longer needed.)`,
+	);
+};
+COMMANDS.set("next", runNextDeprecated);
 
 // Dispatch /tff state <sub>
 const runStateSub: CommandHandler = async (pi, ctx, uiCtx, args) => {

@@ -27,3 +27,7 @@ Call `tff_write_review(sliceId, content, verdict)`:
 - approved=no blocking issues | denied=changes required
 - findings: specific files+lines, not vague
 - tasksToRework: which PLAN tasks need re-execution
+
+## Phase end
+
+When `tff_write_review` returns successfully (verdict=approved), the review phase is complete. STOP. Do not call any further tools. The user will advance to ship when ready. (If verdict=denied, the tool itself routes back to execute — stop, then the user re-runs execute.)

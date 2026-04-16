@@ -70,4 +70,4 @@ If the tool returns an error with `feedback`, the user rejected the plan in plan
 
 ## Output
 PLAN.md artifact written. Tasks + dependencies inserted in DB. Waves auto-computed.
-Phase transitions to `executing` when the user runs `/tff next`.
+When `tff_write_plan` returns successfully, the plan phase is complete. STOP. Do not call any further tools. The user will advance with `/tff execute M##-S##` when ready.

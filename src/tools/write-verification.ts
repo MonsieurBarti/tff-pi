@@ -144,7 +144,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 					// Audit clean — clear any stale block marker from a prior mismatching run.
 					deleteArtifact(root, blockedPath);
 
-					emitPhaseCompleteIfArtifactsReady(
+					const hint = emitPhaseCompleteIfArtifactsReady(
 						pi,
 						database,
 						root,
@@ -152,6 +152,17 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						"verify",
 						verifyPhaseArtifacts,
 					);
+					if (hint) {
+						return {
+							...writeResult,
+							content: [
+								{
+									type: "text" as const,
+									text: `${writeResult.content[0]?.text ?? ""} Verify phase complete. Stop here; the user will advance.\n\n${hint}`,
+								},
+							],
+						};
+					}
 					return writeResult;
 				} catch (err) {
 					return {

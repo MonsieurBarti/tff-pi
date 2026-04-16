@@ -121,7 +121,7 @@ describe("recover command", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.message).toContain("execute");
+		expect(result.message).toContain("/tff execute M01-S01");
 		expect(readLock(root)).toBeNull();
 	});
 
