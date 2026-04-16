@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { readArtifact } from "./artifacts.js";
 import { getLastCheckpoint, listCheckpoints } from "./checkpoint.js";
-import { getMilestones, getProject, getSlice, getSlices } from "./db.js";
+import { getMilestone, getMilestones, getProject, getSlice, getSlices } from "./db.js";
 import type { Slice, SliceStatus } from "./types.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
 import { getWorktreePath, worktreeExists } from "./worktree.js";
@@ -132,6 +132,7 @@ export interface RecoveryDiagnosis {
 	classification: RecoveryClassification;
 	evidence: RecoveryEvidence;
 	recommendation: string;
+	milestoneBranch?: string; // actual git branch (UUID-form post-M11-S04)
 }
 
 export function scanForStuckSlices(db: Database.Database): Slice[] {
@@ -212,7 +213,9 @@ export function diagnoseRecovery(
 	const classification = classify(slice.status, evidence);
 	const recommendation = buildRecommendation(classification, slice.status, sLabel, evidence);
 
-	return {
+	const milestoneRow = getMilestone(db, slice.milestoneId);
+
+	const result: RecoveryDiagnosis = {
 		sliceId: slice.id,
 		sliceLabel: sLabel,
 		status: slice.status,
@@ -220,6 +223,12 @@ export function diagnoseRecovery(
 		evidence,
 		recommendation,
 	};
+
+	if (milestoneRow?.branch) {
+		result.milestoneBranch = milestoneRow.branch;
+	}
+
+	return result;
 }
 
 function classify(status: SliceStatus, evidence: RecoveryEvidence): RecoveryClassification {
@@ -317,11 +326,12 @@ export function formatRecoveryBriefing(
 		// Derive the milestone label from the slice label (e.g. "M01-S02" → "M01").
 		// sliceLabel format is "Mnn-Snn"; split on "-" to grab the first part.
 		const mLabel = diagnosis.sliceLabel.split("-")[0] ?? diagnosis.sliceLabel;
+		const milestoneBranch = diagnosis.milestoneBranch ?? `milestone/${mLabel}`;
 		lines.push("");
 		lines.push("### Git discipline reminder");
 		lines.push("");
 		lines.push(
-			`This phase requires git commits. Before \`/tff verify\` runs \`git diff milestone/${mLabel}...HEAD\`, make sure every code change has been \`git add\`-ed and \`git commit\`-ed in the slice worktree. Untracked files do NOT count as changes.`,
+			`This phase requires git commits. Before \`/tff verify\` runs \`git diff ${milestoneBranch}...HEAD\`, make sure every code change has been \`git add\`-ed and \`git commit\`-ed in the slice worktree. Untracked files do NOT count as changes.`,
 		);
 	}
 
