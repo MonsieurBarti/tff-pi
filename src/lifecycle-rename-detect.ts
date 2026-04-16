@@ -98,6 +98,13 @@ export async function detectAndHandleRename(
 	}
 	if (repoState.lastKnownCodeBranch === current) return "no-change";
 
+	// Skip detection for TFF-managed branches — these are stable refs created by
+	// new-milestone / createWorktree, never renamed by the user.
+	if (current.startsWith("slice/") || current.startsWith("milestone/")) {
+		writeRepoState(projectId, { lastKnownCodeBranch: current });
+		return "not-a-rename";
+	}
+
 	if (branchExistsAnywhere(root, repoState.lastKnownCodeBranch)) {
 		writeRepoState(projectId, { lastKnownCodeBranch: current });
 		return "not-a-rename";
@@ -152,6 +159,13 @@ export async function detectRenameAlert(
 		return "no-change";
 	}
 	if (repoState.lastKnownCodeBranch === current) return "no-change";
+
+	// Skip detection for TFF-managed branches — these are stable refs created by
+	// new-milestone / createWorktree, never renamed by the user.
+	if (current.startsWith("slice/") || current.startsWith("milestone/")) {
+		writeRepoState(projectId, { lastKnownCodeBranch: current });
+		return "not-a-rename";
+	}
 
 	if (branchExistsAnywhere(root, repoState.lastKnownCodeBranch)) {
 		writeRepoState(projectId, { lastKnownCodeBranch: current });
