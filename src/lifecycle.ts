@@ -99,7 +99,7 @@ async function maybeRunCrashRecoveryScan(
 /**
  * Wires all three session lifecycle hooks: session_start (project init,
  * crash-recovery scan on cold startup, extension update check),
- * session_shutdown (db close, memory shutdown, fff bridge shutdown),
+ * session_shutdown (fff bridge shutdown, db close),
  * and before_agent_start (system prompt injection).
  *
  * Moved out of the entry point to keep index.ts thin; no behavior change.
