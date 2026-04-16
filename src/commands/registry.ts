@@ -90,7 +90,7 @@ const runNextDeprecated: CommandHandler = async (pi, ctx, _uiCtx, _args) => {
 	}
 	const hint = computeNextHint(ctx.db, slice, milestone.number);
 	pi.sendUserMessage(
-		`${hint ?? "No next phase computable."} (note: /tff next is removed in M11 — use the phase-end hint in future.)`,
+		`${hint ?? "No next phase computable."} (tip: the next phase is shown automatically at the end of each tool result — /tff next is no longer needed.)`,
 	);
 };
 COMMANDS.set("next", runNextDeprecated);
