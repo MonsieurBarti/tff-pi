@@ -15,8 +15,8 @@ export async function runHelp(
 			"**Slice workflow:**\n" +
 			"- `/tff discuss [sliceId]` — Run the discuss phase on a slice\n" +
 			"- `/tff research [sliceId]` — Run the research phase on a slice\n" +
-			"- `/tff plan [sliceId]` — Run the plan phase on a slice\n" +
-			"- `/tff next` — Advance the active slice to its next phase\n\n" +
+			"- `/tff plan [sliceId]` — Run the plan phase on a slice\n\n" +
+			"Phases end with a printed `→ Next: /tff <phase> M##-S##` hint. Type what it shows to advance.\n\n" +
 			"**Monitoring:**\n" +
 			"- `/tff status` — Show current project status\n" +
 			"- `/tff progress` — Show detailed progress table\n" +
