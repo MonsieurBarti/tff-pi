@@ -15,7 +15,6 @@ import {
 } from "./common/db.js";
 import { shutdownFffBridge } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
-import { getMemory, initMemory, shutdownMemory } from "./common/memory.js";
 import { initMonitoring } from "./common/monitoring-setup.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { readProjectIdFile } from "./common/project-home.js";
@@ -65,7 +64,7 @@ function maybeEnsureWorktreeFromMarker(root: string): void {
 /**
  * Crash-recovery scan executed on cold startup. If the previous session left a
  * stale (or missing) lock and there is a stuck slice in the DB, surface a
- * recovery briefing to the user and log the crash to hippo-memory. Invoked
+ * recovery briefing to the user. Invoked
  * only when `event.reason === "startup"` so phase transitions (reason="new")
  * don't misflag in-flight slices. Best-effort: any internal failure is
  * swallowed so a broken scan can't block the rest of session_start.
@@ -92,20 +91,6 @@ async function maybeRunCrashRecoveryScan(
 		const diagnosis = diagnoseRecovery(root, ctx.db, stuckSlice.id, milestone.number);
 		const briefing = formatRecoveryBriefing(diagnosis, lock?.timestamp);
 		pi.sendUserMessage(briefing, { deliverAs: "steer" });
-
-		// Log crash to hippo-memory (best-effort)
-		const memory = getMemory();
-		if (memory) {
-			try {
-				await memory.remember({
-					content: `Crash during ${diagnosis.status} phase on ${diagnosis.sliceLabel}. Classification: ${diagnosis.classification}. Lock timestamp: ${lock?.timestamp ?? "unknown"}.`,
-					tags: ["tff-crash", "recovery", diagnosis.status],
-					kind: "observed",
-				});
-			} catch {
-				// best-effort
-			}
-		}
 	} catch {
 		// Best-effort — don't crash on recovery scan failure
 	}
@@ -211,9 +196,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 		}
 		ctx.projectRoot = root;
 
-		// hippo-memory is a required peer dep — initialize it eagerly.
-		await initMemory(root);
-
 		// Refresh ultra-compress active level from user's state store
 		await refreshCompressionLevel(root);
 
@@ -281,7 +263,6 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 		ctx.tuiMonitor = null;
 		await shutdownFffBridge();
 		ctx.fffBridge = null;
-		await shutdownMemory();
 		if (ctx.db) {
 			ctx.db.close();
 			ctx.db = null;
