@@ -96,7 +96,7 @@ describe("phase event emission", () => {
 			expect(startCalls).toHaveLength(1);
 		});
 
-		it("does NOT emit phase_complete (tracked on /tff next)", async () => {
+		it("does NOT emit phase_complete (user advances manually)", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
 			const result = await discussPhase.prepare(ctx);
@@ -126,7 +126,7 @@ describe("phase event emission", () => {
 			expect(startCalls).toHaveLength(1);
 		});
 
-		it("does NOT emit phase_complete (tracked on /tff next)", async () => {
+		it("does NOT emit phase_complete (user advances manually)", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
 			const result = await researchPhase.prepare(ctx);
@@ -157,7 +157,7 @@ describe("phase event emission", () => {
 			expect(startCalls).toHaveLength(1);
 		});
 
-		it("does NOT emit phase_complete (tracked on /tff next)", async () => {
+		it("does NOT emit phase_complete (user advances manually)", async () => {
 			const mockEmit = vi.fn();
 			const ctx = makeCtx(db, root, sliceId, mockEmit);
 			const result = await planPhase.prepare(ctx);

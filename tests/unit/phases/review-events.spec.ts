@@ -103,7 +103,7 @@ describe("reviewPhase event emission", () => {
 		expect(startCalls).toHaveLength(1);
 	});
 
-	it("does NOT emit phase_complete (interactive mode, tracked on /tff next)", async () => {
+	it("does NOT emit phase_complete (interactive mode, user advances manually)", async () => {
 		const mockEmit = vi.fn();
 		const ctx = makeCtx(db, root, sliceId, mockEmit);
 		const result = await reviewPhase.prepare(ctx);
