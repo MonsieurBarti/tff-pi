@@ -168,7 +168,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							content: [
 								{
 									type: "text" as const,
-									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared. Run /tff next to advance to plan.`,
+									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared. Discuss phase complete. Stop here; the user will advance.`,
 								},
 							],
 						};
