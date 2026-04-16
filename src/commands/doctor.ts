@@ -9,6 +9,7 @@ import {
 	getProject,
 	getSlices,
 	recoverOrphanedPhaseRuns,
+	updatePhaseRun,
 } from "../common/db.js";
 import { computeSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
@@ -69,6 +70,22 @@ export function handleDoctor(
 	for (const m of milestones) {
 		const slices = getSlices(db, m.id);
 		for (const s of slices) {
+			if (s.status === "closed") {
+				// Closed slices cannot transition; any 'started' phase_run on them
+				// is an orphan. Sweep to 'abandoned' so doctor stops reporting it
+				// as a stall forever. Idempotent — only touches status='started'.
+				const runs = getPhaseRuns(db, s.id);
+				const nowIso = new Date(now).toISOString();
+				for (const run of runs) {
+					if (run.status === "started") {
+						updatePhaseRun(db, run.id, {
+							status: "abandoned",
+							finishedAt: nowIso,
+						});
+					}
+				}
+				continue;
+			}
 			const runs = getPhaseRuns(db, s.id);
 			for (const run of runs) {
 				if (!isStalled(run, now)) continue;
