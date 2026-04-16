@@ -94,6 +94,9 @@ export function emitPhaseCompleteIfArtifactsReady(
 	});
 }
 
+// Mirrors orchestrator.ts:determineNextPhase — kept separate to avoid a
+// circular import (phase-completion.ts must not import from orchestrator.ts).
+// If determineNextPhase changes, this function must change in lockstep.
 function nextPhaseFor(
 	status: Slice["status"],
 	tier: Slice["tier"] | null | undefined,
