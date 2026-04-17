@@ -6,11 +6,13 @@ import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { makeBaseEvent } from "../common/events.js";
+import { computeNextHint } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
+import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -45,6 +47,11 @@ export function handleWriteSpec(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/SPEC.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
+	db.transaction(() => {
+		projectCommand(db, root, "write-spec", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "write-spec", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
 	return {
 		content: [{ type: "text", text: `SPEC.md written for ${label}.` }],
 		details: { sliceId, path },
@@ -155,14 +162,21 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
-						const hint = emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							root,
-							slice,
-							"discuss",
-							verifyPhaseArtifacts,
-						);
+						const milestone = getMilestone(database, slice.milestoneId);
+						if (!milestone) {
+							return {
+								content: [{ type: "text", text: `Milestone not found for slice: ${slice.id}` }],
+								details: { sliceId: slice.id },
+								isError: true,
+							};
+						}
+						const label = sliceLabel(milestone.number, slice.number);
+						pi.events.emit("tff:phase", {
+							...makeBaseEvent(slice.id, label, milestone.number),
+							type: "phase_complete",
+							phase: "discuss",
+						});
+						const hint = computeNextHint(database, slice, milestone.number);
 						return {
 							...writeResult,
 							content: [
