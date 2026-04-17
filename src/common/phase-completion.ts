@@ -73,45 +73,6 @@ export function closePredecessorIfReady(
 	});
 }
 
-/**
- * Called by writer tools (tff_write_plan, tff_write_spec, …) after a
- * successful write. If the target phase's on-disk artifacts are now all
- * present, emit `phase_complete` on the event bus AND return the next-step
- * hint string so the caller can surface it to the user via tool-return text.
- *
- * Returns `null` when the milestone is missing or artifacts are not yet
- * ready (i.e., nothing to announce).
- */
-export function emitPhaseCompleteIfArtifactsReady(
-	pi: ExtensionAPI,
-	db: Database.Database,
-	root: string,
-	slice: Slice,
-	phase: Phase,
-	verifyPhaseArtifacts: (
-		db: Database.Database,
-		root: string,
-		slice: Slice,
-		milestoneNumber: number,
-		phase: Phase,
-	) => { ok: boolean; missing: string[] },
-): string | null {
-	const milestone = getMilestone(db, slice.milestoneId);
-	if (!milestone) return null;
-	const check = verifyPhaseArtifacts(db, root, slice, milestone.number, phase);
-	if (!check.ok) {
-		logMissingArtifacts(slice.id, "emitPhaseCompleteIfArtifactsReady", check.missing);
-		return null;
-	}
-	const sLabel = sliceLabel(milestone.number, slice.number);
-	pi.events.emit("tff:phase", {
-		...makeBaseEvent(slice.id, sLabel, milestone.number),
-		type: "phase_complete",
-		phase,
-	});
-	return computeNextHint(db, slice, milestone.number);
-}
-
 export function computeNextHint(
 	db: Database.Database,
 	slice: Slice,

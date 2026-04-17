@@ -207,7 +207,7 @@ describe("phase completion path coverage", () => {
 			expect(
 				emitsInline || hasWriterTool,
 				`${phase}.ts has no completion signal. Add either an inline phase_complete/phase_failed emit ` +
-					`OR register ${writerTool ?? "a writer tool"} that calls emitPhaseCompleteIfArtifactsReady.`,
+					`OR register ${writerTool ?? "a writer tool"} that emits phase_complete via projectCommand/appendCommand.`,
 			).toBe(true);
 		}
 	});
