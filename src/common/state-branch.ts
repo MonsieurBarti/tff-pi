@@ -15,6 +15,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { isValidBranchName } from "./branch-names.js";
 import { openDatabase } from "./db.js";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
+import { logException, logWarning } from "./logger.js";
 import { projectHomeDir } from "./project-home.js";
 import { writeRepoState } from "./repo-state.js";
 import { isStateBranchEnabledForRoot } from "./state-branch-toggle.js";
@@ -228,7 +229,7 @@ export async function commitStateAtPhaseEnd(opts: CommitStateOpts): Promise<void
 	if (!isStateBranchEnabledForRoot(opts.repoRoot)) return;
 	const deadline = new Promise<void>((resolve) => {
 		setTimeout(() => {
-			console.warn("commitStateAtPhaseEnd: timed out after 10s");
+			logWarning("state-branch", "commit-state-timeout", { fn: "commitStateAtPhaseEnd" });
 			resolve();
 		}, COMMIT_TIMEOUT_MS).unref();
 	});
@@ -248,7 +249,11 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 	try {
 		const add = runGit(repoRoot, ["worktree", "add", tmpDir, stateBranch]);
 		if (!add.ok) {
-			console.warn(`commitStateAtPhaseEnd: worktree add failed: ${add.stderr}`);
+			logWarning("state-branch", "commit-state-failed", {
+				fn: "commitStateAtPhaseEnd",
+				step: "worktree-add",
+				stderr: add.stderr,
+			});
 			return;
 		}
 		wtRegistered = true;
@@ -295,13 +300,20 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 				mkdirSync(dirname(dst), { recursive: true });
 				copyFileSync(src, dst);
 			} else {
-				console.warn(`commitStateAtPhaseEnd: missing log ${src}, skipping freeze`);
+				logWarning("state-branch", "missing-log-skipped", {
+					fn: "commitStateAtPhaseEnd",
+					id: src,
+				});
 			}
 		}
 
 		const add2 = runGit(tmpDir, ["add", "-A"]);
 		if (!add2.ok) {
-			console.warn(`commitStateAtPhaseEnd: git add failed: ${add2.stderr}`);
+			logWarning("state-branch", "commit-state-failed", {
+				fn: "commitStateAtPhaseEnd",
+				step: "git-add",
+				stderr: add2.stderr,
+			});
 			return;
 		}
 
@@ -313,7 +325,11 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 		const suffix = freezeLogForSlice ? " (slice complete)" : "";
 		const commit = runGit(tmpDir, ["commit", "-m", `${phase}: ${sliceLabel}${suffix}`]);
 		if (!commit.ok) {
-			console.warn(`commitStateAtPhaseEnd: commit failed: ${commit.stderr}`);
+			logWarning("state-branch", "commit-state-failed", {
+				fn: "commitStateAtPhaseEnd",
+				step: "commit",
+				stderr: commit.stderr,
+			});
 			return;
 		}
 
@@ -321,22 +337,24 @@ async function runCommit(opts: CommitStateOpts): Promise<void> {
 		try {
 			const pushOutcome = await pushWithRebaseRetry(tmpDir, stateBranch);
 			if (pushOutcome === "pushed") {
-				console.log(`commitStateAtPhaseEnd: pushed ${stateBranch}`);
+				logWarning("state-branch", "pushed", { fn: "commitStateAtPhaseEnd", id: stateBranch });
 			} else if (pushOutcome === "conflict-backup") {
-				console.warn(
-					`commitStateAtPhaseEnd: conflict-backup on ${stateBranch} — backup ref created, investigate remote`,
-				);
+				logWarning("state-branch", "push-conflict-backup", {
+					fn: "commitStateAtPhaseEnd",
+					id: stateBranch,
+				});
 			} else if (pushOutcome === "push-failed") {
-				console.warn(
-					`commitStateAtPhaseEnd: push failed on ${stateBranch} — local commit preserved, check credentials/permissions`,
-				);
+				logWarning("state-branch", "push-failed-local-preserved", {
+					fn: "commitStateAtPhaseEnd",
+					id: stateBranch,
+				});
 			}
 			// "skipped-no-remote" is silent
 		} catch (pushErr) {
-			console.warn(`commitStateAtPhaseEnd: unexpected push error on ${stateBranch}:`, pushErr);
+			logException("state-branch", pushErr, { fn: "commitStateAtPhaseEnd", id: stateBranch });
 		}
 	} catch (err) {
-		console.warn("commitStateAtPhaseEnd: unexpected error", err);
+		logException("state-branch", err, { fn: "commitStateAtPhaseEnd" });
 	} finally {
 		if (wtRegistered) runGit(repoRoot, ["worktree", "remove", "--force", tmpDir]);
 		try {
@@ -353,7 +371,7 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 
 	const codeBranch = currentBranch(repoRoot);
 	if (!codeBranch) {
-		console.warn("ensureStateBranch: detached HEAD, skipping");
+		logWarning("state-branch", "detached-head-skipped", { fn: "ensureStateBranch" });
 		return;
 	}
 	assertValidBranchName(codeBranch, "code");
@@ -363,7 +381,7 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 		try {
 			writeRepoState(projectId, { lastKnownCodeBranch: codeBranch });
 		} catch (err) {
-			console.warn(`ensureStateBranch: writeRepoState failed: ${err}`);
+			logException("state-branch", err, { fn: "ensureStateBranch", step: "write-repo-state" });
 		}
 	};
 
@@ -379,7 +397,11 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 			recordBranch();
 			return;
 		}
-		console.warn(`ensureStateBranch: fetch of ${stateBranch} failed: ${fetch.stderr}`);
+		logWarning("state-branch", "fetch-failed", {
+			fn: "ensureStateBranch",
+			id: stateBranch,
+			stderr: fetch.stderr,
+		});
 	}
 
 	// Try to fork from the state branch of the merge-base-derived parent code branch.
@@ -392,7 +414,11 @@ export async function ensureStateBranch(repoRoot: string, projectId: string): Pr
 				recordBranch();
 				return;
 			}
-			console.warn(`ensureStateBranch: branch from ${parentState} failed: ${br.stderr}`);
+			logWarning("state-branch", "branch-from-parent-failed", {
+				fn: "ensureStateBranch",
+				id: parentState,
+				stderr: br.stderr,
+			});
 		}
 		if (hasOriginRemote(repoRoot) && remoteBranchExists(repoRoot, parentState)) {
 			const fetch = runGit(repoRoot, [
@@ -436,7 +462,10 @@ export async function pushWithRebaseRetry(
 		if (!isNonFf) {
 			// Non-retryable (auth/permission/disk-full/etc). Surface distinctly so
 			// /tff doctor can spot it instead of conflating with the no-remote case.
-			console.warn(`pushWithRebaseRetry: push failed (non-retryable): ${push.stderr}`);
+			logWarning("state-branch", "push-non-retryable", {
+				fn: "pushWithRebaseRetry",
+				stderr: push.stderr,
+			});
 			return "push-failed";
 		}
 		const fetch = runGit(worktreeDir, [
@@ -445,7 +474,10 @@ export async function pushWithRebaseRetry(
 			`+${stateBranch}:refs/remotes/origin/${stateBranch}`,
 		]);
 		if (!fetch.ok) {
-			console.warn(`pushWithRebaseRetry: fetch failed: ${fetch.stderr}`);
+			logWarning("state-branch", "push-fetch-failed", {
+				fn: "pushWithRebaseRetry",
+				stderr: fetch.stderr,
+			});
 			return "push-failed";
 		}
 		const rebase = runGit(worktreeDir, ["rebase", `origin/${stateBranch}`]);
@@ -459,7 +491,10 @@ export async function pushWithRebaseRetry(
 
 	if (backupKind === null) {
 		// 3 attempts exhausted without a true conflict — remote is a moving target.
-		console.warn(`pushWithRebaseRetry: retry cap reached on ${stateBranch}`);
+		logWarning("state-branch", "retry-cap-reached", {
+			fn: "pushWithRebaseRetry",
+			id: stateBranch,
+		});
 		backupKind = "churn";
 	}
 
@@ -474,22 +509,33 @@ export async function pushWithRebaseRetry(
 		`refs/remotes/origin/${stateBranch}:refs/heads/${backupRef}`,
 	]);
 	if (!saveRemoteTip.ok) {
-		console.warn(`pushWithRebaseRetry: failed to save remote tip: ${saveRemoteTip.stderr}`);
+		logWarning("state-branch", "save-remote-tip-failed", {
+			fn: "pushWithRebaseRetry",
+			stderr: saveRemoteTip.stderr,
+		});
 		// Still attempt force-push below so local progress is preserved.
 	}
 	// Default lease compares against refs/remotes/origin/<branch>, which we just
 	// refreshed via the fetch above.
 	const force = runGit(worktreeDir, ["push", "--force-with-lease", "origin", stateBranch]);
 	if (!force.ok) {
-		console.warn(
-			`pushWithRebaseRetry: force-push failed but backup ref ${backupRef} holds the remote tip: ${force.stderr}`,
-		);
+		logWarning("state-branch", "force-push-backup-preserved", {
+			fn: "pushWithRebaseRetry",
+			id: backupRef,
+			stderr: force.stderr,
+		});
 		return "conflict-backup";
 	}
 	if (backupKind === "conflict") {
-		console.warn(`State conflict preserved at ${backupRef}. Local state pushed.`);
+		logWarning("state-branch", "state-conflict-preserved", {
+			fn: "pushWithRebaseRetry",
+			id: backupRef,
+		});
 	} else {
-		console.warn(`Remote churn; backup preserved at ${backupRef}. Local state pushed.`);
+		logWarning("state-branch", "remote-churn-backup-preserved", {
+			fn: "pushWithRebaseRetry",
+			id: backupRef,
+		});
 	}
 	return "conflict-backup";
 }
