@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -36,6 +36,7 @@ describe("handleTransition persistence check", () => {
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "tff-transition-"));
+		mkdirSync(join(root, ".tff"), { recursive: true });
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		insertProject(db, { name: "TFF", vision: "V" });
@@ -63,20 +64,20 @@ describe("handleTransition persistence check", () => {
 		expect(after.status).toBe("verifying");
 	});
 
-	it("returns isError when root is absent and reconcile cannot run", () => {
-		// Without root, reconcileSliceStatus is skipped — status stays unchanged
+	it("returns isError when root is absent", () => {
+		// Without root, appendCommand cannot write to event-log — transition is rejected early.
 		const pi = makeFakePi({ swallow: true });
 		const result = handleTransition(pi, db, sliceId, 1, "verifying");
 
 		expect(result.isError).toBe(true);
-		expect(must(result.content[0]).text).toMatch(/slice\.status is still/i);
-		expect(result.details.persistenceVerified).toBe(false);
+		expect(must(result.content[0]).text).toMatch(/no project root/i);
 	});
 });
 
 describe("handleTransition with real bus (no logger needed)", () => {
 	it("returns success with persistenceVerified=true when root is provided", () => {
 		const root = mkdtempSync(join(tmpdir(), "tff-transition-happy-"));
+		mkdirSync(join(root, ".tff"), { recursive: true });
 		const db = openDatabase(":memory:");
 		applyMigrations(db);
 		insertProject(db, { name: "TFF", vision: "V" });
