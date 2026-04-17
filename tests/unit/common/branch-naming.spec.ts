@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	milestoneBranchName,
 	resolveBranchToEntity,
@@ -104,15 +104,14 @@ describe("branch-naming", () => {
 			"b",
 		);
 
-		const warn = console.warn;
-		const calls: string[] = [];
-		console.warn = (msg: string) => calls.push(msg);
+		const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 		try {
 			const r = resolveBranchToEntity("slice/abcdef12", db);
 			expect(r).not.toBeNull();
-			expect(calls.some((c) => c.includes("ambiguous"))).toBe(true);
+			const lines = stderrSpy.mock.calls.map((c) => String(c[0]));
+			expect(lines.some((l) => l.includes("ambiguous-prefix"))).toBe(true);
 		} finally {
-			console.warn = warn;
+			stderrSpy.mockRestore();
 		}
 	});
 });

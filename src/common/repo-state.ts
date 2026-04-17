@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isValidBranchName } from "./branch-names.js";
+import { logWarning } from "./logger.js";
 import { projectHomeDir } from "./project-home.js";
 
 export interface RepoState {
@@ -33,7 +34,7 @@ export function readRepoState(projectId: string): RepoState | null {
 		}
 		return null;
 	} catch {
-		console.warn(`repo-state: malformed JSON at ${p}, ignoring`);
+		logWarning("state-branch", "repo-state-malformed", { id: p });
 		return null;
 	}
 }

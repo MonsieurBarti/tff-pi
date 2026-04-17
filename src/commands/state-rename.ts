@@ -10,6 +10,7 @@ import {
 	remoteBranchExists,
 	runGit,
 } from "../common/git-internal.js";
+import { logException } from "../common/logger.js";
 import { projectHomeDir, readProjectIdFile } from "../common/project-home.js";
 import { readRepoState, writeRepoState } from "../common/repo-state.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
@@ -168,7 +169,7 @@ export async function runStateRename(
 		});
 	} catch (err) {
 		// Non-fatal
-		console.warn(`state-rename: event emit failed: ${err}`);
+		logException("state-branch", err, { fn: "state-rename-event-emit" });
 	}
 
 	pi.sendUserMessage(`Renamed state branch: ${oldStateBranch} -> ${newStateBranch}`);

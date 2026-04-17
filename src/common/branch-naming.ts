@@ -4,6 +4,7 @@
 // see ./branch-names.ts.
 
 import type Database from "better-sqlite3";
+import { logWarning } from "./logger.js";
 import { type Milestone, type Slice, milestoneLabel, sliceLabel } from "./types.js";
 
 const SLUG_LEN = 8;
@@ -41,15 +42,13 @@ function warnIfAmbiguous(
 	db: Database.Database,
 	table: "slice" | "milestone",
 	prefix: string,
-	matched: string,
+	_matched: string,
 ): void {
 	const count = db
 		.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE ? || '%'`)
 		.get(prefix) as { c: number };
 	if (count.c > 1) {
-		console.warn(
-			`branch-naming: ambiguous 8-char prefix "${prefix}" matches ${count.c} ${table} rows; using ${matched}`,
-		);
+		logWarning("artifact", "ambiguous-prefix", { id: prefix, count: count.c });
 	}
 }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { reconcileSliceStatus } from "./derived-state.js";
+import { logException } from "./logger.js";
 import {
 	type Dependency,
 	MILESTONE_STATUSES,
@@ -173,11 +174,7 @@ export function applyMigrations(db: Database.Database, opts?: { root?: string })
 						// One slice failing to reconcile (e.g., missing milestone, corrupt
 						// artifact path) must not stall the whole migration. Log and
 						// continue; the next /tff doctor run will catch any remaining drift.
-						console.error(
-							`[m09-s4 migration] reconcile failed for slice ${id}: ${
-								err instanceof Error ? err.message : String(err)
-							}`,
-						);
+						logException("db", err, { fn: "m09-s4-migration", id });
 					}
 				}
 			}

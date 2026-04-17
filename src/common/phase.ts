@@ -6,6 +6,7 @@ import { clearCurrentPhase, setCurrentPhase } from "./current-phase-context.js";
 import { getSlice } from "./db.js";
 import type { FffBridge } from "./fff-integration.js";
 import { getCurrentBranch } from "./git.js";
+import { logException } from "./logger.js";
 import { readProjectIdFile } from "./project-home.js";
 import { acquireLock, releaseLock } from "./session-lock.js";
 import type { Settings } from "./settings.js";
@@ -183,10 +184,10 @@ export async function runPhaseWithFreshContext(
 			});
 		}
 	} catch (err) {
-		console.warn(
-			`state-branch phase-end commit skipped (phase=${phase} slice=${sliceLabel(phaseCtx.milestoneNumber, phaseCtx.slice.number)}):`,
-			err,
-		);
+		logException("phase", err, {
+			fn: "phase-end-commit-skipped",
+			id: sliceLabel(phaseCtx.milestoneNumber, phaseCtx.slice.number),
+		});
 	}
 
 	// Stash on disk as a crash-recovery backstop before we try to switch.
