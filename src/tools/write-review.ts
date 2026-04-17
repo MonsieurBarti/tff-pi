@@ -6,10 +6,11 @@ import { writeArtifact } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice, resetTasksToOpen } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
+import { computeNextHint } from "../common/phase-completion.js";
+import { projectCommand } from "../common/projection.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -72,6 +73,13 @@ export function handleWriteReview(
 			details: { sliceId, path, verdict, routedTo: "executing" },
 		};
 	}
+
+	// Approved: enter tx block (phase_run completed + event log).
+	db.transaction(() => {
+		projectCommand(db, root, "write-review", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "write-review", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
 
 	return {
 		content: [
@@ -138,24 +146,26 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						params.verdict as ReviewVerdict,
 					);
 					if (!writeResult.isError && params.verdict === "approved") {
-						const hint = emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							root,
-							slice,
-							"review",
-							verifyPhaseArtifacts,
-						);
-						if (hint) {
-							return {
-								...writeResult,
-								content: [
-									{
-										type: "text" as const,
-										text: `${writeResult.content[0]?.text ?? ""} Review phase complete. Stop here; the user will advance.\n\n${hint}`,
-									},
-								],
-							};
+						const milestone = getMilestone(database, slice.milestoneId);
+						if (milestone) {
+							const sLabel = sliceLabel(milestone.number, slice.number);
+							pi.events.emit("tff:phase", {
+								...makeBaseEvent(slice.id, sLabel, milestone.number),
+								type: "phase_complete",
+								phase: "review",
+							});
+							const hint = computeNextHint(database, slice, milestone.number);
+							if (hint) {
+								return {
+									...writeResult,
+									content: [
+										{
+											type: "text" as const,
+											text: `${writeResult.content[0]?.text ?? ""} Review phase complete. Stop here; the user will advance.\n\n${hint}`,
+										},
+									],
+								};
+							}
 						}
 					}
 					return writeResult;
