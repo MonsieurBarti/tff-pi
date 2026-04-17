@@ -15,6 +15,7 @@ import {
 } from "./common/db.js";
 import { shutdownFffBridge } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
+import { logException, setLogBasePath } from "./common/logger.js";
 import { initMonitoring } from "./common/monitoring-setup.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { readProjectIdFile } from "./common/project-home.js";
@@ -195,6 +196,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 			return;
 		}
 		ctx.projectRoot = root;
+		setLogBasePath(root);
 
 		// Refresh ultra-compress active level from user's state store
 		await refreshCompressionLevel(root);
@@ -217,7 +219,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 						await ensureStateBranch(root, projectId);
 					}
 				} catch (err) {
-					console.warn(`state-branch preflight failed (root=${root}):`, err);
+					logException("lifecycle", err, { fn: "state-branch-preflight", id: root });
 				}
 
 				ctx.initError = null;

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hasOriginRemote, localBranchExists, remoteBranchExists, runGit } from "./git-internal.js";
+import { logWarning } from "./logger.js";
 import { projectHomeDir } from "./project-home.js";
 import { isStateBranchEnabledForRoot } from "./state-branch-toggle.js";
 import { commitStateAtPhaseEnd, pushWithRebaseRetry, stateBranchName } from "./state-branch.js";
@@ -52,7 +53,7 @@ export async function finalizeStateBranchForMilestone(
 	if (!localBranchExists(repoRoot, stateBranch)) {
 		const fetch = runGit(repoRoot, ["fetch", "origin", `${stateBranch}:refs/heads/${stateBranch}`]);
 		if (!fetch.ok) {
-			console.warn(`finalize: failed to fetch ${stateBranch}: ${fetch.stderr}`);
+			logWarning("ship", "fetch-failed", { fn: "finalize", id: stateBranch, stderr: fetch.stderr });
 			return "skipped-no-state-branch";
 		}
 	}
@@ -67,7 +68,7 @@ export async function finalizeStateBranchForMilestone(
 				`${parentStateBranch}:refs/heads/${parentStateBranch}`,
 			]);
 			if (!fetch.ok) {
-				console.warn(`finalize: fetch parent failed: ${fetch.stderr}`);
+				logWarning("ship", "fetch-parent-failed", { fn: "finalize", stderr: fetch.stderr });
 				return "conflict-backup";
 			}
 		} else {
@@ -86,7 +87,7 @@ export async function finalizeStateBranchForMilestone(
 	try {
 		const add = runGit(repoRoot, ["worktree", "add", tmpDir, parentStateBranch]);
 		if (!add.ok) {
-			console.warn(`finalize: worktree add failed: ${add.stderr}`);
+			logWarning("ship", "worktree-add-failed", { fn: "finalize", stderr: add.stderr });
 			return "conflict-backup";
 		}
 		wtRegistered = true;
@@ -105,7 +106,7 @@ export async function finalizeStateBranchForMilestone(
 				.toISOString()
 				.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 4)}`;
 			runGit(repoRoot, ["push", "origin", `${stateBranch}:refs/heads/${backupRef}`]);
-			console.warn(`finalize: merge conflict; backup at ${backupRef}`);
+			logWarning("ship", "merge-conflict-backup", { fn: "finalize", id: backupRef });
 			return "conflict-backup";
 		}
 
@@ -117,20 +118,24 @@ export async function finalizeStateBranchForMilestone(
 		// Step 6 — tag the milestone state branch tip
 		const tipResult = runGit(repoRoot, ["rev-parse", stateBranch]);
 		if (!tipResult.ok) {
-			console.warn(`finalize: rev-parse of ${stateBranch} failed: ${tipResult.stderr}`);
+			logWarning("ship", "rev-parse-failed", {
+				fn: "finalize",
+				id: stateBranch,
+				stderr: tipResult.stderr,
+			});
 			return "conflict-backup";
 		}
 		const sha = tipResult.stdout.trim();
 		const tag = archiveTagName(milestoneBranch);
 		const tagResult = runGit(repoRoot, ["tag", tag, sha]);
 		if (!tagResult.ok) {
-			console.warn(`finalize: tag create failed: ${tagResult.stderr}`);
+			logWarning("ship", "tag-create-failed", { fn: "finalize", stderr: tagResult.stderr });
 			return "conflict-backup";
 		}
 		if (hasOriginRemote(repoRoot)) {
 			const tagPush = runGit(repoRoot, ["push", "origin", tag]);
 			if (!tagPush.ok) {
-				console.warn(`finalize: tag push failed (non-fatal): ${tagPush.stderr}`);
+				logWarning("ship", "tag-push-failed", { fn: "finalize", stderr: tagPush.stderr });
 			}
 		}
 
@@ -140,7 +145,7 @@ export async function finalizeStateBranchForMilestone(
 		if (hasOriginRemote(repoRoot)) {
 			const del = runGit(repoRoot, ["push", "origin", `:${stateBranch}`]);
 			if (!del.ok) {
-				console.warn(`finalize: remote delete failed: ${del.stderr}`);
+				logWarning("ship", "remote-delete-failed", { fn: "finalize", stderr: del.stderr });
 				remoteOk = false;
 			}
 		} else {
@@ -175,7 +180,7 @@ async function createOrphanParent(
 	try {
 		const add = runGit(repoRoot, ["worktree", "add", "--detach", tmpDir, "HEAD"]);
 		if (!add.ok) {
-			console.warn(`createOrphanParent: worktree add failed: ${add.stderr}`);
+			logWarning("ship", "worktree-add-failed", { fn: "createOrphanParent", stderr: add.stderr });
 			return false;
 		}
 		wtRegistered = true;

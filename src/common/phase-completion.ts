@@ -1,13 +1,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { determineNextPhase } from "../orchestrator.js";
-import {
-	getLatestPhaseRun,
-	getMilestone,
-	getNextOpenSliceInMilestone,
-	insertEventLog,
-} from "./db.js";
+import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone } from "./db.js";
 import { makeBaseEvent } from "./events.js";
+import { logWarning } from "./logger.js";
 import { type Phase, type Slice, sliceLabel } from "./types.js";
 
 /**
@@ -65,7 +61,7 @@ export function closePredecessorIfReady(
 
 	const check = verifyPhaseArtifacts(db, root, slice, milestone.number, predecessor);
 	if (!check.ok) {
-		logMissingArtifacts(db, slice.id, predecessor, "closePredecessorIfReady", check.missing);
+		logMissingArtifacts(slice.id, "closePredecessorIfReady", check.missing);
 		return;
 	}
 
@@ -104,7 +100,7 @@ export function emitPhaseCompleteIfArtifactsReady(
 	if (!milestone) return null;
 	const check = verifyPhaseArtifacts(db, root, slice, milestone.number, phase);
 	if (!check.ok) {
-		logMissingArtifacts(db, slice.id, phase, "emitPhaseCompleteIfArtifactsReady", check.missing);
+		logMissingArtifacts(slice.id, "emitPhaseCompleteIfArtifactsReady", check.missing);
 		return null;
 	}
 	const sLabel = sliceLabel(milestone.number, slice.number);
@@ -137,30 +133,10 @@ export function computeNextHint(
 	return "→ Next: /tff complete-milestone";
 }
 
-function logMissingArtifacts(
-	db: Database.Database,
-	sliceId: string,
-	phase: Phase,
-	component: string,
-	missing: string[],
-): void {
-	console.warn(
-		`[${component}] phase_complete skipped for ${sliceId}/${phase}: missing artifacts:`,
-		missing,
-	);
-	try {
-		insertEventLog(db, {
-			channel: "tff:warning",
-			type: "phase_complete_skipped",
-			sliceId,
-			payload: JSON.stringify({
-				component,
-				phase,
-				reason: "artifacts_not_ready",
-				missing,
-			}),
-		});
-	} catch {
-		// event_log insert failed — already on stderr, don't loop.
-	}
+function logMissingArtifacts(sliceId: string, component: string, missing: string[]): void {
+	logWarning("completion", "phase_complete_skipped", {
+		sid: sliceId,
+		fn: component,
+		error: missing.join(","),
+	});
 }

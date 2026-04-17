@@ -48,5 +48,6 @@ docs/research/
 .tff/state.db-wal
 .tff/state.db-shm
 .tff/logs/
+.tff/audit-log.jsonl
 .tff/session.lock
 .tff/pending-phase-message.txt

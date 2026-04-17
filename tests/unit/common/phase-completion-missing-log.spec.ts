@@ -1,6 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	applyMigrations,
 	getEventLog,
@@ -13,6 +16,7 @@ import {
 	insertSlice,
 	openDatabase,
 } from "../../../src/common/db.js";
+import { setLogBasePath, setStderrLoggingEnabled } from "../../../src/common/logger.js";
 import { emitPhaseCompleteIfArtifactsReady } from "../../../src/common/phase-completion.js";
 import type { Slice } from "../../../src/common/types.js";
 import { must } from "../../helpers.js";
@@ -20,6 +24,8 @@ import { must } from "../../helpers.js";
 describe("emitPhaseCompleteIfArtifactsReady — missing artifact log", () => {
 	let db: Database.Database;
 	let slice: Slice;
+	let auditRoot: string;
+	let stderrSpy: MockInstance;
 
 	beforeEach(() => {
 		db = openDatabase(":memory:");
@@ -31,18 +37,23 @@ describe("emitPhaseCompleteIfArtifactsReady — missing artifact log", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		const sliceId = must(getSlices(db, milestoneId)[0]).id;
 		slice = must(getSlice(db, sliceId)) as Slice;
+		auditRoot = mkdtempSync(join(tmpdir(), "tff-pcml-"));
+		setLogBasePath(auditRoot);
+		setStderrLoggingEnabled(true);
+		stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 	});
 
-	it("writes tff:warning row and warns to stderr when artifacts missing", () => {
-		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+	afterEach(() => {
+		stderrSpy.mockRestore();
+		rmSync(auditRoot, { recursive: true, force: true });
+	});
+
+	it("emits one structured stderr warn line when artifacts missing; no tff:warning in event_log", () => {
 		const fakePi = {
 			events: { emit: vi.fn(), on: () => () => {} },
 		} as unknown as ExtensionAPI;
 
-		const verify = () => ({
-			ok: false,
-			missing: ["PLAN.md", "SPEC.md"],
-		});
+		const verify = () => ({ ok: false, missing: ["PLAN.md", "SPEC.md"] });
 
 		const result = emitPhaseCompleteIfArtifactsReady(
 			fakePi,
@@ -56,21 +67,24 @@ describe("emitPhaseCompleteIfArtifactsReady — missing artifact log", () => {
 		expect(result).toBeNull();
 		expect(fakePi.events.emit).not.toHaveBeenCalled();
 
-		const rows = getEventLog(db, slice.id, "tff:warning");
-		expect(rows.length).toBe(1);
-		const row = must(rows[0]);
-		const payload = JSON.parse(row.payload) as {
-			reason: string;
-			phase: string;
-			missing: string[];
-		};
-		expect(payload.reason).toBe("artifacts_not_ready");
-		expect(payload.phase).toBe("plan");
-		expect(payload.missing).toEqual(["PLAN.md", "SPEC.md"]);
-		expect(row.type).toBe("phase_complete_skipped");
+		// Post-M12-S01: no event_log row with channel='tff:warning' is written.
+		expect(getEventLog(db, slice.id, "tff:warning")).toEqual([]);
 
-		expect(warnSpy).toHaveBeenCalled();
-		warnSpy.mockRestore();
+		// Assert exactly one JSON stderr line, shape = completion/phase_complete_skipped.
+		const writes = stderrSpy.mock.calls.map((c) => String(c[0]));
+		const parsed = writes.map((w) => JSON.parse(w.trim()) as Record<string, unknown>);
+		expect(parsed).toHaveLength(1);
+		const line = parsed[0] as {
+			level: string;
+			component: string;
+			message: string;
+			ctx: { sid?: string; fn?: string; error?: string };
+		};
+		expect(line.level).toBe("warn");
+		expect(line.component).toBe("completion");
+		expect(line.message).toBe("phase_complete_skipped");
+		expect(line.ctx.sid).toBe(slice.id);
+		expect(line.ctx.error).toBe("PLAN.md,SPEC.md");
 	});
 
 	it("emits phase_complete normally when artifacts are ready", () => {
@@ -89,7 +103,6 @@ describe("emitPhaseCompleteIfArtifactsReady — missing artifact log", () => {
 		);
 
 		expect(fakePi.events.emit).toHaveBeenCalledTimes(1);
-		// Hint text varies (next open slice / complete-milestone); just assert non-null.
 		expect(typeof result).toBe("string");
 		expect(getEventLog(db, slice.id, "tff:warning")).toEqual([]);
 	});
