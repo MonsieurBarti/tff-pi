@@ -13,12 +13,14 @@ import {
 	insertTask,
 	updateTaskWave,
 } from "../common/db.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { makeBaseEvent } from "../common/events.js";
+import { computeNextHint } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
+import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { computeWaves } from "../common/waves.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -94,6 +96,12 @@ export function handleWritePlan(
 	for (const [taskId, wave] of waves) {
 		updateTaskWave(db, taskId, wave);
 	}
+
+	db.transaction(() => {
+		projectCommand(db, root, "write-plan", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "write-plan", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
 
 	const waveCount = waves.size > 0 ? Math.max(...waves.values()) : 0;
 	return {
@@ -200,23 +208,25 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
-						const hint = emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							root,
-							slice,
-							"plan",
-							verifyPhaseArtifacts,
-						);
-						return {
-							...writeResult,
-							content: [
-								{
-									type: "text" as const,
-									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared.${hint ? ` Plan phase complete. Stop here; the user will advance.\n\n${hint}` : ""}`,
-								},
-							],
-						};
+						const milestone = getMilestone(database, slice.milestoneId);
+						if (milestone) {
+							const sLabel = sliceLabel(milestone.number, slice.number);
+							pi.events.emit("tff:phase", {
+								...makeBaseEvent(slice.id, sLabel, milestone.number),
+								type: "phase_complete",
+								phase: "plan",
+							});
+							const hint = computeNextHint(database, slice, milestone.number);
+							return {
+								...writeResult,
+								content: [
+									{
+										type: "text" as const,
+										text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared.${hint ? ` Plan phase complete. Stop here; the user will advance.\n\n${hint}` : ""}`,
+									},
+								],
+							};
+						}
 					}
 					return writeResult;
 				} catch (err) {
