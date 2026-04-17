@@ -117,6 +117,19 @@ describe("logger", () => {
 		expect((lines[0] as { ctx: Record<string, unknown> }).ctx.stack).toBeUndefined();
 	});
 
+	it("logException stack auto-capture cannot be overridden by caller ctx", () => {
+		const err = new Error("real");
+		logException("db", err, { stack: "fake-stack-from-caller" });
+		const lineA = readAudit()[0] as { ctx: { stack?: string } };
+		expect(lineA.ctx.stack).toBe(err.stack);
+		expect(lineA.ctx.stack).not.toBe("fake-stack-from-caller");
+
+		// And for non-Error values, caller-supplied stack must also be dropped.
+		logException("db", "just-a-string", { stack: "fake-stack-2" });
+		const lineB = readAudit()[1] as { ctx: { stack?: string } };
+		expect(lineB.ctx.stack).toBeUndefined();
+	});
+
 	it("setLogBasePath twice redirects subsequent appends", () => {
 		const root2 = mkdtempSync(join(tmpdir(), "tff-logger-2-"));
 		try {

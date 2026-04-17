@@ -179,8 +179,27 @@ export function logException(component: LogComponent, err: unknown, ctx?: LogCon
 		message = String(err);
 		stack = undefined;
 	}
-	const merged = sanitize(ctx);
-	if (stack !== undefined) merged.stack = stack;
+	// Sanitize context but exclude stack; we'll add only the auto-captured stack.
+	// Build context without stack property by copying all fields except stack.
+	const ctxWithoutStack: LogContext | undefined = ctx
+		? {
+				...(ctx.fn !== undefined && { fn: ctx.fn }),
+				...(ctx.tool !== undefined && { tool: ctx.tool }),
+				...(ctx.mid !== undefined && { mid: ctx.mid }),
+				...(ctx.sid !== undefined && { sid: ctx.sid }),
+				...(ctx.tid !== undefined && { tid: ctx.tid }),
+				...(ctx.worktree !== undefined && { worktree: ctx.worktree }),
+				...(ctx.id !== undefined && { id: ctx.id }),
+				...(ctx.error !== undefined && { error: ctx.error }),
+				...(ctx.count !== undefined && { count: ctx.count }),
+				...(ctx.step !== undefined && { step: ctx.step }),
+				...(ctx.stderr !== undefined && { stderr: ctx.stderr }),
+			}
+		: undefined;
+	const merged = sanitize(ctxWithoutStack);
+	if (stack !== undefined) {
+		merged.stack = stack;
+	}
 	emit({
 		level: "error",
 		ts: new Date().toISOString(),
