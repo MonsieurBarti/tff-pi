@@ -151,10 +151,17 @@ describe("projectCommand — phase_run handlers", () => {
 		expect(getLatestPhaseRun(db, sId, "research")?.status).toBe("completed");
 	});
 
-	test("write-plan marks plan phase_run as completed (tasks managed by tool, not handler)", () => {
+	test("write-plan marks plan phase_run as completed and seeds tasks atomically", () => {
 		const { db, root, sId } = seededSlice();
 		insertPhaseRun(db, { sliceId: sId, phase: "plan", status: "started", startedAt: "t0" });
-		projectCommand(db, root, "write-plan", { sliceId: sId });
+		projectCommand(db, root, "write-plan", {
+			sliceId: sId,
+			tasks: [
+				{ id: "task-1", number: 1, title: "Task A" },
+				{ id: "task-2", number: 2, title: "Task B", wave: 2 },
+			],
+			dependencies: [{ fromTaskId: "task-2", toTaskId: "task-1" }],
+		});
 		expect(getLatestPhaseRun(db, sId, "plan")?.status).toBe("completed");
 	});
 

@@ -5,7 +5,6 @@ import { readArtifact } from "../common/artifacts.js";
 import { type TffContext, requireProject } from "../common/context.js";
 import { resolveMilestone } from "../common/db-resolvers.js";
 import { getActiveMilestone, getMilestone, getProject, getSlices } from "../common/db.js";
-import { overrideSliceStatus } from "../common/derived-state.js";
 import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
@@ -50,8 +49,20 @@ export async function handleCompleteMilestone(
 					if (viewResult.code === 0) {
 						const prData = JSON.parse(viewResult.stdout) as { state: string };
 						if (prData.state === "MERGED") {
-							overrideSliceStatus(db, slice.id, "closed", "milestone-close");
 							const sLabel = sliceLabel(milestone.number, slice.number);
+							db.transaction(() => {
+								projectCommand(db, root, "override-status", {
+									sliceId: slice.id,
+									status: "closed",
+									reason: "milestone-close",
+								});
+								const { hash, row } = appendCommand(root, "override-status", {
+									sliceId: slice.id,
+									status: "closed",
+									reason: "milestone-close",
+								});
+								updateLogCursor(db, hash, row);
+							})();
 							pi.events.emit("tff:override", {
 								...makeBaseEvent(slice.id, sLabel, milestone.number),
 								type: "status_override",

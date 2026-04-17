@@ -43,7 +43,11 @@ describe("handleWritePlan — event log", () => {
 		const events = readEvents(root);
 		expect(events).toHaveLength(1);
 		expect(events[0]?.cmd).toBe("write-plan");
-		expect(events[0]?.params).toEqual({ sliceId: sId });
+		const params = events[0]?.params as Record<string, unknown>;
+		expect(params.sliceId).toBe(sId);
+		expect(Array.isArray(params.tasks)).toBe(true);
+		expect((params.tasks as unknown[]).length).toBe(2);
+		expect(Array.isArray(params.dependencies)).toBe(true);
 
 		const cursor = loadCursor(db);
 		expect(cursor.lastRow).toBe(1);

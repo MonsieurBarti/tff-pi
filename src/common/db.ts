@@ -502,9 +502,9 @@ export function getNextOpenSliceInMilestone(
 
 export function insertTask(
 	db: Database.Database,
-	params: { sliceId: string; number: number; title: string; wave?: number },
+	params: { id?: string; sliceId: string; number: number; title: string; wave?: number },
 ): string {
-	const id = randomUUID();
+	const id = params.id ?? randomUUID();
 	db.prepare("INSERT INTO task (id, slice_id, number, title, wave) VALUES (?, ?, ?, ?, ?)").run(
 		id,
 		params.sliceId,

@@ -5,7 +5,7 @@ import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { getMilestone, getSlice, resetTasksToOpen } from "../common/db.js";
+import { getMilestone, getSlice } from "../common/db.js";
 import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { computeNextHint } from "../common/phase-completion.js";
@@ -56,9 +56,14 @@ export function handleWriteReview(
 	writeArtifact(root, path, content);
 
 	if (verdict === "denied") {
-		resetTasksToOpen(db, sliceId);
+		db.transaction(() => {
+			projectCommand(db, root, "review-rejected", { sliceId: slice.id });
+			const { hash, row } = appendCommand(root, "review-rejected", { sliceId: slice.id });
+			updateLogCursor(db, hash, row);
+		})();
+
 		pi.events.emit("tff:phase", {
-			...makeBaseEvent(sliceId, label, milestone.number),
+			...makeBaseEvent(slice.id, label, milestone.number),
 			type: "phase_failed",
 			phase: "review",
 			error: "Review verdict: denied",

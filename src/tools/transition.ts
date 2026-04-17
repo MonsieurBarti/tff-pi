@@ -4,7 +4,7 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { getMilestone, getSlice, insertPhaseRun } from "../common/db.js";
+import { getMilestone, getSlice } from "../common/db.js";
 import { expectedInProgressStatusFor } from "../common/derived-state.js";
 import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
@@ -126,27 +126,26 @@ export function handleTransition(
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
 
 	// Block 3: atomic state mutation + event-log append in one transaction.
-	// projectCommand("transition") does UPDATE slice SET status — no reconcile.
-	// This asymmetry is load-bearing: transition is the authoritative override.
+	// projectCommand("transition") does UPDATE slice SET status + insertPhaseRun.
+	// No reconcile: transition is the authoritative override.
+	const startedAt = new Date().toISOString();
 	db.transaction(() => {
-		projectCommand(db, root, "transition", { sliceId: slice.id, from: slice.status, to: target });
+		projectCommand(db, root, "transition", {
+			sliceId: slice.id,
+			from: slice.status,
+			to: target,
+			phase: phaseForTarget,
+			startedAt,
+		});
 		const { hash, row } = appendCommand(root, "transition", {
 			sliceId: slice.id,
 			from: slice.status,
 			to: target,
+			phase: phaseForTarget,
+			startedAt,
 		});
 		updateLogCursor(db, hash, row);
 	})();
-
-	// Post-commit: insert a phase_run row for the new phase lifecycle.
-	// This is independent of the transition command itself.
-	const now = new Date().toISOString();
-	insertPhaseRun(db, {
-		sliceId,
-		phase: phaseForTarget,
-		status: "started",
-		startedAt: now,
-	});
 
 	// Post-commit bus emit for TUIMonitor subscribers (write-only; no DB side-effects).
 	pi.events.emit("tff:phase", {

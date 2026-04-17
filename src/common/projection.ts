@@ -1,9 +1,14 @@
 import type Database from "better-sqlite3";
 import {
+	clearSliceTasks,
 	getLatestPhaseRun,
+	insertDependency,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
+	insertTask,
+	resetTasksToOpen,
 	updateMilestoneStatus,
 	updatePhaseRun,
 	updateSlicePrUrl,
@@ -100,10 +105,20 @@ function projectTransition(
 	params: {
 		sliceId: string;
 		to: SliceStatus;
+		phase?: Phase;
+		startedAt?: string;
 	},
 ): void {
 	// No reconcile: transition is the authoritative override.
 	db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(params.to, params.sliceId);
+	if (params.phase && params.startedAt) {
+		insertPhaseRun(db, {
+			sliceId: params.sliceId,
+			phase: params.phase,
+			status: "started",
+			startedAt: params.startedAt,
+		});
+	}
 }
 
 function projectShipMerged(
@@ -155,6 +170,40 @@ function projectCompleteMilestoneMerged(
 	updateMilestoneStatus(db, params.milestoneId, "closed");
 }
 
+function projectWritePlan(
+	db: Database.Database,
+	root: string,
+	params: {
+		sliceId: string;
+		tasks: Array<{ id: string; number: number; title: string; wave?: number }>;
+		dependencies: Array<{ fromTaskId: string; toTaskId: string }>;
+	},
+): void {
+	clearSliceTasks(db, params.sliceId);
+	for (const t of params.tasks) {
+		const base = { id: t.id, sliceId: params.sliceId, number: t.number, title: t.title };
+		insertTask(db, t.wave !== undefined ? { ...base, wave: t.wave } : base);
+	}
+	for (const d of params.dependencies) {
+		insertDependency(db, d);
+	}
+	completePhaseRun(db, params.sliceId, "plan");
+	reconcileSliceStatus(db, root, params.sliceId);
+}
+
+function projectReviewRejected(
+	db: Database.Database,
+	root: string,
+	params: { sliceId: string },
+): void {
+	const run = getLatestPhaseRun(db, params.sliceId, "review");
+	if (run && run.status === "started") {
+		updatePhaseRun(db, run.id, { status: "failed", finishedAt: new Date().toISOString() });
+	}
+	resetTasksToOpen(db, params.sliceId);
+	reconcileSliceStatus(db, root, params.sliceId);
+}
+
 function projectStateRename(_db: Database.Database, _root: string, _params: unknown): void {
 	// FS-side operation; no DB projection in S02.
 }
@@ -166,9 +215,10 @@ const HANDLERS: Record<string, ProjectionHandler> = {
 	"write-spec": projectArtifactOnly,
 	"write-requirements": projectArtifactOnly,
 	"write-research": projectPhaseComplete("research"),
-	"write-plan": projectPhaseComplete("plan"),
+	"write-plan": projectWritePlan,
 	"write-verification": projectPhaseComplete("verify"),
 	"write-review": projectPhaseComplete("review"),
+	"review-rejected": projectReviewRejected,
 	"execute-done": projectPhaseComplete("execute"),
 	classify: projectClassify,
 	transition: projectTransition,
