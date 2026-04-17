@@ -6,7 +6,9 @@ import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
+import { projectCommand } from "../common/projection.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface ShipApplyDoneInput {
@@ -20,6 +22,7 @@ export function handleShipApplyDone(
 	root: string,
 	input: ShipApplyDoneInput,
 ): { success: boolean; message: string } {
+	// Block 1: validate
 	const slice = resolveSlice(db, input.sliceLabel);
 	if (!slice) return { success: false, message: `Slice not found: ${input.sliceLabel}` };
 	const milestone = getMilestone(db, slice.milestoneId);
@@ -27,6 +30,8 @@ export function handleShipApplyDone(
 
 	const mLabel = milestoneLabel(milestone.number);
 	const sLabel = sliceLabel(milestone.number, slice.number);
+
+	// Block 2: side-effect work (clean up artifact)
 	const feedbackPath = join(
 		root,
 		".tff",
@@ -44,6 +49,15 @@ export function handleShipApplyDone(
 		}
 	}
 
+	// Block 3: atomic DB mutation + event-log append in one transaction.
+	// projectPhaseComplete("ship") completes the ship phase_run + reconciles status.
+	db.transaction(() => {
+		projectCommand(db, root, "ship-apply-done", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "ship-apply-done", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
+
+	// Block 4: post-commit bus emit
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(slice.id, sLabel, milestone.number),
 		type: input.rejected ? "phase_failed" : "phase_complete",

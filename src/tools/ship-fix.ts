@@ -1,11 +1,74 @@
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { getMilestone } from "../common/db.js";
+import { getMilestone, getSlice } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { makeBaseEvent } from "../common/events.js";
 import { type PhaseContext, runPhaseWithFreshContext } from "../common/phase.js";
+import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS } from "../common/settings.js";
+import { sliceLabel } from "../common/types.js";
 import { shipFixPhase } from "../phases/ship-fix.js";
+
+export interface ToolResult {
+	content: Array<{ type: "text"; text: string }>;
+	details: Record<string, unknown>;
+	isError?: boolean;
+}
+
+/**
+ * Pure (synchronous) handle function: projects the ship-fix command into the DB
+ * and appends to the event log. projectShipFix marks the ship phase_run as
+ * failed + reconciles status. Called before spawning the async PI session.
+ */
+export function handleShipFix(
+	pi: ExtensionAPI,
+	db: Database.Database,
+	root: string,
+	sliceId: string,
+): ToolResult {
+	// Block 1: validate
+	const slice = getSlice(db, sliceId);
+	if (!slice) {
+		return {
+			content: [{ type: "text", text: `Slice not found: ${sliceId}` }],
+			details: { sliceId },
+			isError: true,
+		};
+	}
+	const milestone = getMilestone(db, slice.milestoneId);
+	if (!milestone) {
+		return {
+			content: [{ type: "text", text: `Milestone not found for slice: ${sliceId}` }],
+			details: { sliceId },
+			isError: true,
+		};
+	}
+
+	const sLabel = sliceLabel(milestone.number, slice.number);
+
+	// Block 3: atomic DB mutation + event-log append in one transaction.
+	// projectShipFix marks ship phase_run as failed + reconciles slice status.
+	db.transaction(() => {
+		projectCommand(db, root, "ship-fix", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "ship-fix", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
+
+	// Block 4: post-commit bus emit
+	pi.events.emit("tff:phase", {
+		...makeBaseEvent(slice.id, sLabel, milestone.number),
+		type: "phase_failed",
+		phase: "ship",
+	});
+
+	return {
+		content: [{ type: "text", text: `Ship-fix session dispatched for ${sLabel}.` }],
+		details: { sliceId: slice.id },
+	};
+}
 
 export function register(pi: ExtensionAPI, ctx: TffContext): void {
 	pi.registerTool(
@@ -45,42 +108,49 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						isError: true,
 					};
 				}
-				const phaseCtx: PhaseContext = {
-					pi,
-					db: database,
-					root,
-					slice,
-					milestoneNumber: milestone.number,
-					settings: ctx.settings ?? DEFAULT_SETTINGS,
-					fffBridge: ctx.fffBridge,
-				};
-				const result = await runPhaseWithFreshContext({
-					phaseModule: shipFixPhase,
-					phaseCtx,
-					cmdCtx: ctx.cmdCtx,
-					phase: "ship-fix",
-				});
-				if (!result.success) {
+				try {
+					// Record the ship-fix event + project command (marks ship phase_run failed).
+					const logResult = handleShipFix(pi, database, root, slice.id);
+					if (logResult.isError) return logResult;
+
+					// Spawn the async PI session for the inline-fix agent.
+					const phaseCtx: PhaseContext = {
+						pi,
+						db: database,
+						root,
+						slice,
+						milestoneNumber: milestone.number,
+						settings: ctx.settings ?? DEFAULT_SETTINGS,
+						fffBridge: ctx.fffBridge,
+					};
+					const result = await runPhaseWithFreshContext({
+						phaseModule: shipFixPhase,
+						phaseCtx,
+						cmdCtx: ctx.cmdCtx,
+						phase: "ship-fix",
+					});
+					if (!result.success) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Ship-fix failed: ${result.error ?? "unknown error"}`,
+								},
+							],
+							details: { sliceLabel: params.sliceLabel },
+							isError: true,
+						};
+					}
+					return logResult;
+				} catch (err) {
 					return {
 						content: [
-							{
-								type: "text",
-								text: `Ship-fix failed: ${result.error ?? "unknown error"}`,
-							},
+							{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
 						],
 						details: { sliceLabel: params.sliceLabel },
 						isError: true,
 					};
 				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Ship-fix session dispatched for ${params.sliceLabel}. The inline-fix agent will take over.`,
-						},
-					],
-					details: { sliceLabel: params.sliceLabel },
-				};
 			},
 		}),
 	);
