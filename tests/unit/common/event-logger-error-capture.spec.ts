@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
 	getEventLog,
@@ -15,6 +15,7 @@ import {
 	openDatabase,
 } from "../../../src/common/db.js";
 import { EventLogger } from "../../../src/common/event-logger.js";
+import { setLogBasePath, setStderrLoggingEnabled } from "../../../src/common/logger.js";
 import { must } from "../../helpers.js";
 
 class MockEventBus {
@@ -37,6 +38,7 @@ class MockEventBus {
 describe("EventLogger error capture", () => {
 	let db: Database.Database;
 	let logsDir: string;
+	let auditRoot: string;
 	let sliceId: string;
 
 	beforeEach(() => {
@@ -49,44 +51,50 @@ describe("EventLogger error capture", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		logsDir = mkdtempSync(join(tmpdir(), "tff-evlogger-err-"));
+		auditRoot = mkdtempSync(join(tmpdir(), "tff-audit-"));
+		setLogBasePath(auditRoot);
+		setStderrLoggingEnabled(false);
 	});
 
 	afterEach(() => {
 		db.close();
 		rmSync(logsDir, { recursive: true, force: true });
+		rmSync(auditRoot, { recursive: true, force: true });
+		setStderrLoggingEnabled(true);
 	});
 
-	it("writes event_log row with tff:error channel when a handler throws", () => {
+	it("writes audit-log entry when a handler throws; no tff:error row in event_log", () => {
 		const bus = new MockEventBus();
 		const logger = new EventLogger(db, logsDir, "/nonexistent-root-forces-reconcile-skip");
 		logger.subscribe(bus as unknown as Parameters<EventLogger["subscribe"]>[0]);
 
-		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-		// Emit a tff:phase event that will fail inside handlePhaseRun because
-		// required fields (phase) are missing. The catch should surface the
-		// failure to event_log + stderr.
 		bus.emit("tff:phase", {
 			type: "phase_start",
 			sliceId,
 			sliceLabel: "M01-S01",
 			timestamp: new Date().toISOString(),
-			// phase intentionally omitted — insertPhaseRun requires it
 		});
 
-		const rows = getEventLog(db, sliceId, "tff:error");
-		expect(rows.length).toBeGreaterThanOrEqual(1);
-		const payload = JSON.parse(must(rows[0]).payload) as {
-			component: string;
-			sourceChannel: string;
-			message: string;
-		};
-		expect(payload.component).toBe("event-logger");
-		expect(payload.sourceChannel).toBe("tff:phase");
-		expect(payload.message.length).toBeGreaterThan(0);
+		// Post-M12-S01: no event_log row with channel='tff:error' is written.
+		expect(getEventLog(db, sliceId, "tff:error")).toEqual([]);
 
-		expect(errSpy).toHaveBeenCalled();
-		errSpy.mockRestore();
+		// Audit-log carries the structured error.
+		const auditPath = join(auditRoot, ".tff", "audit-log.jsonl");
+		expect(existsSync(auditPath)).toBe(true);
+		const lines = readFileSync(auditPath, "utf-8")
+			.split("\n")
+			.filter((l) => l.length > 0)
+			.map((l) => JSON.parse(l) as Record<string, unknown>);
+		expect(lines.length).toBeGreaterThanOrEqual(1);
+		const first = lines[0] as {
+			component: string;
+			message: string;
+			ctx: { tool?: string };
+		};
+		expect(first.component).toBe("event-logger");
+		expect(first.message.length).toBeGreaterThan(0);
+		expect(first.ctx.tool).toBe("tff:phase");
+
 		logger.dispose();
 	});
 });

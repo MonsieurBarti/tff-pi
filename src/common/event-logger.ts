@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { insertEventLog, insertPhaseRun, updatePhaseRun } from "./db.js";
 import { reconcileSliceStatus } from "./derived-state.js";
 import { type EventBus, type PhaseEvent, TFF_CHANNELS, type TffChannel } from "./events.js";
+import { logException } from "./logger.js";
 
 export class EventLogger {
 	private static readonly MAX_EVENT_LOG_ROWS = 10_000;
@@ -40,22 +41,7 @@ export class EventLogger {
 				} catch (err) {
 					const e = err instanceof Error ? err : new Error(String(err));
 					const sliceId = (data as { sliceId?: string | null })?.sliceId ?? "";
-					console.error(`[event-logger] ${channel} handler failed:`, e.message, e.stack);
-					try {
-						insertEventLog(this.db, {
-							channel: "tff:error",
-							type: "handler_failed",
-							sliceId,
-							payload: JSON.stringify({
-								component: "event-logger",
-								sourceChannel: channel,
-								message: e.message,
-								stack: e.stack,
-							}),
-						});
-					} catch {
-						// Even event_log insert failed — already on stderr, don't loop.
-					}
+					logException("event-logger", e, { tool: channel, sid: sliceId });
 				}
 			});
 			this.unsubscribers.push(unsub);
@@ -160,21 +146,7 @@ export class EventLogger {
 				});
 			}
 		} catch (err) {
-			console.error(`[event-logger] reconcileSliceStatus failed for ${sliceId}:`, err);
-			try {
-				insertEventLog(this.db, {
-					channel: "tff:derived",
-					type: "reconcile_error",
-					sliceId,
-					payload: JSON.stringify({
-						error: String(err),
-						stack: err instanceof Error ? err.stack : undefined,
-						timestamp: new Date().toISOString(),
-					}),
-				});
-			} catch {
-				// truly unrecoverable — swallow to keep pipeline alive
-			}
+			logException("reconcile", err, { sid: sliceId });
 		}
 	}
 
