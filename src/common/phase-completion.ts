@@ -1,13 +1,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { determineNextPhase } from "../orchestrator.js";
-import {
-	getLatestPhaseRun,
-	getMilestone,
-	getNextOpenSliceInMilestone,
-	insertEventLog,
-} from "./db.js";
+import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone } from "./db.js";
 import { makeBaseEvent } from "./events.js";
+import { logWarning } from "./logger.js";
 import { type Phase, type Slice, sliceLabel } from "./types.js";
 
 /**
@@ -138,29 +134,15 @@ export function computeNextHint(
 }
 
 function logMissingArtifacts(
-	db: Database.Database,
+	_db: Database.Database,
 	sliceId: string,
-	phase: Phase,
+	_phase: Phase,
 	component: string,
 	missing: string[],
 ): void {
-	console.warn(
-		`[${component}] phase_complete skipped for ${sliceId}/${phase}: missing artifacts:`,
-		missing,
-	);
-	try {
-		insertEventLog(db, {
-			channel: "tff:warning",
-			type: "phase_complete_skipped",
-			sliceId,
-			payload: JSON.stringify({
-				component,
-				phase,
-				reason: "artifacts_not_ready",
-				missing,
-			}),
-		});
-	} catch {
-		// event_log insert failed — already on stderr, don't loop.
-	}
+	logWarning("completion", "phase_complete_skipped", {
+		sid: sliceId,
+		fn: component,
+		error: missing.join(","),
+	});
 }
