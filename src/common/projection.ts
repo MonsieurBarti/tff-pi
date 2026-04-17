@@ -15,6 +15,7 @@ import {
 	updateSliceTier,
 } from "./db.js";
 import { overrideSliceStatus, reconcileSliceStatus } from "./derived-state.js";
+import { SLICE_STATUSES } from "./types.js";
 import type { Phase, SliceStatus, Tier } from "./types.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: dispatch table needs a base type; each handler has a concrete params type
@@ -109,6 +110,9 @@ function projectTransition(
 		startedAt?: string;
 	},
 ): void {
+	if (!(SLICE_STATUSES as readonly string[]).includes(params.to)) {
+		throw new Error(`Invalid slice status in transition command: ${params.to}`);
+	}
 	// No reconcile: transition is the authoritative override.
 	db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(params.to, params.sliceId);
 	if (params.phase && params.startedAt) {
@@ -151,6 +155,9 @@ function projectOverrideStatus(
 		reason: string;
 	},
 ): void {
+	if (!(SLICE_STATUSES as readonly string[]).includes(params.status)) {
+		throw new Error(`Invalid slice status in override-status command: ${params.status}`);
+	}
 	overrideSliceStatus(db, params.sliceId, params.status, params.reason);
 }
 

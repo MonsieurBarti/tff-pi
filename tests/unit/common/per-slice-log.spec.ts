@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -137,6 +137,15 @@ describe("readPerSliceLog", () => {
 	test("returns empty when file absent", () => {
 		const root = mkdtempSync(join(tmpdir(), "tff-read-"));
 		expect(readPerSliceLog(root, "M01-S01")).toEqual([]);
+	});
+
+	test("readPerSliceLog skips malformed JSON lines", () => {
+		const root = mkdtempSync(join(tmpdir(), "tff-read-bad-"));
+		mkdirSync(join(root, ".tff", "logs"), { recursive: true });
+		const good = JSON.stringify({ ts: "t", ch: "tff:phase", sliceLabel: "M01-S01" });
+		writeFileSync(join(root, ".tff/logs/M01-S01.jsonl"), `${good}\n{not json\n${good}\n`);
+		const lines = readPerSliceLog(root, "M01-S01");
+		expect(lines).toHaveLength(2);
 	});
 
 	test("round-trip: writes then reads parsed lines", () => {

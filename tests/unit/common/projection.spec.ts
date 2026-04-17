@@ -14,6 +14,7 @@ import {
 import { getMilestone, getSlice } from "../../../src/common/db.js";
 import * as derivedState from "../../../src/common/derived-state.js";
 import { UnknownCommandError, projectCommand } from "../../../src/common/projection.js";
+import type { SliceStatus } from "../../../src/common/types.js";
 
 function seeded() {
 	const db = new Database(":memory:");
@@ -305,5 +306,34 @@ describe("projectCommand — state-rename", () => {
 				newStateBranch: "tff-state/new",
 			}),
 		).not.toThrow();
+	});
+});
+
+describe("projectCommand — enum validation", () => {
+	test("projectTransition rejects invalid target status", () => {
+		const { db, root } = seeded();
+		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
+		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
+		expect(() =>
+			projectCommand(db, root, "transition", {
+				sliceId: sId,
+				to: "not-a-real-status" as unknown as SliceStatus,
+			}),
+		).toThrow(/Invalid slice status/);
+	});
+
+	test("projectOverrideStatus rejects invalid status", () => {
+		const { db, root } = seeded();
+		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
+		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
+		expect(() =>
+			projectCommand(db, root, "override-status", {
+				sliceId: sId,
+				status: "bogus" as unknown as SliceStatus,
+				reason: "test",
+			}),
+		).toThrow();
 	});
 });

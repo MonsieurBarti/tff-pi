@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { EventBus, TffChannel } from "./events.js";
+import { logWarning } from "./logger.js";
 
 // pi.events.emit is synchronous today. If it becomes async, ordering against
 // the post-commit emit in writer tools may break — audit callsites.
@@ -76,8 +77,20 @@ export function readPerSliceLog(root: string, label: string): PerSliceLogLine[] 
 	if (!existsSync(path)) return [];
 	const raw = readFileSync(path, "utf-8");
 	if (raw.length === 0) return [];
-	return raw
+	const out: PerSliceLogLine[] = [];
+	for (const [i, l] of raw
 		.split("\n")
 		.filter((l) => l.length > 0)
-		.map((l) => JSON.parse(l) as PerSliceLogLine);
+		.entries()) {
+		try {
+			out.push(JSON.parse(l) as PerSliceLogLine);
+		} catch (err) {
+			logWarning("artifact", "malformed-slice-log-line", {
+				id: label,
+				row: String(i + 1),
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	return out;
 }

@@ -86,6 +86,25 @@ describe("readEvents", () => {
 		expect(events).toHaveLength(2);
 		expect(events[0]?.cmd).toBe("cmd2");
 	});
+
+	test("readEvents skips malformed JSON lines and continues", () => {
+		const root = tempRoot();
+		const good = JSON.stringify({
+			v: 2,
+			cmd: "write-spec",
+			params: {},
+			ts: "t",
+			hash: "h",
+			actor: "agent",
+			session_id: "s",
+		});
+		const lines = [good, "not json", good];
+		writeFileSync(join(root, ".tff/event-log.jsonl"), `${lines.join("\n")}\n`);
+		const events = readEvents(root);
+		expect(events).toHaveLength(2);
+		expect(events[0]?.cmd).toBe("write-spec");
+		expect(events[1]?.cmd).toBe("write-spec");
+	});
 });
 
 describe("appendCommand", () => {

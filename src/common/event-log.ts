@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type DatabaseT from "better-sqlite3";
-import { getSessionId } from "./logger.js";
+import { getSessionId, logWarning } from "./logger.js";
 
 export interface CommandEvent {
 	v: 2;
@@ -29,7 +29,18 @@ export function readEvents(root: string, fromRow = 0): CommandEvent[] {
 	const raw = readFileSync(path, "utf-8");
 	if (raw.length === 0) return [];
 	const lines = raw.split("\n").filter((l) => l.length > 0);
-	return lines.slice(fromRow).map((line) => JSON.parse(line) as CommandEvent);
+	const out: CommandEvent[] = [];
+	for (const [i, line] of lines.slice(fromRow).entries()) {
+		try {
+			out.push(JSON.parse(line) as CommandEvent);
+		} catch (err) {
+			logWarning("event-log", "malformed-line", {
+				row: String(fromRow + i + 1),
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	return out;
 }
 
 export interface AppendResult {
