@@ -58,7 +58,7 @@ describe("/tff next deprecation stub", () => {
 			settings: null,
 			initError: null,
 			fffBridge: null,
-			eventLogger: null,
+			perSliceLog: null,
 			tuiMonitor: null,
 			toolCallLogger: null,
 			cmdCtx: null,

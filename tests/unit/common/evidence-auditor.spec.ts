@@ -1,11 +1,34 @@
-import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyMigrations, insertEventLog } from "../../../src/common/db.js";
 import {
 	auditVerification,
 	formatAuditReport,
 	parseVerificationClaims,
 } from "../../../src/common/evidence-auditor.js";
+import { PerSliceLog } from "../../../src/common/per-slice-log.js";
+
+function makeBus() {
+	const handlers: Map<string, Array<(d: unknown) => void>> = new Map();
+	return {
+		on(channel: string, fn: (d: unknown) => void) {
+			const list = handlers.get(channel) ?? [];
+			list.push(fn);
+			handlers.set(channel, list);
+			return () => {
+				const l = handlers.get(channel) ?? [];
+				handlers.set(
+					channel,
+					l.filter((f) => f !== fn),
+				);
+			};
+		},
+		emit(channel: string, data: unknown) {
+			for (const fn of handlers.get(channel) ?? []) fn(data);
+		},
+	};
+}
 
 describe("parseVerificationClaims", () => {
 	it("returns [] for empty input", () => {
@@ -99,12 +122,6 @@ describe("parseVerificationClaims", () => {
 	});
 
 	it("prose-only verification with no parseable claims returns [] (known limitation)", () => {
-		// Parser is regex-based and only catches three specific shapes. Pure
-		// prose like "I ran the tests and they all pass." has no backticks,
-		// no fenced blocks, no AC checklist line. Result: no claims → auditor
-		// produces no findings → hasMismatches=false → non-blocking. This is
-		// a KNOWN LIMITATION. A future slice can tighten by adding a
-		// structured `claims` param to tff_write_verification.
 		const md = "I ran the tests and they all pass. The code works.";
 		const claims = parseVerificationClaims(md);
 		expect(claims).toHaveLength(0);
@@ -112,15 +129,17 @@ describe("parseVerificationClaims", () => {
 });
 
 describe("auditVerification", () => {
-	let db: Database.Database;
-	const SLICE_ID = "slice-test-1";
+	let root: string;
+	let log: PerSliceLog;
+	let bus: ReturnType<typeof makeBus>;
+	const SLICE_LABEL = "M09-S02";
 
 	function seedBashEvent(command: string, isError: boolean, startedAt: string): void {
-		const payload = JSON.stringify({
+		bus.emit("tff:tool", {
 			timestamp: startedAt,
 			type: "tool_call",
-			sliceId: SLICE_ID,
-			sliceLabel: "M09-S02",
+			sliceId: "slice-test-1",
+			sliceLabel: SLICE_LABEL,
 			milestoneNumber: 9,
 			phase: "verify",
 			toolCallId: `c-${Math.random().toString(36).slice(2, 10)}`,
@@ -131,26 +150,24 @@ describe("auditVerification", () => {
 			durationMs: 42,
 			startedAt,
 		});
-		insertEventLog(db, {
-			channel: "tff:tool",
-			type: "tool_call",
-			sliceId: SLICE_ID,
-			payload,
-		});
 	}
 
 	beforeEach(() => {
-		db = new Database(":memory:");
-		applyMigrations(db);
+		root = mkdtempSync(join(tmpdir(), "tff-audit-"));
+		bus = makeBus();
+		log = new PerSliceLog(root);
+		log.subscribe(bus);
 	});
+
 	afterEach(() => {
-		db.close();
+		log.dispose();
+		rmSync(root, { recursive: true, force: true });
 	});
 
 	it("verdict=match when claim says pass and event has isError=false", () => {
 		seedBashEvent("bun run test", false, "2026-04-13T12:00:01Z");
 		const md = "Ran `bun run test` — all pass";
-		const report = auditVerification(db, SLICE_ID, md);
+		const report = auditVerification(root, SLICE_LABEL, md);
 		expect(report.summary).toEqual({ match: 1, mismatch: 0, unverifiable: 0 });
 		expect(report.hasMismatches).toBe(false);
 		expect(report.findings[0]?.verdict).toBe("match");
@@ -159,7 +176,7 @@ describe("auditVerification", () => {
 	it("verdict=mismatch when claim says pass and event has isError=true", () => {
 		seedBashEvent("bun run test", true, "2026-04-13T12:00:01Z");
 		const md = "Ran `bun run test` — all pass";
-		const report = auditVerification(db, SLICE_ID, md);
+		const report = auditVerification(root, SLICE_LABEL, md);
 		expect(report.summary).toEqual({ match: 0, mismatch: 1, unverifiable: 0 });
 		expect(report.hasMismatches).toBe(true);
 		expect(report.findings[0]?.verdict).toBe("mismatch");
@@ -168,7 +185,7 @@ describe("auditVerification", () => {
 
 	it("verdict=unverifiable when no tool-call record matches the claim", () => {
 		const md = "Ran `obscure_cmd_nobody_knows` — all pass";
-		const report = auditVerification(db, SLICE_ID, md);
+		const report = auditVerification(root, SLICE_LABEL, md);
 		expect(report.summary).toEqual({ match: 0, mismatch: 0, unverifiable: 1 });
 		expect(report.hasMismatches).toBe(false);
 		expect(report.findings[0]?.verdict).toBe("unverifiable");
@@ -178,18 +195,15 @@ describe("auditVerification", () => {
 		seedBashEvent("bun run test", true, "2026-04-13T12:00:01Z");
 		seedBashEvent("bun run test", false, "2026-04-13T12:05:00Z");
 		const md = "Ran `bun run test` — all pass";
-		const report = auditVerification(db, SLICE_ID, md);
+		const report = auditVerification(root, SLICE_LABEL, md);
 		expect(report.findings[0]?.verdict).toBe("match");
 		expect(report.findings[0]?.evidence?.actualExit).toBe(0);
 	});
 
 	it("matcher: single-token claim 'bun' does NOT match captured 'bun run test'", () => {
 		seedBashEvent("bun run test", true, "2026-04-13T12:00:01Z");
-		// Hand-craft the MD so the parser actually emits the short claim; if the parser
-		// rejected single-token backticks (min length 3), this would fail at parse.
-		// Pattern: short command still produces a claim because our regex min is 3 chars.
 		const md = "Ran `bun` — all pass";
-		const report = auditVerification(db, SLICE_ID, md);
+		const report = auditVerification(root, SLICE_LABEL, md);
 		// Short-claim matcher returns unverifiable (no token-prefix match with "bun run test").
 		expect(report.findings[0]?.verdict).toBe("unverifiable");
 		expect(report.summary.unverifiable).toBe(1);
@@ -198,7 +212,7 @@ describe("auditVerification", () => {
 	it("matcher: token-prefix claim 'bun run test' DOES match captured 'bun run test --watch' (paraphrase allowed)", () => {
 		seedBashEvent("bun run test --watch", false, "2026-04-13T12:00:01Z");
 		const md = "Ran `bun run test` — all pass";
-		const report = auditVerification(db, SLICE_ID, md);
+		const report = auditVerification(root, SLICE_LABEL, md);
 		expect(report.findings[0]?.verdict).toBe("match");
 	});
 
@@ -207,7 +221,7 @@ describe("auditVerification", () => {
 		seedBashEvent("bun run typecheck", false, "2026-04-13T12:00:02Z");
 		const md =
 			"Ran `bun run test` — all pass\nRan `bun run typecheck` — all pass\nRan `rg nope src/` — all pass";
-		const report = auditVerification(db, SLICE_ID, md);
+		const report = auditVerification(root, SLICE_LABEL, md);
 		const formatted = formatAuditReport(report);
 		expect(formatted).toContain("# Verification Audit");
 		expect(formatted).toContain("## Mismatches");

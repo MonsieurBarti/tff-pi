@@ -5,7 +5,8 @@ import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { expectedInProgressStatusFor } from "../common/derived-state.js";
+import { insertPhaseRun } from "../common/db.js";
+import { expectedInProgressStatusFor, reconcileSliceStatus } from "../common/derived-state.js";
 import { makeBaseEvent } from "../common/events.js";
 import { SLICE_TRANSITIONS, canTransitionSlice, nextSliceStatus } from "../common/state-machine.js";
 import { type Phase, SLICE_STATUSES, type SliceStatus, sliceLabel } from "../common/types.js";
@@ -32,6 +33,7 @@ export function handleTransition(
 	sliceId: string,
 	milestoneNumber: number,
 	targetStatus?: string,
+	root?: string,
 ): ToolResult {
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
@@ -108,15 +110,34 @@ export function handleTransition(
 	}
 
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
+	const now = new Date().toISOString();
+
+	// Insert a phase_run row for the new phase, then reconcile slice status
+	// directly. PerSliceLog (the new event sink) is write-only; reconciliation
+	// is no longer driven by bus listeners.
+	insertPhaseRun(db, {
+		sliceId,
+		phase: phaseForTarget,
+		status: "started",
+		startedAt: now,
+	});
+	if (root) {
+		try {
+			reconcileSliceStatus(db, root, sliceId);
+		} catch {
+			// Best-effort: reconcile failure must not block the transition success path.
+		}
+	}
+
+	// Emit the bus event for PerSliceLog + TUIMonitor subscribers (write-only;
+	// does not trigger any DB side-effects).
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(sliceId, sLabel, milestoneNumber),
 		type: "phase_start",
 		phase: phaseForTarget,
 	});
 
-	// pi's event emitter invokes listeners synchronously, so the event-logger
-	// has already run reconcileSliceStatus by the time we reach this line.
-	// Re-read to confirm the transition actually persisted.
+	// Re-read to confirm the status persisted.
 	const expected = expectedInProgressStatusFor(phaseForTarget);
 	const after = getSlice(db, sliceId);
 	if (!after || (expected !== null && after.status !== expected)) {
@@ -201,7 +222,14 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							isError: true,
 						};
 					}
-					return handleTransition(pi, database, slice.id, milestone.number, params.targetStatus);
+					return handleTransition(
+						pi,
+						database,
+						slice.id,
+						milestone.number,
+						params.targetStatus,
+						ctx.projectRoot ?? undefined,
+					);
 				} catch (err) {
 					return {
 						content: [

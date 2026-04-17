@@ -6,7 +6,6 @@ import type Database from "better-sqlite3";
 import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	applyMigrations,
-	getEventLog,
 	getMilestones,
 	getProject,
 	getSlice,
@@ -67,8 +66,7 @@ describe("emitPhaseCompleteIfArtifactsReady — missing artifact log", () => {
 		expect(result).toBeNull();
 		expect(fakePi.events.emit).not.toHaveBeenCalled();
 
-		// Post-M12-S01: no event_log row with channel='tff:warning' is written.
-		expect(getEventLog(db, slice.id, "tff:warning")).toEqual([]);
+		// event_log was dropped in schema v5; warnings are written to audit-log.jsonl via logger.
 
 		// Assert exactly one JSON stderr line, shape = completion/phase_complete_skipped.
 		const writes = stderrSpy.mock.calls.map((c) => String(c[0]));
@@ -104,6 +102,5 @@ describe("emitPhaseCompleteIfArtifactsReady — missing artifact log", () => {
 
 		expect(fakePi.events.emit).toHaveBeenCalledTimes(1);
 		expect(typeof result).toBe("string");
-		expect(getEventLog(db, slice.id, "tff:warning")).toEqual([]);
 	});
 });

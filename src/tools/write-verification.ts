@@ -102,10 +102,9 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
 					if (writeResult.isError) return writeResult;
 
-					const auditReport = auditVerification(database, slice.id, params.content);
-
 					const mLabel = milestoneLabel(milestone.number);
 					const sLabel = sliceLabel(milestone.number, slice.number);
+					const auditReport = auditVerification(root, sLabel, params.content);
 					const auditPath = `milestones/${mLabel}/slices/${sLabel}/VERIFICATION-AUDIT.md`;
 					const blockedPath = `milestones/${mLabel}/slices/${sLabel}/.audit-blocked`;
 

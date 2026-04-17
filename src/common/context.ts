@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import type { EventLogger } from "./event-logger.js";
 import type { FffBridge } from "./fff-integration.js";
+import type { PerSliceLog } from "./per-slice-log.js";
 import { DEFAULT_SETTINGS, type Settings } from "./settings.js";
 import type { ToolCallLogger } from "./tool-call-logger.js";
 import type { TUIMonitor } from "./tui-monitor.js";
@@ -19,7 +19,7 @@ export interface TffContext {
 	projectRoot: string | null;
 	settings: Settings | null;
 	fffBridge: FffBridge | null;
-	eventLogger: EventLogger | null;
+	perSliceLog: PerSliceLog | null;
 	toolCallLogger: ToolCallLogger | null;
 	tuiMonitor: TUIMonitor | null;
 	cmdCtx: ExtensionCommandContext | null;
@@ -42,7 +42,7 @@ export function createTffContext(): TffContext {
 		projectRoot: null,
 		settings: null,
 		fffBridge: null,
-		eventLogger: null,
+		perSliceLog: null,
 		toolCallLogger: null,
 		tuiMonitor: null,
 		cmdCtx: null,

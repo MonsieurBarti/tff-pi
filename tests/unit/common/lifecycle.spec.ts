@@ -98,7 +98,7 @@ function makeCtx() {
 		initError: null,
 		toolCallLogger: null,
 		settings: null,
-		eventLogger: null,
+		perSliceLog: null,
 		tuiMonitor: null,
 		fffBridge: null,
 	} as unknown as Parameters<typeof registerLifecycleHooks>[1];

@@ -6,32 +6,54 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { deleteArtifact, writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
-	getSlice,
-	insertEventLog,
 	insertMilestone,
 	insertProject,
 	insertSlice,
 } from "../../../src/common/db.js";
 import { auditVerification } from "../../../src/common/evidence-auditor.js";
-import type { Slice } from "../../../src/common/types.js";
+import { PerSliceLog } from "../../../src/common/per-slice-log.js";
 import { handleWriteVerification } from "../../../src/tools/write-verification.js";
 
 // These tests exercise the two load-bearing halves (handleWriteVerification
-// and auditVerification) against the same real DB + real filesystem. Together
-// they prove the contract that write-verification.execute() enforces after
-// Task 4 wires the auditor in.
+// and auditVerification) against the same real FS. Together they prove the
+// contract that write-verification.execute() enforces after Task 4 wires the
+// auditor in.
+
+function makeBus() {
+	const handlers: Map<string, Array<(d: unknown) => void>> = new Map();
+	return {
+		on(channel: string, fn: (d: unknown) => void) {
+			const list = handlers.get(channel) ?? [];
+			list.push(fn);
+			handlers.set(channel, list);
+			return () => {
+				const l = handlers.get(channel) ?? [];
+				handlers.set(
+					channel,
+					l.filter((f) => f !== fn),
+				);
+			};
+		},
+		emit(channel: string, data: unknown) {
+			for (const fn of handlers.get(channel) ?? []) fn(data);
+		},
+	};
+}
 
 describe("write-verification audit integration", () => {
 	let tmp: string;
 	let db: Database.Database;
-	let slice: Slice;
+	let sliceId: string;
+	let log: PerSliceLog;
+	let bus: ReturnType<typeof makeBus>;
+	const SLICE_LABEL = "M01-S01";
 
 	function seedBashEvent(command: string, isError: boolean): void {
-		const payload = JSON.stringify({
+		bus.emit("tff:tool", {
 			timestamp: "2026-04-13T12:00:00Z",
 			type: "tool_call",
-			sliceId: slice.id,
-			sliceLabel: "M01-S01",
+			sliceId,
+			sliceLabel: SLICE_LABEL,
 			milestoneNumber: 1,
 			phase: "verify",
 			toolCallId: `c-${Math.random().toString(36).slice(2, 8)}`,
@@ -42,7 +64,6 @@ describe("write-verification audit integration", () => {
 			durationMs: 10,
 			startedAt: "2026-04-13T12:00:00Z",
 		});
-		insertEventLog(db, { channel: "tff:tool", type: "tool_call", sliceId: slice.id, payload });
 	}
 
 	beforeEach(() => {
@@ -58,13 +79,15 @@ describe("write-verification audit integration", () => {
 			name: "M1",
 			branch: "milestone/M01",
 		});
-		const sliceId = insertSlice(db, { milestoneId, number: 1, title: "slice 1" });
-		const s = getSlice(db, sliceId);
-		if (!s) throw new Error("test setup: failed to read back inserted rows");
-		slice = s;
+		sliceId = insertSlice(db, { milestoneId, number: 1, title: "slice 1" });
+
+		bus = makeBus();
+		log = new PerSliceLog(tmp);
+		log.subscribe(bus);
 	});
 
 	afterEach(() => {
+		log.dispose();
 		db.close();
 		rmSync(tmp, { recursive: true, force: true });
 	});
@@ -72,8 +95,8 @@ describe("write-verification audit integration", () => {
 	it("all-matching claims → audit report has zero mismatches, hasMismatches=false", () => {
 		seedBashEvent("bun run test", false);
 		const md = "Ran `bun run test` — all pass";
-		handleWriteVerification(db, tmp, slice.id, md);
-		const report = auditVerification(db, slice.id, md);
+		handleWriteVerification(db, tmp, sliceId, md);
+		const report = auditVerification(tmp, SLICE_LABEL, md);
 		expect(report.hasMismatches).toBe(false);
 		expect(report.summary.mismatch).toBe(0);
 		expect(report.summary.match).toBe(1);
@@ -82,24 +105,24 @@ describe("write-verification audit integration", () => {
 	it("mismatching claim → hasMismatches=true so the tool will return isError and NOT emit phase_complete", () => {
 		seedBashEvent("bun run test", true);
 		const md = "Ran `bun run test` — all pass";
-		handleWriteVerification(db, tmp, slice.id, md);
-		const report = auditVerification(db, slice.id, md);
+		handleWriteVerification(db, tmp, sliceId, md);
+		const report = auditVerification(tmp, SLICE_LABEL, md);
 		expect(report.hasMismatches).toBe(true);
 		expect(report.summary.mismatch).toBe(1);
 	});
 
 	it("only-unverifiable claims → hasMismatches=false (non-blocking warning)", () => {
 		const md = "Ran `mystery_cmd` — all pass";
-		handleWriteVerification(db, tmp, slice.id, md);
-		const report = auditVerification(db, slice.id, md);
+		handleWriteVerification(db, tmp, sliceId, md);
+		const report = auditVerification(tmp, SLICE_LABEL, md);
 		expect(report.hasMismatches).toBe(false);
 		expect(report.summary.unverifiable).toBe(1);
 	});
 
 	it("no claims parsed → findings=[], hasMismatches=false", () => {
 		const md = "A verification report with no commands mentioned.";
-		handleWriteVerification(db, tmp, slice.id, md);
-		const report = auditVerification(db, slice.id, md);
+		handleWriteVerification(db, tmp, sliceId, md);
+		const report = auditVerification(tmp, SLICE_LABEL, md);
 		expect(report.findings).toHaveLength(0);
 		expect(report.hasMismatches).toBe(false);
 	});
@@ -115,8 +138,8 @@ describe("write-verification audit integration", () => {
 	it("mismatch path writes .audit-blocked sentinel in the slice directory", () => {
 		seedBashEvent("bun run test", true);
 		const md = "Ran `bun run test` — all pass";
-		handleWriteVerification(db, tmp, slice.id, md);
-		const report = auditVerification(db, slice.id, md);
+		handleWriteVerification(db, tmp, sliceId, md);
+		const report = auditVerification(tmp, SLICE_LABEL, md);
 
 		// Mirror what execute() does on mismatch:
 		if (report.hasMismatches) {

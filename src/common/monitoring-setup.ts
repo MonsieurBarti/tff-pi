@@ -1,21 +1,20 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { tffPath } from "./artifacts.js";
 import type { TffContext } from "./context.js";
-import { EventLogger } from "./event-logger.js";
 import { initFffBridge } from "./fff-integration.js";
+import { PerSliceLog } from "./per-slice-log.js";
 import { TUIMonitor } from "./tui-monitor.js";
 
 /**
- * Initialize EventLogger + TUIMonitor + fffBridge after DB creation or
- * discovery. Idempotent: if eventLogger is already set, no-op.
+ * Initialize PerSliceLog + TUIMonitor + fffBridge after DB creation or
+ * discovery. Idempotent: if perSliceLog is already set, no-op.
  *
  * Called from two places:
  *   1. session_start (in lifecycle.ts) — when PI starts up with an existing
  *      project DB.
  *   2. runNew (in commands/new.ts) — when `/tff new` creates the DB mid-session.
  *
- * Both paths need monitoring wired up so phase_start / phase_complete events
- * on `pi.events` reach the EventLogger and trigger reconcileSliceStatus.
+ * Both paths need monitoring wired up so events on `pi.events` reach
+ * the PerSliceLog and are written to per-slice JSONL files.
  */
 export async function initMonitoring(
 	pi: ExtensionAPI,
@@ -24,11 +23,10 @@ export async function initMonitoring(
 	uiCtx: ExtensionContext | null,
 ): Promise<void> {
 	if (!ctx.db) return; // no DB, nothing to wire
-	if (ctx.eventLogger) return; // already initialized
+	if (ctx.perSliceLog) return; // already initialized
 
-	const logsDir = tffPath(root, "logs");
-	ctx.eventLogger = new EventLogger(ctx.db, logsDir, root);
-	ctx.eventLogger.subscribe(pi.events);
+	ctx.perSliceLog = new PerSliceLog(root);
+	ctx.perSliceLog.subscribe(pi.events);
 
 	if (uiCtx?.hasUI) {
 		ctx.tuiMonitor = new TUIMonitor(uiCtx.ui);

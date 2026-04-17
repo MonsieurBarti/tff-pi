@@ -6,13 +6,13 @@ import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
-	insertEventLog,
 	insertMilestone,
 	insertProject,
 	insertSlice,
 	openDatabase,
 } from "../../../src/common/db.js";
 import { gitEnv } from "../../../src/common/git.js";
+import { PerSliceLog } from "../../../src/common/per-slice-log.js";
 import {
 	diagnoseRecovery,
 	formatRecoveryBriefing,
@@ -41,7 +41,21 @@ describe("recovery", () => {
 		},
 	): void {
 		const startedAt = opts.startedAt ?? new Date().toISOString();
-		const payload = JSON.stringify({
+		const bus = {
+			handlers: new Map<string, Array<(d: unknown) => void>>(),
+			on(channel: string, fn: (d: unknown) => void) {
+				const list = this.handlers.get(channel) ?? [];
+				list.push(fn);
+				this.handlers.set(channel, list);
+				return () => {};
+			},
+			emit(channel: string, data: unknown) {
+				for (const fn of this.handlers.get(channel) ?? []) fn(data);
+			},
+		};
+		const log = new PerSliceLog(root);
+		log.subscribe(bus);
+		bus.emit("tff:tool", {
 			timestamp: startedAt,
 			type: "tool_call",
 			sliceId,
@@ -56,7 +70,7 @@ describe("recovery", () => {
 			durationMs: opts.durationMs ?? 10,
 			startedAt,
 		});
-		insertEventLog(db, { channel: "tff:tool", type: "tool_call", sliceId, payload });
+		log.dispose();
 	}
 
 	beforeEach(() => {

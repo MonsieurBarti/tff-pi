@@ -47,7 +47,7 @@ describe("/tff doctor stale state-branch warning", () => {
 			projectRoot: p.repo,
 			settings: null,
 			fffBridge: null,
-			eventLogger: null,
+			perSliceLog: null,
 			toolCallLogger: null,
 			tuiMonitor: null,
 			cmdCtx: null,

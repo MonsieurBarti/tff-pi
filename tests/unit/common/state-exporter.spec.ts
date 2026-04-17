@@ -103,13 +103,8 @@ describe("exportSnapshot with data", () => {
 		expect(new Set(ids)).toEqual(new Set([sid1, sid2, sid3]));
 	});
 
-	it("excludes event_log rows from the snapshot", () => {
-		const pid = insertProject(db, { name: "P", vision: "V" });
-		const mid = insertMilestone(db, { projectId: pid, number: 1, name: "M", branch: "b" });
-		const sid = insertSlice(db, { milestoneId: mid, number: 1, title: "S" });
-		db.prepare(
-			"INSERT INTO event_log (channel, type, slice_id, payload) VALUES ('x','y',?,'{}')",
-		).run(sid);
+	it("does not include event_log key in snapshot (table was dropped in schema v5)", () => {
+		// event_log table was dropped in schema v5; snapshots must never include it.
 		const snap = exportSnapshot(db);
 		expect((snap as unknown as Record<string, unknown>).event_log).toBeUndefined();
 	});
