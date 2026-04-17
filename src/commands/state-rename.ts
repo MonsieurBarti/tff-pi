@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { isValidBranchName } from "../common/branch-names.js";
 import type { TffContext } from "../common/context.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import {
 	hasOriginRemote,
 	localBranchExists,
@@ -12,6 +13,7 @@ import {
 } from "../common/git-internal.js";
 import { logException } from "../common/logger.js";
 import { projectHomeDir, readProjectIdFile } from "../common/project-home.js";
+import { projectCommand } from "../common/projection.js";
 import { readRepoState, writeRepoState } from "../common/repo-state.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
 import { pushWithRebaseRetry, stateBranchName } from "../common/state-branch.js";
@@ -156,6 +158,22 @@ export async function runStateRename(
 	}
 
 	writeRepoState(projectId, { lastKnownCodeBranch: newCodeBranch });
+
+	if (ctx.db) {
+		const db = ctx.db;
+		const renameParams = {
+			projectId,
+			oldCodeBranch,
+			newCodeBranch,
+			oldStateBranch,
+			newStateBranch,
+		};
+		db.transaction(() => {
+			projectCommand(db, root, "state-rename", renameParams);
+			const { hash, row } = appendCommand(root, "state-rename", renameParams);
+			updateLogCursor(db, hash, row);
+		})();
+	}
 
 	try {
 		pi.events?.emit?.("tff:state-rename", {

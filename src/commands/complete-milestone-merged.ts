@@ -2,9 +2,11 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import type Database from "better-sqlite3";
 import { type TffContext, requireProject } from "../common/context.js";
 import { resolveMilestone } from "../common/db-resolvers.js";
-import { getMilestone, updateMilestoneStatus } from "../common/db.js";
+import { getMilestone } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { getDefaultBranch } from "../common/git.js";
 import { readProjectIdFile } from "../common/project-home.js";
+import { projectCommand } from "../common/projection.js";
 import type { Settings } from "../common/settings.js";
 import { finalizeStateBranchForMilestone } from "../common/state-ship.js";
 import { milestoneLabel } from "../common/types.js";
@@ -63,30 +65,23 @@ export async function handleCompleteMilestoneMerged(
 	});
 
 	const mLabel = milestoneLabel(milestone.number);
+
+	let successMessage: string | null = null;
 	switch (outcome) {
 		case "finalized":
-			updateMilestoneStatus(db, milestone.id, "closed");
-			return { success: true, message: `${mLabel} closed. State branch archived.` };
+			successMessage = `${mLabel} closed. State branch archived.`;
+			break;
 		case "finalized-local-only":
-			updateMilestoneStatus(db, milestone.id, "closed");
-			return {
-				success: true,
-				message:
-					`${mLabel} closed. State branch archived locally. Remote cleanup may have failed — ` +
-					`run 'git push origin :tff-state/${milestone.branch}' manually if needed.`,
-			};
+			successMessage =
+				`${mLabel} closed. State branch archived locally. Remote cleanup may have failed — ` +
+				`run 'git push origin :tff-state/${milestone.branch}' manually if needed.`;
+			break;
 		case "skipped-no-state-branch":
-			updateMilestoneStatus(db, milestone.id, "closed");
-			return {
-				success: true,
-				message: `${mLabel} closed. (No state branch to archive.)`,
-			};
+			successMessage = `${mLabel} closed. (No state branch to archive.)`;
+			break;
 		case "skipped-disabled":
-			updateMilestoneStatus(db, milestone.id, "closed");
-			return {
-				success: true,
-				message: `${mLabel} closed. (State branch disabled; nothing to archive.)`,
-			};
+			successMessage = `${mLabel} closed. (State branch disabled; nothing to archive.)`;
+			break;
 		case "conflict-backup":
 			return {
 				success: false,
@@ -95,6 +90,16 @@ export async function handleCompleteMilestoneMerged(
 					`Resolve manually, then re-run /tff complete-milestone-merged ${mLabel}.`,
 			};
 	}
+
+	db.transaction(() => {
+		projectCommand(db, root, "complete-milestone-merged", { milestoneId: milestone.id });
+		const { hash, row } = appendCommand(root, "complete-milestone-merged", {
+			milestoneId: milestone.id,
+		});
+		updateLogCursor(db, hash, row);
+	})();
+
+	return { success: true, message: successMessage };
 }
 
 export async function runCompleteMilestoneMerged(

@@ -4,18 +4,14 @@ import type Database from "better-sqlite3";
 import { readArtifact } from "../common/artifacts.js";
 import { type TffContext, requireProject } from "../common/context.js";
 import { resolveMilestone } from "../common/db-resolvers.js";
-import {
-	getActiveMilestone,
-	getMilestone,
-	getProject,
-	getSlices,
-	updateMilestoneStatus,
-} from "../common/db.js";
+import { getActiveMilestone, getMilestone, getProject, getSlices } from "../common/db.js";
 import { overrideSliceStatus } from "../common/derived-state.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
 import { getDefaultBranch, gitEnv } from "../common/git.js";
+import { projectCommand } from "../common/projection.js";
 import type { Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
@@ -169,7 +165,11 @@ export async function handleCompleteMilestone(
 			return { success: false, error: `gh pr create failed: ${createResult.stderr}` };
 		}
 		const prUrl = createResult.stdout.trim();
-		updateMilestoneStatus(db, milestoneId, "completing");
+		db.transaction(() => {
+			projectCommand(db, root, "complete-milestone-changes", { milestoneId });
+			const { hash, row } = appendCommand(root, "complete-milestone-changes", { milestoneId });
+			updateLogCursor(db, hash, row);
+		})();
 
 		// Hand off to the agent: ask the user whether the milestone PR was merged.
 		// Mirrors the slice-ship flow at src/phases/ship.ts.
