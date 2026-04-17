@@ -390,9 +390,9 @@ export function getActiveMilestone(db: Database.Database, projectId: string): Mi
 
 export function insertSlice(
 	db: Database.Database,
-	params: { milestoneId: string; number: number; title: string },
+	params: { id?: string; milestoneId: string; number: number; title: string },
 ): string {
-	const id = randomUUID();
+	const id = params.id ?? randomUUID();
 	db.prepare("INSERT INTO slice (id, milestone_id, number, title) VALUES (?, ?, ?, ?)").run(
 		id,
 		params.milestoneId,

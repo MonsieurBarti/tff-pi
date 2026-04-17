@@ -3,10 +3,12 @@ import type Database from "better-sqlite3";
 import { tffPath, writeArtifact } from "../common/artifacts.js";
 import { compressIfEnabled } from "../common/compress.js";
 import type { TffContext } from "../common/context.js";
-import { applyMigrations, getProject, insertProject, openDatabase } from "../common/db.js";
+import { applyMigrations, getProject, openDatabase } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { getGitRoot, hasRemote, initRepo } from "../common/git.js";
 import { initMonitoring } from "../common/monitoring-setup.js";
 import { ensureInitialized } from "../common/project-home.js";
+import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings, loadSettings } from "../common/settings.js";
 import { handleInit } from "./init.js";
 
@@ -26,8 +28,16 @@ export function handleNew(
 		throw new Error("Project already exists. Use /tff new-milestone to add milestones.");
 	}
 	const { projectName, vision } = input;
-	const trackedId = ensureInitialized(root);
-	const projectId = insertProject(db, { name: projectName, vision, id: trackedId });
+	const projectId = ensureInitialized(root);
+	db.transaction(() => {
+		projectCommand(db, root, "create-project", { id: projectId, name: projectName, vision });
+		const { hash, row } = appendCommand(root, "create-project", {
+			id: projectId,
+			name: projectName,
+			vision,
+		});
+		updateLogCursor(db, hash, row);
+	})();
 	const content = `# ${projectName}\n\n## Vision\n\n${vision}\n`;
 	writeArtifact(root, "PROJECT.md", compressIfEnabled(content, "artifacts", settings));
 	return { projectId };

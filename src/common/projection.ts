@@ -52,6 +52,7 @@ function projectCreateSlice(
 	db: Database.Database,
 	_root: string,
 	params: {
+		id?: string;
 		milestoneId: string;
 		number: number;
 		title: string;
