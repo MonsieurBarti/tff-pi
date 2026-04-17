@@ -1,7 +1,8 @@
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import Database from "better-sqlite3";
+import { describe, expect, test, vi } from "vitest";
 import { PerSliceLog, readPerSliceLog } from "../../../src/common/per-slice-log.js";
 
 function makeBus() {
@@ -67,6 +68,51 @@ describe("PerSliceLog", () => {
 			phase: null,
 		});
 		expect(existsSync(join(root, ".tff", "logs", "ambient.jsonl"))).toBe(true);
+	});
+
+	test("captures tff:derived status_changed events in per-slice JSONL", () => {
+		const root = mkdtempSync(join(tmpdir(), "tff-psl-derived-"));
+		const log = new PerSliceLog(root);
+		const bus = makeBus();
+		log.subscribe(bus);
+		bus.emit("tff:derived", {
+			timestamp: "2026-04-17T00:00:00Z",
+			sliceId: "s1",
+			sliceLabel: "M01-S01",
+			milestoneNumber: 1,
+			type: "status_changed",
+			from: "executing",
+			to: "verifying",
+		});
+		const logPath = join(root, ".tff", "logs", "M01-S01.jsonl");
+		expect(existsSync(logPath)).toBe(true);
+		const line = JSON.parse(readFileSync(logPath, "utf-8").trim()) as Record<string, unknown>;
+		expect(line.ch).toBe("tff:derived");
+		expect(line.type).toBe("status_changed");
+		expect(line.from).toBe("executing");
+		expect(line.to).toBe("verifying");
+	});
+
+	test("does not issue any DB writes during subscription handling", () => {
+		const root = mkdtempSync(join(tmpdir(), "tff-psl-nodb-"));
+		// Create a real db instance solely to arm a spy on its prepare method.
+		// PerSliceLog has no db reference; prepare should never be called.
+		const db = new Database(":memory:");
+		const prepareSpy = vi.spyOn(db, "prepare");
+		const log = new PerSliceLog(root);
+		const bus = makeBus();
+		log.subscribe(bus);
+		bus.emit("tff:phase", {
+			timestamp: "t",
+			sliceId: "s1",
+			sliceLabel: "M01-S01",
+			milestoneNumber: 1,
+			type: "phase_complete",
+			phase: "verify",
+		});
+		expect(prepareSpy).not.toHaveBeenCalled();
+		prepareSpy.mockRestore();
+		db.close();
 	});
 
 	test("dispose() stops further writes", () => {

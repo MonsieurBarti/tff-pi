@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	applyMigrations,
 	getLatestPhaseRun,
@@ -12,6 +12,7 @@ import {
 	insertSlice,
 } from "../../../src/common/db.js";
 import { getMilestone, getSlice } from "../../../src/common/db.js";
+import * as derivedState from "../../../src/common/derived-state.js";
 import { UnknownCommandError, projectCommand } from "../../../src/common/projection.js";
 
 function seeded() {
@@ -197,6 +198,25 @@ describe("projectCommand — slice mutators", () => {
 		const { db, root, sId } = seededSlice();
 		projectCommand(db, root, "transition", { sliceId: sId, to: "verifying" });
 		expect(getSlice(db, sId)?.status).toBe("verifying");
+	});
+
+	test("transition does NOT invoke reconcileSliceStatus (spy-based asymmetry check)", () => {
+		const { db, root, sId } = seededSlice();
+		const spy = vi.spyOn(derivedState, "reconcileSliceStatus");
+
+		// transition must skip reconcile
+		projectCommand(db, root, "transition", {
+			sliceId: sId,
+			to: "verifying",
+		});
+		expect(spy).not.toHaveBeenCalled();
+
+		// confirm the spy works: write-spec should invoke reconcile
+		spy.mockClear();
+		projectCommand(db, root, "write-spec", { sliceId: sId });
+		expect(spy).toHaveBeenCalledOnce();
+
+		spy.mockRestore();
 	});
 
 	test("override-status forces slice.status via overrideSliceStatus", () => {
