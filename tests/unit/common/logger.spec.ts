@@ -12,38 +12,41 @@ import {
 	setStderrLoggingEnabled,
 } from "../../../src/common/logger.js";
 
-const { appendFileSyncMock } = vi.hoisted(() => ({
-	appendFileSyncMock: { impl: null as null | (() => void) },
+const { auditWriteFailureMock } = vi.hoisted(() => ({
+	auditWriteFailureMock: { impl: null as null | (() => void) },
 }));
 
 vi.mock("node:fs", async () => {
 	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
 	return {
 		...actual,
-		appendFileSync: (path: string, data: string) => {
-			if (appendFileSyncMock.impl !== null) {
-				appendFileSyncMock.impl();
-				return;
+		openSync: ((path: string, ...rest: unknown[]) => {
+			if (auditWriteFailureMock.impl !== null && String(path).endsWith("audit-log.jsonl")) {
+				auditWriteFailureMock.impl();
 			}
-			return actual.appendFileSync(path, data);
-		},
+			// biome-ignore lint/suspicious/noExplicitAny: passthrough to real openSync with variadic signature
+			return (actual.openSync as any)(path, ...rest);
+		}) as typeof actual.openSync,
 	};
 });
 
 describe("logger", () => {
 	let root: string;
 	let stderrSpy: MockInstance;
+	let startTs: number;
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "tff-logger-"));
 		setLogBasePath(root);
 		setStderrLoggingEnabled(true);
 		stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		startTs = Date.now();
 	});
 
 	afterEach(() => {
 		stderrSpy.mockRestore();
 		rmSync(root, { recursive: true, force: true });
+		auditWriteFailureMock.impl = null;
 	});
 
 	function readAudit(): Array<Record<string, unknown>> {
@@ -78,7 +81,7 @@ describe("logger", () => {
 		expect(line.message).toBe("handler_failed");
 		expect(line.ctx.tool).toBe("tff_transition");
 		expect(typeof line.ts).toBe("string");
-		expect(new Date(line.ts).getTime()).toBeGreaterThan(Date.now() - 5000);
+		expect(new Date(line.ts).getTime()).toBeGreaterThanOrEqual(startTs);
 		expect(typeof line.session_id).toBe("string");
 		expect(line.session_id.length).toBeGreaterThan(0);
 	});
@@ -114,7 +117,10 @@ describe("logger", () => {
 		expect(lines).toHaveLength(3);
 		expect((lines[0] as { message: string }).message).toBe("raw-string");
 		expect((lines[1] as { message: string }).message).toBe("42");
+		expect((lines[2] as { message: string }).message).toBe("[object Object]");
 		expect((lines[0] as { ctx: Record<string, unknown> }).ctx.stack).toBeUndefined();
+		expect((lines[1] as { ctx: Record<string, unknown> }).ctx.stack).toBeUndefined();
+		expect((lines[2] as { ctx: Record<string, unknown> }).ctx.stack).toBeUndefined();
 	});
 
 	it("logException stack auto-capture cannot be overridden by caller ctx", () => {
@@ -205,20 +211,16 @@ describe("logger", () => {
 	});
 
 	it("audit-append failure surfaces one stderr line and does not loop", () => {
-		appendFileSyncMock.impl = () => {
+		auditWriteFailureMock.impl = () => {
 			throw new Error("read-only-fs");
 		};
-		try {
-			logError("logger", "will-fail-to-append");
-			const lines = stderrLines();
-			expect(lines.length).toBeGreaterThanOrEqual(2);
-			const failLine = lines.find(
-				(l) => (l as { message: string }).message === "audit-append-failed",
-			);
-			expect(failLine).toBeDefined();
-			expect((failLine as { component: string }).component).toBe("logger");
-		} finally {
-			appendFileSyncMock.impl = null;
-		}
+		logError("logger", "will-fail-to-append");
+		const lines = stderrLines();
+		expect(lines.length).toBeGreaterThanOrEqual(2);
+		const failLine = lines.find(
+			(l) => (l as { message: string }).message === "audit-append-failed",
+		);
+		expect(failLine).toBeDefined();
+		expect((failLine as { component: string }).component).toBe("logger");
 	});
 });

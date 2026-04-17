@@ -39,9 +39,8 @@ export class EventLogger {
 						this.handlePhaseRun(event as unknown as PhaseEvent);
 					}
 				} catch (err) {
-					const e = err instanceof Error ? err : new Error(String(err));
 					const sliceId = (data as { sliceId?: string | null })?.sliceId ?? "";
-					logException("event-logger", e, { tool: channel, sid: sliceId });
+					logException("event-logger", err, { tool: channel, sid: sliceId });
 				}
 			});
 			this.unsubscribers.push(unsub);

@@ -61,7 +61,7 @@ export function closePredecessorIfReady(
 
 	const check = verifyPhaseArtifacts(db, root, slice, milestone.number, predecessor);
 	if (!check.ok) {
-		logMissingArtifacts(db, slice.id, predecessor, "closePredecessorIfReady", check.missing);
+		logMissingArtifacts(slice.id, "closePredecessorIfReady", check.missing);
 		return;
 	}
 
@@ -100,7 +100,7 @@ export function emitPhaseCompleteIfArtifactsReady(
 	if (!milestone) return null;
 	const check = verifyPhaseArtifacts(db, root, slice, milestone.number, phase);
 	if (!check.ok) {
-		logMissingArtifacts(db, slice.id, phase, "emitPhaseCompleteIfArtifactsReady", check.missing);
+		logMissingArtifacts(slice.id, "emitPhaseCompleteIfArtifactsReady", check.missing);
 		return null;
 	}
 	const sLabel = sliceLabel(milestone.number, slice.number);
@@ -133,13 +133,7 @@ export function computeNextHint(
 	return "→ Next: /tff complete-milestone";
 }
 
-function logMissingArtifacts(
-	_db: Database.Database,
-	sliceId: string,
-	_phase: Phase,
-	component: string,
-	missing: string[],
-): void {
+function logMissingArtifacts(sliceId: string, component: string, missing: string[]): void {
 	logWarning("completion", "phase_complete_skipped", {
 		sid: sliceId,
 		fn: component,

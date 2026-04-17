@@ -125,7 +125,7 @@ export function handleTransition(
 			content: [
 				{
 					type: "text",
-					text: `Transition event fired for ${sliceId} (${slice.status} → ${target}) but slice.status is still "${actual}". The event handler likely threw — check .tff/audit-log.jsonl for details. Recovery: inspect the logged error, fix the root cause, and re-run the transition.`,
+					text: `Transition event fired for ${sliceId} (${slice.status} → ${target}) but slice.status is still "${actual}". The event handler likely threw — check .tff/audit-log.jsonl (or stderr if the audit write itself failed) for details. Recovery: inspect the logged error, fix the root cause, and re-run the transition.`,
 				},
 			],
 			details: {

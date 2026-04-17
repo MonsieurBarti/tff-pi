@@ -42,7 +42,6 @@ function warnIfAmbiguous(
 	db: Database.Database,
 	table: "slice" | "milestone",
 	prefix: string,
-	_matched: string,
 ): void {
 	const count = db
 		.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE ? || '%'`)
@@ -68,7 +67,7 @@ export function resolveBranchToEntity(
 			.prepare("SELECT number FROM milestone WHERE id = ?")
 			.get(sliceRow.milestone_id) as { number: number } | undefined;
 		if (!mRow) return null;
-		warnIfAmbiguous(db, "slice", prefix, sliceRow.id);
+		warnIfAmbiguous(db, "slice", prefix);
 		return {
 			kind: "slice",
 			id: sliceRow.id,
@@ -83,7 +82,7 @@ export function resolveBranchToEntity(
 			.prepare("SELECT id, number FROM milestone WHERE id LIKE ? || '%' LIMIT 1")
 			.get(prefix) as MilestoneRowPartial | undefined;
 		if (!row) return null;
-		warnIfAmbiguous(db, "milestone", prefix, row.id);
+		warnIfAmbiguous(db, "milestone", prefix);
 		return {
 			kind: "milestone",
 			id: row.id,
