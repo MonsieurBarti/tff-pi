@@ -54,7 +54,7 @@ describe("discuss interactive integration", () => {
 
 	describe("classify flow", () => {
 		it("classify succeeds without any gate", () => {
-			const result = handleClassify(db, sliceId, "SS");
+			const result = handleClassify(db, root, sliceId, "SS");
 			expect(result.isError).toBeUndefined();
 			expect(must(result.content[0]).text).toContain("classified as Tier SS");
 		});
@@ -67,11 +67,11 @@ describe("discuss interactive integration", () => {
 			insertSlice(db, { milestoneId, number: 2, title: "Other Slice" });
 			const s2Id = must(getSlices(db, milestoneId)[1]).id;
 
-			const r1 = handleClassify(db, sliceId, "SS");
+			const r1 = handleClassify(db, root, sliceId, "SS");
 			expect(r1.isError).toBeUndefined();
 
 			// Second slice not classified — classify it independently
-			const r2 = handleClassify(db, s2Id, "SSS");
+			const r2 = handleClassify(db, root, s2Id, "SSS");
 			expect(r2.isError).toBeUndefined();
 			expect(must(r2.content[0]).text).toContain("classified as Tier SSS");
 		});

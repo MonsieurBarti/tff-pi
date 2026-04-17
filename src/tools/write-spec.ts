@@ -85,6 +85,11 @@ export function handleWriteRequirements(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/REQUIREMENTS.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
+	db.transaction(() => {
+		projectCommand(db, root, "write-requirements", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "write-requirements", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
 	return {
 		content: [{ type: "text", text: `REQUIREMENTS.md written for ${label}.` }],
 		details: { sliceId, path },

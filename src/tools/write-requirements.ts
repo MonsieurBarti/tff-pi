@@ -2,10 +2,8 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
 import { DEFAULT_SETTINGS } from "../common/settings.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
 import { handleWriteRequirements } from "./write-spec.js";
 
 export function register(pi: ExtensionAPI, ctx: TffContext): void {
@@ -78,25 +76,15 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
-						const hint = emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							root,
-							slice,
-							"discuss",
-							verifyPhaseArtifacts,
-						);
-						if (hint) {
-							return {
-								...writeResult,
-								content: [
-									{
-										type: "text" as const,
-										text: `${writeResult.content[0]?.text ?? ""} Discuss phase complete. Stop here; the user will advance.\n\n${hint}`,
-									},
-								],
-							};
-						}
+						return {
+							...writeResult,
+							content: [
+								{
+									type: "text" as const,
+									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator.`,
+								},
+							],
+						};
 					}
 					return writeResult;
 				} catch (err) {
