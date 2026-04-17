@@ -34,8 +34,21 @@ export function handleTransition(
 	sliceId: string,
 	milestoneNumber: number,
 	targetStatus?: string,
-	root?: string, // kept optional for backward compat; register() guards before calling
+	root?: string,
 ): ToolResult {
+	if (!root) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "Cannot transition: no project root available. Ensure /tff init has been run.",
+				},
+			],
+			details: { sliceId },
+			isError: true,
+		};
+	}
+
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
 		return {
@@ -111,19 +124,6 @@ export function handleTransition(
 	}
 
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
-
-	if (!root) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Cannot transition: no project root available. Ensure /tff init has been run.",
-				},
-			],
-			details: { sliceId, from: slice.status, to: target },
-			isError: true,
-		};
-	}
 
 	// Block 3: atomic state mutation + event-log append in one transaction.
 	// projectCommand("transition") does UPDATE slice SET status — no reconcile.

@@ -54,7 +54,6 @@ describe("handleTransition persistence check", () => {
 
 	it("returns success with persistenceVerified=true when root is provided", () => {
 		const pi = makeFakePi();
-		// root is now required for reconcileSliceStatus to work
 		const result = handleTransition(pi, db, sliceId, 1, "verifying", root);
 
 		expect(result.isError).toBeUndefined();
@@ -65,7 +64,6 @@ describe("handleTransition persistence check", () => {
 	});
 
 	it("returns isError when root is absent", () => {
-		// Without root, appendCommand cannot write to event-log — transition is rejected early.
 		const pi = makeFakePi({ swallow: true });
 		const result = handleTransition(pi, db, sliceId, 1, "verifying");
 

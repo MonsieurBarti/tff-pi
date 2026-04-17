@@ -66,7 +66,16 @@ export async function handleCompleteMilestoneMerged(
 
 	const mLabel = milestoneLabel(milestone.number);
 
-	let successMessage: string | null = null;
+	if (outcome === "conflict-backup") {
+		return {
+			success: false,
+			message:
+				`Parent-state merge conflict on tff-state/${parentBranch}. Live state branch preserved. ` +
+				`Resolve manually, then re-run /tff complete-milestone-merged ${mLabel}.`,
+		};
+	}
+
+	let successMessage: string;
 	switch (outcome) {
 		case "finalized":
 			successMessage = `${mLabel} closed. State branch archived.`;
@@ -82,13 +91,10 @@ export async function handleCompleteMilestoneMerged(
 		case "skipped-disabled":
 			successMessage = `${mLabel} closed. (State branch disabled; nothing to archive.)`;
 			break;
-		case "conflict-backup":
-			return {
-				success: false,
-				message:
-					`Parent-state merge conflict on tff-state/${parentBranch}. Live state branch preserved. ` +
-					`Resolve manually, then re-run /tff complete-milestone-merged ${mLabel}.`,
-			};
+		default: {
+			const _exhaustive: never = outcome;
+			throw new Error(`Unknown outcome: ${_exhaustive}`);
+		}
 	}
 
 	db.transaction(() => {
