@@ -90,8 +90,10 @@ const CHECKERS: Record<string, Checker> = {
 		if (!id) return fail("params.sliceId missing");
 		const slice = getSlice(db, id);
 		if (!slice) return fail(`Slice not found: ${id}`);
-		if (slice.status === "shipping" || slice.status === "closed") {
-			return fail(`Slice must not be in 'shipping' or 'closed' (current: '${slice.status}')`);
+		if (slice.status === "created" || slice.status === "shipping" || slice.status === "closed") {
+			return fail(
+				`Slice must not be in 'created', 'shipping', or 'closed' (current: '${slice.status}')`,
+			);
 		}
 		return ok();
 	},
