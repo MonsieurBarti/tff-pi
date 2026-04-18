@@ -1,7 +1,10 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
-import { writeArtifact } from "../common/artifacts.js";
+import { tffPath } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
@@ -46,15 +49,32 @@ export function handleWritePr(
 	}
 	const label = sliceLabel(milestone.number, slice.number);
 	const mLabel = milestoneLabel(milestone.number);
-	const path = `milestones/${mLabel}/slices/${label}/PR.md`;
+	const relativePath = `milestones/${mLabel}/slices/${label}/PR.md`;
 
 	const template = loadPrTemplate(root);
 	const body = renderPrTemplate(template, params);
-	writeArtifact(root, path, body);
+
+	try {
+		commitCommand(db, root, "write-pr", { sliceId }, () => {
+			const finalPath = tffPath(root, relativePath);
+			const tmpPath = `${finalPath}.tmp`;
+			mkdirSync(dirname(finalPath), { recursive: true });
+			writeFileSync(tmpPath, body, "utf-8");
+			return [{ tmp: tmpPath, final: finalPath }];
+		});
+	} catch (err) {
+		return {
+			content: [
+				{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
+			],
+			details: { sliceId },
+			isError: true,
+		};
+	}
 
 	return {
 		content: [{ type: "text", text: `PR.md written for ${label}.` }],
-		details: { sliceId, path },
+		details: { sliceId, path: relativePath },
 	};
 }
 
