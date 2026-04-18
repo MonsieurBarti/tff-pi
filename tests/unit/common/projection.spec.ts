@@ -10,10 +10,15 @@ import {
 	insertPhaseRun,
 	insertProject,
 	insertSlice,
+	insertTask,
 } from "../../../src/common/db.js";
 import { getMilestone, getSlice } from "../../../src/common/db.js";
 import * as derivedState from "../../../src/common/derived-state.js";
-import { UnknownCommandError, projectCommand } from "../../../src/common/projection.js";
+import {
+	ProjectionIntegrityError,
+	UnknownCommandError,
+	projectCommand,
+} from "../../../src/common/projection.js";
 import type { SliceStatus } from "../../../src/common/types.js";
 
 function seeded() {
@@ -197,8 +202,8 @@ describe("projectCommand — slice mutators", () => {
 
 	test("transition sets slice.status directly without reconcile", () => {
 		const { db, root, sId } = seededSlice();
-		projectCommand(db, root, "transition", { sliceId: sId, to: "verifying" });
-		expect(getSlice(db, sId)?.status).toBe("verifying");
+		projectCommand(db, root, "transition", { sliceId: sId, to: "discussing" });
+		expect(getSlice(db, sId)?.status).toBe("discussing");
 	});
 
 	test("transition does NOT invoke reconcileSliceStatus (spy-based asymmetry check)", () => {
@@ -208,7 +213,7 @@ describe("projectCommand — slice mutators", () => {
 		// transition must skip reconcile
 		projectCommand(db, root, "transition", {
 			sliceId: sId,
-			to: "verifying",
+			to: "discussing",
 		});
 		expect(spy).not.toHaveBeenCalled();
 
@@ -306,6 +311,40 @@ describe("projectCommand — state-rename", () => {
 				newStateBranch: "tff-state/new",
 			}),
 		).not.toThrow();
+	});
+});
+
+describe("projectCommand — defense-in-depth guards", () => {
+	function seededSlice() {
+		const db = new Database(":memory:");
+		applyMigrations(db);
+		const root = mkdtempSync(join(tmpdir(), "tff-proj-guard-"));
+		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
+		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
+		return { db, root, sId };
+	}
+
+	test("projectTransition throws ProjectionIntegrityError for invalid transition", () => {
+		const { db, root, sId } = seededSlice();
+		// Slice is 'created'; 'verifying' is not a valid target from 'created'
+		expect(() => projectCommand(db, root, "transition", { sliceId: sId, to: "verifying" })).toThrow(
+			ProjectionIntegrityError,
+		);
+	});
+
+	test("projectExecuteDone throws ProjectionIntegrityError when open tasks exist", () => {
+		const { db, root, sId } = seededSlice();
+		insertTask(db, { sliceId: sId, number: 1, title: "T1" }); // default status='open'
+		insertPhaseRun(db, {
+			sliceId: sId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		expect(() => projectCommand(db, root, "execute-done", { sliceId: sId })).toThrow(
+			ProjectionIntegrityError,
+		);
 	});
 });
 

@@ -15,6 +15,7 @@ import {
 	updateSliceTier,
 } from "./db.js";
 import { overrideSliceStatus, reconcileSliceStatus } from "./derived-state.js";
+import { canTransitionSlice } from "./state-machine.js";
 import { SLICE_STATUSES } from "./types.js";
 import type { Phase, SliceStatus, Tier } from "./types.js";
 
@@ -25,6 +26,13 @@ export class UnknownCommandError extends Error {
 	constructor(public readonly cmd: string) {
 		super(`Unknown command: ${cmd}`);
 		this.name = "UnknownCommandError";
+	}
+}
+
+export class ProjectionIntegrityError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "ProjectionIntegrityError";
 	}
 }
 
@@ -100,6 +108,23 @@ function projectClassify(
 	reconcileSliceStatus(db, root, params.sliceId);
 }
 
+function projectExecuteDone(
+	db: Database.Database,
+	root: string,
+	params: { sliceId: string },
+): void {
+	const open = db
+		.prepare("SELECT COUNT(*) as n FROM task WHERE slice_id = ? AND status != 'closed'")
+		.get(params.sliceId) as { n: number };
+	if (open.n > 0) {
+		throw new ProjectionIntegrityError(
+			`execute-done blocked: ${open.n} open task(s) for slice ${params.sliceId}`,
+		);
+	}
+	completePhaseRun(db, params.sliceId, "execute");
+	reconcileSliceStatus(db, root, params.sliceId);
+}
+
 function projectTransition(
 	db: Database.Database,
 	_root: string,
@@ -112,6 +137,20 @@ function projectTransition(
 ): void {
 	if (!(SLICE_STATUSES as readonly string[]).includes(params.to)) {
 		throw new Error(`Invalid slice status in transition command: ${params.to}`);
+	}
+	const currentRow = db.prepare("SELECT status FROM slice WHERE id = ?").get(params.sliceId) as
+		| { status: string }
+		| undefined;
+	if (!currentRow) {
+		throw new ProjectionIntegrityError(`Slice not found: ${params.sliceId}`);
+	}
+	if (!(SLICE_STATUSES as readonly string[]).includes(currentRow.status)) {
+		throw new ProjectionIntegrityError(`Corrupt slice status in DB: ${currentRow.status}`);
+	}
+	if (!canTransitionSlice(currentRow.status as SliceStatus, params.to)) {
+		throw new ProjectionIntegrityError(
+			`Invalid transition ${currentRow.status} → ${params.to} for slice ${params.sliceId}`,
+		);
 	}
 	// No reconcile: transition is the authoritative override.
 	db.prepare("UPDATE slice SET status = ? WHERE id = ?").run(params.to, params.sliceId);
@@ -226,7 +265,7 @@ const HANDLERS: Record<string, ProjectionHandler> = {
 	"write-verification": projectPhaseComplete("verify"),
 	"write-review": projectPhaseComplete("review"),
 	"review-rejected": projectReviewRejected,
-	"execute-done": projectPhaseComplete("execute"),
+	"execute-done": projectExecuteDone,
 	classify: projectClassify,
 	transition: projectTransition,
 	"ship-changes": projectArtifactOnly,
