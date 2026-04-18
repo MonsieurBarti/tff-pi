@@ -144,6 +144,9 @@ function projectTransition(
 	if (!currentRow) {
 		throw new ProjectionIntegrityError(`Slice not found: ${params.sliceId}`);
 	}
+	if (!(SLICE_STATUSES as readonly string[]).includes(currentRow.status)) {
+		throw new ProjectionIntegrityError(`Corrupt slice status in DB: ${currentRow.status}`);
+	}
 	if (!canTransitionSlice(currentRow.status as SliceStatus, params.to)) {
 		throw new ProjectionIntegrityError(
 			`Invalid transition ${currentRow.status} → ${params.to} for slice ${params.sliceId}`,
