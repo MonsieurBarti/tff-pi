@@ -235,11 +235,10 @@ export async function runCompleteMilestone(
 		return;
 	}
 	const result = await handleCompleteMilestone(database, root, milestone.id, currentSettings, pi);
-	if (result.success) {
-		pi.sendUserMessage(
-			`Milestone ${milestoneLabel(milestone.number)} "${milestone.name}" PR created: ${result.prUrl}`,
-		);
-	} else {
+	if (!result.success) {
 		pi.sendUserMessage(`Cannot complete milestone: ${result.error}`);
 	}
+	// Success path: handleCompleteMilestone already sent the gate-handoff
+	// message; a second sendUserMessage here would land while that turn is
+	// still processing and trip PI's "Agent is already processing" guard.
 }
