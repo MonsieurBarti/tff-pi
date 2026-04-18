@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -12,6 +12,7 @@ import {
 	insertTask,
 	updateTaskStatus,
 } from "../../../src/common/db.js";
+import { hashEvent } from "../../../src/common/event-log.js";
 import { validateCommandPreconditions } from "../../../src/common/preconditions.js";
 
 function tempRoot(): string {
@@ -136,6 +137,71 @@ describe("validateCommandPreconditions — unknown command", () => {
 	test("returns ok for unknown command (let projectCommand handle it)", () => {
 		const { db, root } = seeded();
 		const result = validateCommandPreconditions(db, root, "this-command-does-not-exist", {});
+		expect(result).toEqual({ ok: true });
+	});
+});
+
+describe("validateCommandPreconditions — write-pr", () => {
+	test("ok when slice is verifying with active verify phase_run", () => {
+		const { db, root } = seeded();
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+		forceSliceStatus(db, sId, "verifying");
+		insertPhaseRun(db, { sliceId: sId, phase: "verify", status: "started", startedAt: "t0" });
+
+		const result = validateCommandPreconditions(db, root, "write-pr", { sliceId: sId });
+		expect(result).toEqual({ ok: true });
+	});
+
+	test("fails when slice is not verifying", () => {
+		const { db, root } = seeded();
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+		forceSliceStatus(db, sId, "executing");
+
+		const result = validateCommandPreconditions(db, root, "write-pr", { sliceId: sId });
+		expect(result.ok).toBe(false);
+	});
+});
+
+describe("validateCommandPreconditions — ship-changes write-pr gate", () => {
+	test("fails when no write-pr event exists in log for the slice", () => {
+		const { db, root } = seeded();
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+		forceSliceStatus(db, sId, "shipping");
+		insertPhaseRun(db, { sliceId: sId, phase: "ship", status: "started", startedAt: "t0" });
+
+		const result = validateCommandPreconditions(db, root, "ship-changes", { sliceId: sId });
+		expect(result.ok).toBe(false);
+		expect(result.reason).toMatch(/write-pr/);
+	});
+
+	test("ok when write-pr event exists in log for the slice", () => {
+		const { db, root } = seeded();
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+		forceSliceStatus(db, sId, "shipping");
+		insertPhaseRun(db, { sliceId: sId, phase: "ship", status: "started", startedAt: "t0" });
+
+		// Write a write-pr event directly to the log
+		const logPath = join(root, ".tff/event-log.jsonl");
+		const event = {
+			v: 2,
+			cmd: "write-pr",
+			params: { sliceId: sId },
+			ts: new Date().toISOString(),
+			hash: hashEvent("write-pr", { sliceId: sId }),
+			actor: "agent",
+			session_id: "s",
+		};
+		appendFileSync(logPath, `${JSON.stringify(event)}\n`);
+
+		const result = validateCommandPreconditions(db, root, "ship-changes", { sliceId: sId });
 		expect(result).toEqual({ ok: true });
 	});
 });

@@ -2,12 +2,11 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
-import { projectCommand } from "../common/projection.js";
 import { fetchReviewFeedback } from "../common/review-feedback.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
@@ -101,11 +100,7 @@ export async function handleShipChanges(
 	);
 
 	// Block 3: atomic DB mutation + event-log append in one transaction
-	db.transaction(() => {
-		projectCommand(db, root, "ship-changes", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "ship-changes", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "ship-changes", { sliceId: slice.id });
 
 	// Block 4: post-commit bus emit
 	pi.events.emit("tff:phase", {

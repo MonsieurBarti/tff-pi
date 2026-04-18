@@ -2,14 +2,13 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { computeNextHint } from "../common/phase-completion.js";
-import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
@@ -46,11 +45,7 @@ export function handleWriteResearch(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/RESEARCH.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
-	db.transaction(() => {
-		projectCommand(db, root, "write-research", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "write-research", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "write-research", { sliceId: slice.id });
 	return {
 		content: [{ type: "text", text: `RESEARCH.md written for ${label}.` }],
 		details: { sliceId, path },

@@ -1,13 +1,12 @@
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { computeNextHint } from "../common/phase-completion.js";
-import { projectCommand } from "../common/projection.js";
 import { sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
@@ -50,11 +49,7 @@ export function handleExecuteDone(
 			isError: true,
 		};
 	}
-	db.transaction(() => {
-		projectCommand(db, root, "execute-done", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "execute-done", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "execute-done", { sliceId: slice.id });
 	const sLabel = sliceLabel(milestone.number, slice.number);
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(slice.id, sLabel, milestone.number),

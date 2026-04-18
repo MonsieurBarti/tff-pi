@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { beforeEach, describe, expect, it } from "vitest";
+import { writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestones,
@@ -38,6 +39,8 @@ describe("handleClassify", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
+		db.prepare("UPDATE slice SET status = 'discussing' WHERE id = ?").run(sliceId);
+		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec\n");
 	});
 
 	it("returns error for non-existent slice", () => {

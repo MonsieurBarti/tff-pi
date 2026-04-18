@@ -9,6 +9,7 @@ import {
 	getProject,
 	getSlices,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
@@ -45,6 +46,12 @@ describe("handleExecuteDone", () => {
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		updateSliceTier(db, sliceId, "SS");
 		db.prepare("UPDATE slice SET status = 'executing' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 	});
 
 	afterEach(() => {

@@ -10,6 +10,7 @@ import {
 	getProject,
 	getSlices,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
@@ -40,6 +41,13 @@ describe("handleShipApplyDone", () => {
 		const milestoneId = must(getMilestones(db, projectId)[0]).id;
 		insertSlice(db, { milestoneId, number: 1, title: "slice" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
+		db.prepare("UPDATE slice SET status = 'shipping' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "ship",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 		writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW_FEEDBACK.md", "# feedback");
 		feedbackPath = join(
 			root,

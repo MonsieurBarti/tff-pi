@@ -1,14 +1,13 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { tffPath, writeArtifact } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { compressIfEnabled } from "../common/compress.js";
 import type { TffContext } from "../common/context.js";
 import { applyMigrations, getProject, openDatabase } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { getGitRoot, hasRemote, initRepo } from "../common/git.js";
 import { initMonitoring } from "../common/monitoring-setup.js";
 import { ensureInitialized } from "../common/project-home.js";
-import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings, loadSettings } from "../common/settings.js";
 import { handleInit } from "./init.js";
 
@@ -29,15 +28,7 @@ export function handleNew(
 	}
 	const { projectName, vision } = input;
 	const projectId = ensureInitialized(root);
-	db.transaction(() => {
-		projectCommand(db, root, "create-project", { id: projectId, name: projectName, vision });
-		const { hash, row } = appendCommand(root, "create-project", {
-			id: projectId,
-			name: projectName,
-			vision,
-		});
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "create-project", { id: projectId, name: projectName, vision });
 	const content = `# ${projectName}\n\n## Vision\n\n${vision}\n`;
 	writeArtifact(root, "PROJECT.md", compressIfEnabled(content, "artifacts", settings));
 	return { projectId };

@@ -1,12 +1,11 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, requireProject } from "../common/context.js";
 import { resolveMilestone } from "../common/db-resolvers.js";
 import { getMilestone } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { getDefaultBranch } from "../common/git.js";
 import { readProjectIdFile } from "../common/project-home.js";
-import { projectCommand } from "../common/projection.js";
 import type { Settings } from "../common/settings.js";
 import { finalizeStateBranchForMilestone } from "../common/state-ship.js";
 import { milestoneLabel } from "../common/types.js";
@@ -97,13 +96,7 @@ export async function handleCompleteMilestoneMerged(
 		}
 	}
 
-	db.transaction(() => {
-		projectCommand(db, root, "complete-milestone-merged", { milestoneId: milestone.id });
-		const { hash, row } = appendCommand(root, "complete-milestone-merged", {
-			milestoneId: milestone.id,
-		});
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "complete-milestone-merged", { milestoneId: milestone.id });
 
 	return { success: true, message: successMessage };
 }

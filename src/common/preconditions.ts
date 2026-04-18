@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { getLatestPhaseRun, getMilestone, getSlice } from "./db.js";
+import { readEvents } from "./event-log.js";
 import { canTransitionSlice } from "./state-machine.js";
 import type { Phase, SliceStatus } from "./types.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
@@ -103,10 +104,21 @@ const CHECKERS: Record<string, Checker> = {
 	"execute-done": checkSliceAndPhaseAndTasks("executing", "execute"),
 	"write-verification": checkSliceAndPhaseAndTasks("verifying", "verify"),
 	"write-review": checkSliceAndPhaseAndTasks("reviewing", "review"),
-	"ship-changes": checkSliceAndPhaseAndTasks("shipping", "ship"),
+	"ship-changes": (db, root, params) => {
+		const base = checkSliceAndPhaseAndTasks("shipping", "ship")(db, root, params);
+		if (!base.ok) return base;
+		const id = sliceId(params);
+		if (!id) return fail("params.sliceId missing");
+		const hasPr = readEvents(root).some(
+			(e) => e.cmd === "write-pr" && (e.params as { sliceId?: string }).sliceId === id,
+		);
+		if (!hasPr) return fail("write-pr must be called before ship-changes");
+		return ok();
+	},
 	"ship-apply-done": checkSliceAndPhaseAndTasks("shipping", "ship"),
 	"ship-merged": checkSliceAndPhaseAndTasks("shipping", "ship"),
 	"ship-fix": checkSliceAndPhase("shipping", "ship"),
+	"write-pr": checkSliceAndPhase("verifying", "verify"),
 
 	classify: (db, root, params) => {
 		const id = sliceId(params);
@@ -120,7 +132,7 @@ const CHECKERS: Record<string, Checker> = {
 		if (!milestone) return fail(`Milestone not found: ${slice.milestoneId}`);
 		const mLabel = milestoneLabel(milestone.number);
 		const sLabel = sliceLabel(milestone.number, slice.number);
-		const specPath = join(root, "milestones", mLabel, "slices", sLabel, "SPEC.md");
+		const specPath = join(root, ".tff", "milestones", mLabel, "slices", sLabel, "SPEC.md");
 		if (!existsSync(specPath)) return fail("SPEC.md missing for slice");
 		return ok();
 	},

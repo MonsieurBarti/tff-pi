@@ -23,24 +23,65 @@ function logPath(root: string): string {
 	return join(root, ".tff", "event-log.jsonl");
 }
 
-export function readEvents(root: string, fromRow = 0): CommandEvent[] {
+export function readEvents(root: string, fromPhysicalLine = 0): CommandEvent[] {
 	const path = logPath(root);
 	if (!existsSync(path)) return [];
 	const raw = readFileSync(path, "utf-8");
 	if (raw.length === 0) return [];
-	const lines = raw.split("\n").filter((l) => l.length > 0);
+	// Slice BEFORE filter: physical line indices must count blank/malformed lines
+	const lines = raw.split("\n").slice(fromPhysicalLine);
 	const out: CommandEvent[] = [];
-	for (const [i, line] of lines.slice(fromRow).entries()) {
+	for (const [i, line] of lines.entries()) {
+		if (line.length === 0) continue;
 		try {
 			out.push(JSON.parse(line) as CommandEvent);
 		} catch (err) {
 			logWarning("event-log", "malformed-line", {
-				row: String(fromRow + i + 1),
+				row: String(fromPhysicalLine + i + 1),
 				error: err instanceof Error ? err.message : String(err),
 			});
 		}
 	}
 	return out;
+}
+
+export interface EventWithPosition {
+	event: CommandEvent;
+	physicalLine: number; // 0-indexed position in the file
+}
+
+export function readEventsWithPositions(root: string, fromPhysicalLine = 0): EventWithPosition[] {
+	const path = logPath(root);
+	if (!existsSync(path)) return [];
+	const raw = readFileSync(path, "utf-8");
+	if (raw.length === 0) return [];
+	const lines = raw.split("\n").slice(fromPhysicalLine);
+	const out: EventWithPosition[] = [];
+	for (const [i, line] of lines.entries()) {
+		if (line.length === 0) continue;
+		try {
+			out.push({ event: JSON.parse(line) as CommandEvent, physicalLine: fromPhysicalLine + i });
+		} catch (err) {
+			logWarning("event-log", "malformed-line", {
+				row: String(fromPhysicalLine + i + 1),
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	return out;
+}
+
+export function readEventAtPhysicalLine(root: string, physicalLine: number): CommandEvent | null {
+	const path = logPath(root);
+	if (!existsSync(path)) return null;
+	const raw = readFileSync(path, "utf-8");
+	const line = raw.split("\n")[physicalLine];
+	if (!line || line.length === 0) return null;
+	try {
+		return JSON.parse(line) as CommandEvent;
+	} catch {
+		return null;
+	}
 }
 
 export interface AppendResult {
@@ -77,9 +118,10 @@ export function appendCommand(
 		closeSync(fd);
 	}
 
-	// Row = current line count (post-append)
-	const allLines = readEvents(root);
-	return { hash: event.hash, row: allLines.length };
+	// Physical row count = number of '\n' bytes after append (no JSON.parse)
+	const buf = readFileSync(path);
+	const physicalRows = buf.filter((b) => b === 0x0a).length;
+	return { hash: event.hash, row: physicalRows };
 }
 
 export function loadCursor(db: DatabaseT.Database): { lastHash: string | null; lastRow: number } {

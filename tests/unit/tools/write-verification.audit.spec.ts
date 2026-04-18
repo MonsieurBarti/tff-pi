@@ -7,6 +7,7 @@ import { deleteArtifact, writeArtifact } from "../../../src/common/artifacts.js"
 import {
 	applyMigrations,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 } from "../../../src/common/db.js";
@@ -80,6 +81,13 @@ describe("write-verification audit integration", () => {
 			branch: "milestone/M01",
 		});
 		sliceId = insertSlice(db, { milestoneId, number: 1, title: "slice 1" });
+		db.prepare("UPDATE slice SET status = 'verifying' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "verify",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 
 		bus = makeBus();
 		log = new PerSliceLog(tmp);

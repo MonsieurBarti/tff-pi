@@ -16,6 +16,7 @@ import {
 	getProject,
 	getSlices,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
@@ -41,6 +42,14 @@ describe("handleWritePr", () => {
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
 		initSliceDir(root, 1, 1);
+		// Put slice in verifying state with an active verify phase_run (required by commitCommand preconditions)
+		db.prepare("UPDATE slice SET status = 'verifying' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "verify",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 	});
 
 	afterEach(() => {

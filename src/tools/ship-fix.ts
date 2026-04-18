@@ -1,13 +1,12 @@
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { type PhaseContext, runPhaseWithFreshContext } from "../common/phase.js";
-import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS } from "../common/settings.js";
 import { sliceLabel } from "../common/types.js";
 import { shipFixPhase } from "../phases/ship-fix.js";
@@ -51,11 +50,7 @@ export function handleShipFix(
 
 	// Block 3: atomic DB mutation + event-log append in one transaction.
 	// projectShipFix marks ship phase_run as failed + reconciles slice status.
-	db.transaction(() => {
-		projectCommand(db, root, "ship-fix", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "ship-fix", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "ship-fix", { sliceId: slice.id });
 
 	// Block 4: post-commit bus emit
 	pi.events.emit("tff:phase", {

@@ -2,13 +2,12 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { computeNextHint } from "../common/phase-completion.js";
-import { projectCommand } from "../common/projection.js";
 import { TIERS, type Tier, sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
@@ -32,11 +31,7 @@ export function handleClassify(
 		};
 	}
 
-	db.transaction(() => {
-		projectCommand(db, root, "classify", { sliceId: slice.id, tier });
-		const { hash, row } = appendCommand(root, "classify", { sliceId: slice.id, tier });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "classify", { sliceId: slice.id, tier });
 
 	return {
 		content: [

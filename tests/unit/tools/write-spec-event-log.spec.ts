@@ -22,6 +22,7 @@ describe("handleWriteSpec — event log", () => {
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
+		db.prepare("UPDATE slice SET status = 'discussing' WHERE id = ?").run(sId);
 
 		const result = handleWriteSpec(db, root, sId, "# Spec\n");
 		expect(result.isError).toBeFalsy();
@@ -46,6 +47,7 @@ describe("handleWriteSpec — projection throw rolls back tx", () => {
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
+		db.prepare("UPDATE slice SET status = 'discussing' WHERE id = ?").run(sId);
 
 		const spy = vi.spyOn(projectionModule, "projectCommand").mockImplementation(() => {
 			throw new Error("injected projection failure");

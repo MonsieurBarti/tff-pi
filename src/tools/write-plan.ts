@@ -3,15 +3,14 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { computeNextHint } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
-import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { computeWaves } from "../common/waves.js";
@@ -91,19 +90,11 @@ export function handleWritePlan(
 		return wave !== undefined ? { ...base, wave } : base;
 	});
 
-	db.transaction(() => {
-		projectCommand(db, root, "write-plan", {
-			sliceId: slice.id,
-			tasks: taskParams,
-			dependencies: depRefs,
-		});
-		const { hash, row } = appendCommand(root, "write-plan", {
-			sliceId: slice.id,
-			tasks: taskParams,
-			dependencies: depRefs,
-		});
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "write-plan", {
+		sliceId: slice.id,
+		tasks: taskParams,
+		dependencies: depRefs,
+	});
 
 	const waveCount = waves.size > 0 ? Math.max(...waves.values()) : 0;
 	return {
