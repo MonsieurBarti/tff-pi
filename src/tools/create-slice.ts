@@ -1,10 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { initSliceDir } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveMilestone } from "../common/db-resolvers.js";
-import { getMilestone, getNextSliceNumber, insertSlice } from "../common/db.js";
+import { getMilestone, getNextSliceNumber } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { projectCommand } from "../common/projection.js";
 import { sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
@@ -28,7 +31,17 @@ export function handleCreateSlice(
 		};
 	}
 	const number = getNextSliceNumber(db, milestoneId);
-	const sliceId = insertSlice(db, { milestoneId, number, title });
+	const sliceId = randomUUID();
+	db.transaction(() => {
+		projectCommand(db, root, "create-slice", { id: sliceId, milestoneId, number, title });
+		const { hash, row } = appendCommand(root, "create-slice", {
+			id: sliceId,
+			milestoneId,
+			number,
+			title,
+		});
+		updateLogCursor(db, hash, row);
+	})();
 	initSliceDir(root, milestone.number, number);
 	const label = sliceLabel(milestone.number, number);
 	return {

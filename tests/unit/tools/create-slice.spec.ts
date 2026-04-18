@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -34,6 +34,7 @@ describe("handleCreateSlice", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		root = createTempRoot();
+		mkdirSync(join(root, ".tff"), { recursive: true });
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;

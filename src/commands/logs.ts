@@ -1,41 +1,37 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { findSliceByLabel } from "../common/db-resolvers.js";
-import { getEventLog } from "../common/db.js";
+import { getMilestone } from "../common/db.js";
 import { formatDuration } from "../common/format.js";
+import { readPerSliceLog } from "../common/per-slice-log.js";
+import { sliceLabel } from "../common/types.js";
 import { findActiveSlice } from "../orchestrator.js";
 
-export function handleLogs(
-	db: Database.Database,
-	sliceId: string,
-	options?: { json?: boolean },
-): string {
-	const events = getEventLog(db, sliceId);
-	if (events.length === 0) return "No events recorded for this slice.";
+export function handleLogs(root: string, label: string, options?: { json?: boolean }): string {
+	const lines = readPerSliceLog(root, label);
+	if (lines.length === 0) return "No events recorded for this slice.";
 
 	if (options?.json) {
-		return events.map((e) => e.payload).join("\n");
+		return lines.map((l) => JSON.stringify(l)).join("\n");
 	}
 
-	const lines: string[] = [];
-	for (const entry of events) {
-		const payload = JSON.parse(entry.payload) as Record<string, unknown>;
-		const ts = payload.timestamp as string;
+	const out: string[] = [];
+	for (const l of lines) {
+		const ts = typeof l.ts === "string" ? l.ts : typeof l.timestamp === "string" ? l.timestamp : "";
 		const time = ts ? ts.substring(11, 19) : "??:??:??";
+		const type = typeof l.type === "string" ? l.type : String(l.ch ?? "");
 		const extra: string[] = [];
-		if (payload.phase) extra.push(String(payload.phase));
-		if (payload.durationMs) extra.push(formatDuration(payload.durationMs as number));
-		if (payload.wave)
-			extra.push(`wave=${payload.wave}${payload.totalWaves ? `/${payload.totalWaves}` : ""}`);
-		if (payload.taskCount) extra.push(`tasks=${payload.taskCount}`);
-		if (payload.tier) extra.push(`tier=${payload.tier}`);
-		if (payload.verdict) extra.push(`${payload.verdict}`);
-		if (payload.error) extra.push(String(payload.error).substring(0, 60));
+		if (l.phase) extra.push(String(l.phase));
+		if (l.durationMs) extra.push(formatDuration(l.durationMs as number));
+		if (l.wave) extra.push(`wave=${l.wave}${l.totalWaves ? `/${l.totalWaves}` : ""}`);
+		if (l.taskCount) extra.push(`tasks=${l.taskCount}`);
+		if (l.tier) extra.push(`tier=${l.tier}`);
+		if (l.verdict) extra.push(`${l.verdict}`);
+		if (l.error) extra.push(String(l.error).substring(0, 60));
 
-		lines.push(`${time}  ${entry.type.padEnd(18)}${extra.join("  ")}`);
+		out.push(`${time}  ${type.padEnd(18)}${extra.join("  ")}`);
 	}
-	return lines.join("\n");
+	return out.join("\n");
 }
 
 export async function runLogs(
@@ -45,16 +41,27 @@ export async function runLogs(
 	args: string[],
 ): Promise<void> {
 	const db = getDb(ctx);
+	const root = ctx.projectRoot;
+	if (!root) {
+		pi.sendUserMessage("No project root found.");
+		return;
+	}
 	const rawArgs = args.join(" ").trim();
 	const jsonFlag = rawArgs.includes("--json");
-	const label = rawArgs.replace("--json", "").trim();
-	const slice = label ? findSliceByLabel(db, label) : null;
+	const labelArg = rawArgs.replace("--json", "").trim();
+	const slice = labelArg ? findSliceByLabel(db, labelArg) : null;
 	const activeSlice = findActiveSlice(db);
 	const targetSlice = slice ?? activeSlice;
 	if (!targetSlice) {
 		pi.sendUserMessage("No slice found. Usage: `/tff logs [M01-S01] [--json]`");
 		return;
 	}
-	const result = handleLogs(db, targetSlice.id, { json: jsonFlag });
+	const milestone = getMilestone(db, targetSlice.milestoneId);
+	if (!milestone) {
+		pi.sendUserMessage(`Milestone not found for slice ${targetSlice.id}`);
+		return;
+	}
+	const label = sliceLabel(milestone.number, targetSlice.number);
+	const result = handleLogs(root, label, { json: jsonFlag });
 	pi.sendUserMessage(result);
 }

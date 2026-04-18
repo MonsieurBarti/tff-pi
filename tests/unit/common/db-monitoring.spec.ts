@@ -2,13 +2,11 @@ import type Database from "better-sqlite3";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	applyMigrations,
-	getEventLog,
 	getLatestPhaseRun,
 	getMilestones,
 	getPhaseRuns,
 	getProject,
 	getSlices,
-	insertEventLog,
 	insertMilestone,
 	insertPhaseRun,
 	insertProject,
@@ -35,7 +33,7 @@ function seedSlice(db: Database.Database): string {
 }
 
 describe("applyMigrations — monitoring tables", () => {
-	it("creates phase_run and event_log tables", () => {
+	it("creates phase_run table (event_log dropped by v5)", () => {
 		const db = openDatabase(":memory:");
 		applyMigrations(db);
 		const tables = db
@@ -43,7 +41,8 @@ describe("applyMigrations — monitoring tables", () => {
 			.all() as { name: string }[];
 		const names = tables.map((t) => t.name);
 		expect(names).toContain("phase_run");
-		expect(names).toContain("event_log");
+		// event_log was dropped in schema v5 — verify it is gone
+		expect(names).not.toContain("event_log");
 	});
 
 	it("creates schema_version table and records versions", () => {
@@ -277,107 +276,5 @@ describe("phase_run", () => {
 		expect(runs).toHaveLength(2);
 		expect(runs[0]?.id).toBe(id1);
 		expect(runs[1]?.id).toBe(id2);
-	});
-});
-
-describe("event_log", () => {
-	let db: Database.Database;
-	let sliceId: string;
-
-	beforeEach(() => {
-		db = createTestDb();
-		sliceId = seedSlice(db);
-	});
-
-	it("inserts and retrieves an event_log entry", () => {
-		insertEventLog(db, {
-			channel: "phase",
-			type: "phase.started",
-			sliceId,
-			payload: JSON.stringify({ phase: "research" }),
-		});
-
-		const entries = getEventLog(db, sliceId);
-		expect(entries).toHaveLength(1);
-		const entry = must(entries[0]);
-		expect(entry.id).toBeTypeOf("number");
-		expect(entry.channel).toBe("phase");
-		expect(entry.type).toBe("phase.started");
-		expect(entry.sliceId).toBe(sliceId);
-		expect(entry.payload).toBe(JSON.stringify({ phase: "research" }));
-		expect(entry.createdAt).toBeDefined();
-	});
-
-	it("inserts multiple entries and retrieves all", () => {
-		insertEventLog(db, {
-			channel: "phase",
-			type: "phase.started",
-			sliceId,
-			payload: "{}",
-		});
-		insertEventLog(db, {
-			channel: "agent",
-			type: "agent.claimed",
-			sliceId,
-			payload: "{}",
-		});
-		insertEventLog(db, {
-			channel: "phase",
-			type: "phase.finished",
-			sliceId,
-			payload: "{}",
-		});
-
-		const entries = getEventLog(db, sliceId);
-		expect(entries).toHaveLength(3);
-	});
-
-	it("filters event_log by channel", () => {
-		insertEventLog(db, { channel: "phase", type: "phase.started", sliceId, payload: "{}" });
-		insertEventLog(db, { channel: "agent", type: "agent.claimed", sliceId, payload: "{}" });
-		insertEventLog(db, { channel: "phase", type: "phase.finished", sliceId, payload: "{}" });
-
-		const phaseEntries = getEventLog(db, sliceId, "phase");
-		expect(phaseEntries).toHaveLength(2);
-		expect(phaseEntries.every((e) => e.channel === "phase")).toBe(true);
-
-		const agentEntries = getEventLog(db, sliceId, "agent");
-		expect(agentEntries).toHaveLength(1);
-		expect(must(agentEntries[0]).type).toBe("agent.claimed");
-	});
-
-	it("returns empty array when no entries exist", () => {
-		expect(getEventLog(db, sliceId)).toHaveLength(0);
-	});
-
-	it("limits event_log results with limit parameter", () => {
-		for (let i = 0; i < 5; i++) {
-			insertEventLog(db, { channel: "phase", type: `phase.event.${i}`, sliceId, payload: "{}" });
-		}
-
-		const limited = getEventLog(db, sliceId, undefined, 3);
-		expect(limited).toHaveLength(3);
-		// Entries should still be in insertion order
-		expect(limited[0]?.id).toBeLessThan(must(limited[1]).id);
-		expect(limited[1]?.id).toBeLessThan(must(limited[2]).id);
-	});
-
-	it("limit applies alongside channel filter", () => {
-		insertEventLog(db, { channel: "phase", type: "phase.a", sliceId, payload: "{}" });
-		insertEventLog(db, { channel: "phase", type: "phase.b", sliceId, payload: "{}" });
-		insertEventLog(db, { channel: "agent", type: "agent.x", sliceId, payload: "{}" });
-		insertEventLog(db, { channel: "phase", type: "phase.c", sliceId, payload: "{}" });
-
-		const result = getEventLog(db, sliceId, "phase", 2);
-		expect(result).toHaveLength(2);
-		expect(result.every((e) => e.channel === "phase")).toBe(true);
-	});
-
-	it("returns entries ordered by id (insertion order)", () => {
-		insertEventLog(db, { channel: "phase", type: "phase.started", sliceId, payload: "{}" });
-		insertEventLog(db, { channel: "phase", type: "phase.finished", sliceId, payload: "{}" });
-
-		const entries = getEventLog(db, sliceId);
-		expect(entries[0]?.id).toBeLessThan(must(entries[1]).id);
 	});
 });

@@ -91,8 +91,10 @@ export function finalizeMergedSlice(
 		});
 	}
 
-	// Close the slice via override: rule 1 (ship/completed + pr_url → closed)
-	// has been removed; closing is now explicit here.
+	// Close the slice via override. When called from tools/ship-merged.ts the
+	// subsequent handleShipMerged call journals this via projectCommand("ship-merged").
+	// When called from shipPhase.prepare (re-entry poll), no subsequent journaling
+	// occurs — this is a known SoT gap flagged for M12-S02 follow-up.
 	overrideSliceStatus(db, slice.id, "closed", "ship-merged");
 	pi.events.emit("tff:override", {
 		...makeBaseEvent(slice.id, sLabel, milestoneNumber),

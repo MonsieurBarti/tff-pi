@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { readArtifact } from "./artifacts.js";
 import { getLastCheckpoint, listCheckpoints } from "./checkpoint.js";
 import { getMilestone, getMilestones, getProject, getSlice, getSlices } from "./db.js";
+import { readPerSliceLog } from "./per-slice-log.js";
 import type { Slice, SliceStatus } from "./types.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
 import { getWorktreePath, worktreeExists } from "./worktree.js";
@@ -79,49 +80,36 @@ export interface RecoveryEvidence {
 	recentToolCalls: RecentToolCall[];
 }
 
-function queryRecentToolCalls(db: Database.Database, sliceId: string): RecentToolCall[] {
-	const cutoffIso = new Date(Date.now() - FORENSICS_WINDOW_MS).toISOString();
+function queryRecentToolCalls(root: string, label: string): RecentToolCall[] {
+	const cutoffMs = Date.now() - FORENSICS_WINDOW_MS;
+	const all = readPerSliceLog(root, label).filter((l) => l.ch === "tff:tool");
 
-	let rows = db
-		.prepare(
-			`SELECT payload FROM event_log
-			 WHERE channel = 'tff:tool'
-			   AND slice_id = ?
-			   AND json_extract(payload, '$.startedAt') >= ?
-			 ORDER BY json_extract(payload, '$.startedAt') DESC
-			 LIMIT ?`,
-		)
-		.all(sliceId, cutoffIso, FORENSICS_MAX_COUNT) as { payload: string }[];
+	// Primary window: events within the last FORENSICS_WINDOW_MS
+	const withinWindow = all.filter((p) => {
+		const sa = p.startedAt;
+		return typeof sa === "string" && Date.parse(sa) >= cutoffMs;
+	});
+	const chosen = withinWindow.length > 0 ? withinWindow : all;
 
-	if (rows.length === 0) {
-		rows = db
-			.prepare(
-				`SELECT payload FROM event_log
-				 WHERE channel = 'tff:tool'
-				   AND slice_id = ?
-				 ORDER BY json_extract(payload, '$.startedAt') DESC
-				 LIMIT ?`,
-			)
-			.all(sliceId, FORENSICS_MAX_COUNT) as { payload: string }[];
-	}
+	// Sort descending by startedAt, then cap to FORENSICS_MAX_COUNT
+	const sorted = [...chosen].sort((a, b) =>
+		String(b.startedAt ?? "").localeCompare(String(a.startedAt ?? "")),
+	);
+	const capped = sorted.slice(0, FORENSICS_MAX_COUNT);
 
 	const out: RecentToolCall[] = [];
-	for (const row of rows) {
-		try {
-			const p = JSON.parse(row.payload) as Record<string, unknown>;
-			if (typeof p.startedAt !== "string" || typeof p.toolName !== "string") continue;
-			out.push({
-				timestamp: p.startedAt,
-				toolName: p.toolName,
-				commandSummary: summarizeInput(p.toolName, p.input),
-				isError: Boolean(p.isError),
-				durationMs: typeof p.durationMs === "number" ? p.durationMs : 0,
-			});
-		} catch {
-			// Skip malformed rows silently — observability must not fail recovery.
-		}
+	for (const p of capped) {
+		if (typeof p.startedAt !== "string" || typeof p.toolName !== "string") continue;
+		out.push({
+			timestamp: p.startedAt,
+			toolName: p.toolName,
+			commandSummary: summarizeInput(p.toolName, p.input),
+			isError: Boolean(p.isError),
+			durationMs: typeof p.durationMs === "number" ? p.durationMs : 0,
+		});
 	}
 
+	// Return in chronological order (oldest first) to match original behaviour
 	return out.reverse();
 }
 
@@ -207,7 +195,7 @@ export function diagnoseRecovery(
 		artifacts: presentArtifacts,
 		checkpoints,
 		lastCheckpoint,
-		recentToolCalls: queryRecentToolCalls(db, sliceId),
+		recentToolCalls: queryRecentToolCalls(root, sLabel),
 	};
 
 	const classification = classify(slice.status, evidence);

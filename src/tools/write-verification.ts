@@ -5,10 +5,12 @@ import { deleteArtifact, writeArtifact } from "../common/artifacts.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { makeBaseEvent } from "../common/events.js";
 import { auditVerification, formatAuditReport } from "../common/evidence-auditor.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
+import { computeNextHint } from "../common/phase-completion.js";
+import { projectCommand } from "../common/projection.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -42,6 +44,11 @@ export function handleWriteVerification(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/VERIFICATION.md`;
 	writeArtifact(root, path, content);
+	db.transaction(() => {
+		projectCommand(db, root, "write-verification", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "write-verification", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
 	return {
 		content: [{ type: "text", text: `VERIFICATION.md written for ${label}.` }],
 		details: { sliceId, path },
@@ -99,15 +106,12 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						};
 					}
 
-					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
-					if (writeResult.isError) return writeResult;
-
-					const auditReport = auditVerification(database, slice.id, params.content);
-
 					const mLabel = milestoneLabel(milestone.number);
 					const sLabel = sliceLabel(milestone.number, slice.number);
+					const auditReport = auditVerification(root, sLabel, params.content);
 					const auditPath = `milestones/${mLabel}/slices/${sLabel}/VERIFICATION-AUDIT.md`;
 					const blockedPath = `milestones/${mLabel}/slices/${sLabel}/.audit-blocked`;
+					const verifyPath = `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`;
 
 					if (auditReport.findings.length > 0) {
 						writeArtifact(root, auditPath, formatAuditReport(auditReport));
@@ -118,6 +122,9 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 					}
 
 					if (auditReport.hasMismatches) {
+						// Write the file so the agent can see what was submitted, but do NOT
+						// enter the tx block — phase_complete must not fire on mismatch.
+						writeArtifact(root, verifyPath, params.content);
 						// Persist the block so a later phase transition can't bypass the gate
 						// via closePredecessorIfReady's artifact-existence-only check.
 						writeArtifact(
@@ -141,17 +148,18 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						};
 					}
 
-					// Audit clean — clear any stale block marker from a prior mismatching run.
+					// Audit clean — clear any stale block marker from a prior mismatching run,
+					// then call handler (FS write + tx block → phase_run completed + event log).
 					deleteArtifact(root, blockedPath);
+					const writeResult = handleWriteVerification(database, root, slice.id, params.content);
+					if (writeResult.isError) return writeResult;
 
-					const hint = emitPhaseCompleteIfArtifactsReady(
-						pi,
-						database,
-						root,
-						slice,
-						"verify",
-						verifyPhaseArtifacts,
-					);
+					pi.events.emit("tff:phase", {
+						...makeBaseEvent(slice.id, sLabel, milestone.number),
+						type: "phase_complete",
+						phase: "verify",
+					});
+					const hint = computeNextHint(database, slice, milestone.number);
 					if (hint) {
 						return {
 							...writeResult,

@@ -182,6 +182,15 @@ export function applyMigrations(db: Database.Database, opts?: { root?: string })
 		});
 		runMigration();
 	}
+
+	if (currentVersion < 5) {
+		db.exec(`
+            ALTER TABLE project ADD COLUMN log_cursor_hash TEXT;
+            ALTER TABLE project ADD COLUMN log_cursor_row  INTEGER NOT NULL DEFAULT 0;
+            DROP TABLE IF EXISTS event_log;
+        `);
+		db.prepare("INSERT INTO schema_version (version) VALUES (5)").run();
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -381,9 +390,9 @@ export function getActiveMilestone(db: Database.Database, projectId: string): Mi
 
 export function insertSlice(
 	db: Database.Database,
-	params: { milestoneId: string; number: number; title: string },
+	params: { id?: string; milestoneId: string; number: number; title: string },
 ): string {
-	const id = randomUUID();
+	const id = params.id ?? randomUUID();
 	db.prepare("INSERT INTO slice (id, milestone_id, number, title) VALUES (?, ?, ?, ?)").run(
 		id,
 		params.milestoneId,
@@ -493,9 +502,9 @@ export function getNextOpenSliceInMilestone(
 
 export function insertTask(
 	db: Database.Database,
-	params: { sliceId: string; number: number; title: string; wave?: number },
+	params: { id?: string; sliceId: string; number: number; title: string; wave?: number },
 ): string {
-	const id = randomUUID();
+	const id = params.id ?? randomUUID();
 	db.prepare("INSERT INTO task (id, slice_id, number, title, wave) VALUES (?, ?, ?, ?, ?)").run(
 		id,
 		params.sliceId,
@@ -701,72 +710,6 @@ export function recoverOrphanedPhaseRuns(db: Database.Database): number {
 		)
 		.run();
 	return result.changes;
-}
-
-// ---------------------------------------------------------------------------
-// EventLog
-// ---------------------------------------------------------------------------
-
-interface EventLogRow {
-	id: number;
-	channel: string;
-	type: string;
-	slice_id: string;
-	payload: string;
-	created_at: string;
-}
-
-export interface EventLogEntry {
-	id: number;
-	channel: string;
-	type: string;
-	sliceId: string;
-	payload: string;
-	createdAt: string;
-}
-
-function rowToEventLog(row: EventLogRow): EventLogEntry {
-	return {
-		id: row.id,
-		channel: row.channel,
-		type: row.type,
-		sliceId: row.slice_id,
-		payload: row.payload,
-		createdAt: row.created_at,
-	};
-}
-
-export function insertEventLog(
-	db: Database.Database,
-	params: { channel: string; type: string; sliceId: string; payload: string },
-): void {
-	db.prepare("INSERT INTO event_log (channel, type, slice_id, payload) VALUES (?, ?, ?, ?)").run(
-		params.channel,
-		params.type,
-		params.sliceId,
-		params.payload,
-	);
-}
-
-export function getEventLog(
-	db: Database.Database,
-	sliceId: string,
-	channel?: string,
-	limit?: number,
-): EventLogEntry[] {
-	let sql = "SELECT * FROM event_log WHERE slice_id = ?";
-	const args: (string | number)[] = [sliceId];
-	if (channel) {
-		sql += " AND channel = ?";
-		args.push(channel);
-	}
-	sql += " ORDER BY id";
-	if (limit) {
-		sql += " LIMIT ?";
-		args.push(limit);
-	}
-	const rows = db.prepare(sql).all(...args) as EventLogRow[];
-	return rows.map(rowToEventLog);
 }
 
 // ---------------------------------------------------------------------------

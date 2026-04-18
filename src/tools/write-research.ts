@@ -6,10 +6,12 @@ import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { makeBaseEvent } from "../common/events.js";
+import { computeNextHint } from "../common/phase-completion.js";
+import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -44,6 +46,11 @@ export function handleWriteResearch(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/RESEARCH.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
+	db.transaction(() => {
+		projectCommand(db, root, "write-research", { sliceId: slice.id });
+		const { hash, row } = appendCommand(root, "write-research", { sliceId: slice.id });
+		updateLogCursor(db, hash, row);
+	})();
 	return {
 		content: [{ type: "text", text: `RESEARCH.md written for ${label}.` }],
 		details: { sliceId, path },
@@ -98,24 +105,26 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 						ctx.settings ?? DEFAULT_SETTINGS,
 					);
 					if (!writeResult.isError) {
-						const hint = emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							root,
-							slice,
-							"research",
-							verifyPhaseArtifacts,
-						);
-						if (hint) {
-							return {
-								...writeResult,
-								content: [
-									{
-										type: "text" as const,
-										text: `${writeResult.content[0]?.text ?? ""} Research phase complete. Stop here; the user will advance.\n\n${hint}`,
-									},
-								],
-							};
+						const milestone = getMilestone(database, slice.milestoneId);
+						if (milestone) {
+							const sLabel = sliceLabel(milestone.number, slice.number);
+							pi.events.emit("tff:phase", {
+								...makeBaseEvent(slice.id, sLabel, milestone.number),
+								type: "phase_complete",
+								phase: "research",
+							});
+							const hint = computeNextHint(database, slice, milestone.number);
+							if (hint) {
+								return {
+									...writeResult,
+									content: [
+										{
+											type: "text" as const,
+											text: `${writeResult.content[0]?.text ?? ""} Research phase complete. Stop here; the user will advance.\n\n${hint}`,
+										},
+									],
+								};
+							}
 						}
 					}
 					return writeResult;

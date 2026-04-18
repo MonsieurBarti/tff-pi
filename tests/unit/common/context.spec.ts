@@ -9,7 +9,7 @@ describe("createTffContext", () => {
 		expect(ctx.projectRoot).toBeNull();
 		expect(ctx.settings).toBeNull();
 		expect(ctx.fffBridge).toBeNull();
-		expect(ctx.eventLogger).toBeNull();
+		expect(ctx.perSliceLog).toBeNull();
 		expect(ctx.tuiMonitor).toBeNull();
 		expect(ctx.cmdCtx).toBeNull();
 		expect(ctx.initError).toBeNull();

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -34,6 +34,7 @@ describe("M11-S4: fresh init → UUID branches end-to-end", () => {
 		execFileSync("git", ["-C", tmp, "commit", "--allow-empty", "-m", "init"]);
 		// readProjectIdFile validates UUID v4 — use a real one.
 		writeFileSync(join(tmp, ".tff-project-id"), "11111111-2222-4333-8444-555555555555");
+		mkdirSync(join(tmp, ".tff"), { recursive: true });
 		db = openDatabase(join(tmp, "state.db"));
 		applyMigrations(db, { root: tmp });
 		projectId = insertProject(db, { name: "demo", vision: "v" });

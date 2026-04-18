@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -57,6 +57,7 @@ describe("createMilestone", () => {
 		execSync('git config user.name "Test"', { cwd: root, stdio: "pipe" });
 		execSync("git commit --allow-empty -m 'init'", { cwd: root, stdio: "pipe" });
 
+		mkdirSync(join(root, ".tff"), { recursive: true });
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		projectId = must(getProject(db)).id;

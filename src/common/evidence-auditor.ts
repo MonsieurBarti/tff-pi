@@ -1,5 +1,5 @@
-import type Database from "better-sqlite3";
 import type { ToolCallEvent } from "./events.js";
+import { readPerSliceLog } from "./per-slice-log.js";
 
 export interface ParsedClaim {
 	raw: string;
@@ -128,33 +128,19 @@ function parseInlineVerdicts(md: string, claims: ParsedClaim[], seen: Set<string
 	}
 }
 
-interface EventLogRow {
-	payload: string;
-}
-
 type EventPayload = Pick<
 	ToolCallEvent,
 	"toolCallId" | "toolName" | "input" | "isError" | "startedAt"
 >;
 
-function queryBashEvents(db: Database.Database, sliceId: string): EventPayload[] {
-	const rows = db
-		.prepare(
-			`SELECT payload FROM event_log
-			 WHERE channel = 'tff:tool'
-			   AND slice_id = ?
-			   AND json_extract(payload, '$.phase') = 'verify'
-			   AND json_extract(payload, '$.toolName') = 'bash'`,
-		)
-		.all(sliceId) as EventLogRow[];
-
+function queryBashEvents(root: string, label: string): EventPayload[] {
+	const lines = readPerSliceLog(root, label);
 	const out: EventPayload[] = [];
-	for (const r of rows) {
-		try {
-			out.push(JSON.parse(r.payload) as EventPayload);
-		} catch {
-			// Drop malformed rows silently — monitoring must not fail the pipeline.
-		}
+	for (const l of lines) {
+		if (l.ch !== "tff:tool") continue;
+		if ((l as Record<string, unknown>).phase !== "verify") continue;
+		if ((l as Record<string, unknown>).toolName !== "bash") continue;
+		out.push(l as unknown as EventPayload);
 	}
 	return out;
 }
@@ -242,12 +228,12 @@ function matchClaim(claim: ParsedClaim, events: EventPayload[]): AuditFinding {
 }
 
 export function auditVerification(
-	db: Database.Database,
-	sliceId: string,
+	root: string,
+	sliceLabel: string,
 	verificationMd: string,
 ): AuditReport {
 	const claims = parseVerificationClaims(verificationMd);
-	const events = queryBashEvents(db, sliceId);
+	const events = queryBashEvents(root, sliceLabel);
 	const findings = claims.map((c) => matchClaim(c, events));
 
 	const summary = { match: 0, mismatch: 0, unverifiable: 0 };

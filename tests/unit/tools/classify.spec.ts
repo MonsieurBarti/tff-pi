@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -23,9 +26,12 @@ function createTestDb(): Database.Database {
 describe("handleClassify", () => {
 	let db: Database.Database;
 	let sliceId: string;
+	let root: string;
 
 	beforeEach(() => {
 		db = createTestDb();
+		root = mkdtempSync(join(tmpdir(), "tff-classify-spec-"));
+		mkdirSync(join(root, ".tff"), { recursive: true });
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });
@@ -35,34 +41,34 @@ describe("handleClassify", () => {
 	});
 
 	it("returns error for non-existent slice", () => {
-		const result = handleClassify(db, "nonexistent", "S");
+		const result = handleClassify(db, root, "nonexistent", "S");
 		expect(result.isError).toBe(true);
 		expect(must(result.content[0]).text).toContain("Slice not found");
 	});
 
 	it("classifies a slice as S tier", () => {
-		const result = handleClassify(db, sliceId, "S");
+		const result = handleClassify(db, root, sliceId, "S");
 		expect(result.isError).toBeUndefined();
 		expect(must(result.content[0]).text).toContain("Tier S");
 		expect(must(getSlice(db, sliceId)).tier).toBe("S");
 	});
 
 	it("classifies a slice as SS tier", () => {
-		const result = handleClassify(db, sliceId, "SS");
+		const result = handleClassify(db, root, sliceId, "SS");
 		expect(result.isError).toBeUndefined();
 		expect(must(getSlice(db, sliceId)).tier).toBe("SS");
 	});
 
 	it("classifies a slice as SSS tier", () => {
-		const result = handleClassify(db, sliceId, "SSS");
+		const result = handleClassify(db, root, sliceId, "SSS");
 		expect(result.isError).toBeUndefined();
 		expect(must(getSlice(db, sliceId)).tier).toBe("SSS");
 	});
 
 	it("reclassifies an already-classified slice", () => {
-		handleClassify(db, sliceId, "S");
+		handleClassify(db, root, sliceId, "S");
 		expect(must(getSlice(db, sliceId)).tier).toBe("S");
-		handleClassify(db, sliceId, "SSS");
+		handleClassify(db, root, sliceId, "SSS");
 		expect(must(getSlice(db, sliceId)).tier).toBe("SSS");
 	});
 });

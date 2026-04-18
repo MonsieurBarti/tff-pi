@@ -78,6 +78,7 @@ export function handleDoctor(
 				const nowIso = new Date(now).toISOString();
 				for (const run of runs) {
 					if (run.status === "started") {
+						// Intentional: doctor is an explicit repair tool operating outside the command-log invariants.
 						updatePhaseRun(db, run.id, {
 							status: "abandoned",
 							finishedAt: nowIso,

@@ -6,7 +6,9 @@ import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
 import { expectedInProgressStatusFor } from "../common/derived-state.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
+import { projectCommand } from "../common/projection.js";
 import { SLICE_TRANSITIONS, canTransitionSlice, nextSliceStatus } from "../common/state-machine.js";
 import { type Phase, SLICE_STATUSES, type SliceStatus, sliceLabel } from "../common/types.js";
 
@@ -32,7 +34,21 @@ export function handleTransition(
 	sliceId: string,
 	milestoneNumber: number,
 	targetStatus?: string,
+	root?: string,
 ): ToolResult {
+	if (!root) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "Cannot transition: no project root available. Ensure /tff init has been run.",
+				},
+			],
+			details: { sliceId },
+			isError: true,
+		};
+	}
+
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
 		return {
@@ -108,15 +124,37 @@ export function handleTransition(
 	}
 
 	const sLabel = sliceLabel(milestoneNumber, slice.number);
+
+	// Block 3: atomic state mutation + event-log append in one transaction.
+	// projectCommand("transition") does UPDATE slice SET status + insertPhaseRun.
+	// No reconcile: transition is the authoritative override.
+	const startedAt = new Date().toISOString();
+	db.transaction(() => {
+		projectCommand(db, root, "transition", {
+			sliceId: slice.id,
+			from: slice.status,
+			to: target,
+			phase: phaseForTarget,
+			startedAt,
+		});
+		const { hash, row } = appendCommand(root, "transition", {
+			sliceId: slice.id,
+			from: slice.status,
+			to: target,
+			phase: phaseForTarget,
+			startedAt,
+		});
+		updateLogCursor(db, hash, row);
+	})();
+
+	// Post-commit bus emit for TUIMonitor subscribers (write-only; no DB side-effects).
 	pi.events.emit("tff:phase", {
 		...makeBaseEvent(sliceId, sLabel, milestoneNumber),
 		type: "phase_start",
 		phase: phaseForTarget,
 	});
 
-	// pi's event emitter invokes listeners synchronously, so the event-logger
-	// has already run reconcileSliceStatus by the time we reach this line.
-	// Re-read to confirm the transition actually persisted.
+	// Sanity-check: re-fetch slice to confirm the status persisted.
 	const expected = expectedInProgressStatusFor(phaseForTarget);
 	const after = getSlice(db, sliceId);
 	if (!after || (expected !== null && after.status !== expected)) {
@@ -125,7 +163,7 @@ export function handleTransition(
 			content: [
 				{
 					type: "text",
-					text: `Transition event fired for ${sliceId} (${slice.status} → ${target}) but slice.status is still "${actual}". The event handler likely threw — check .tff/audit-log.jsonl (or stderr if the audit write itself failed) for details. Recovery: inspect the logged error, fix the root cause, and re-run the transition.`,
+					text: `Transition command written for ${sliceId} (${slice.status} → ${target}) but slice.status is "${actual}". The transaction may have rolled back — check .tff/event-log.jsonl (or stderr if the write itself failed) for details. Recovery: inspect the logged error, fix the root cause, and re-run the transition.`,
 				},
 			],
 			details: {
@@ -201,7 +239,14 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							isError: true,
 						};
 					}
-					return handleTransition(pi, database, slice.id, milestone.number, params.targetStatus);
+					return handleTransition(
+						pi,
+						database,
+						slice.id,
+						milestone.number,
+						params.targetStatus,
+						ctx.projectRoot ?? undefined,
+					);
 				} catch (err) {
 					return {
 						content: [

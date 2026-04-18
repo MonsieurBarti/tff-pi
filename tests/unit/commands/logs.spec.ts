@@ -1,63 +1,69 @@
-import Database from "better-sqlite3";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handleLogs } from "../../../src/commands/logs.js";
-import {
-	applyMigrations,
-	insertEventLog,
-	insertMilestone,
-	insertProject,
-	insertSlice,
-} from "../../../src/common/db.js";
-function createTestDb(): Database.Database {
-	const db = new Database(":memory:");
-	applyMigrations(db);
-	return db;
-}
+import { PerSliceLog } from "../../../src/common/per-slice-log.js";
 
-function seedSlice(db: Database.Database): string {
-	insertProject(db, { name: "TFF", vision: "Vision" });
-	const row = db.prepare("SELECT id FROM project LIMIT 1").get() as { id: string };
-	const projectId = row.id;
-	insertMilestone(db, { projectId, number: 1, name: "M01", branch: "milestone/M01" });
-	const m = db.prepare("SELECT id FROM milestone LIMIT 1").get() as { id: string };
-	insertSlice(db, { milestoneId: m.id, number: 1, title: "S01" });
-	const s = db.prepare("SELECT id FROM slice LIMIT 1").get() as { id: string };
-	return s.id;
+function makeBus() {
+	const handlers: Map<string, Array<(d: unknown) => void>> = new Map();
+	return {
+		on(channel: string, fn: (d: unknown) => void) {
+			const list = handlers.get(channel) ?? [];
+			list.push(fn);
+			handlers.set(channel, list);
+			return () => {
+				const l = handlers.get(channel) ?? [];
+				handlers.set(
+					channel,
+					l.filter((f) => f !== fn),
+				);
+			};
+		},
+		emit(channel: string, data: unknown) {
+			for (const fn of handlers.get(channel) ?? []) fn(data);
+		},
+	};
 }
 
 describe("handleLogs", () => {
-	let db: Database.Database;
+	let root: string;
+	let bus: ReturnType<typeof makeBus>;
+	let log: PerSliceLog;
+	const LABEL = "M01-S01";
 
 	beforeEach(() => {
-		db = createTestDb();
+		root = mkdtempSync(join(tmpdir(), "tff-logs-"));
+		bus = makeBus();
+		log = new PerSliceLog(root);
+		log.subscribe(bus);
 	});
 
 	it("returns no-events message when empty", () => {
-		const sliceId = seedSlice(db);
-		const result = handleLogs(db, sliceId);
+		const result = handleLogs(root, LABEL);
 		expect(result).toContain("No events");
 	});
 
 	it("returns timeline for a slice", () => {
-		const sliceId = seedSlice(db);
-		insertEventLog(db, {
-			channel: "phase",
+		bus.emit("tff:phase", {
+			timestamp: "2026-04-11T10:30:00.000Z",
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
 			type: "phase_started",
-			sliceId,
-			payload: JSON.stringify({ timestamp: "2026-04-11T10:30:00.000Z", phase: "research" }),
+			phase: "research",
 		});
-		insertEventLog(db, {
-			channel: "phase",
+		bus.emit("tff:phase", {
+			timestamp: "2026-04-11T10:31:30.000Z",
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
 			type: "phase_completed",
-			sliceId,
-			payload: JSON.stringify({
-				timestamp: "2026-04-11T10:31:30.000Z",
-				phase: "research",
-				durationMs: 90000,
-			}),
+			phase: "research",
+			durationMs: 90000,
 		});
 
-		const result = handleLogs(db, sliceId);
+		const result = handleLogs(root, LABEL);
 		expect(result).toContain("10:30:00");
 		expect(result).toContain("phase_started");
 		expect(result).toContain("research");
@@ -67,65 +73,73 @@ describe("handleLogs", () => {
 	});
 
 	it("formats wave and task count fields", () => {
-		const sliceId = seedSlice(db);
-		insertEventLog(db, {
-			channel: "execute",
+		bus.emit("tff:wave", {
+			timestamp: "2026-04-11T11:00:00.000Z",
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
 			type: "wave_started",
-			sliceId,
-			payload: JSON.stringify({
-				timestamp: "2026-04-11T11:00:00.000Z",
-				wave: 2,
-				totalWaves: 4,
-				taskCount: 3,
-			}),
+			wave: 2,
+			totalWaves: 4,
+			taskCount: 3,
 		});
 
-		const result = handleLogs(db, sliceId);
+		const result = handleLogs(root, LABEL);
 		expect(result).toContain("wave=2/4");
 		expect(result).toContain("tasks=3");
 	});
 
 	it("formats verdict and tier fields", () => {
-		const sliceId = seedSlice(db);
-		insertEventLog(db, {
-			channel: "review",
+		bus.emit("tff:review", {
+			timestamp: "2026-04-11T12:00:00.000Z",
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
 			type: "review_verdict",
-			sliceId,
-			payload: JSON.stringify({
-				timestamp: "2026-04-11T12:00:00.000Z",
-				tier: "SSS",
-				verdict: "approved",
-			}),
+			tier: "SSS",
+			verdict: "approved",
 		});
 
-		const result = handleLogs(db, sliceId);
+		const result = handleLogs(root, LABEL);
 		expect(result).toContain("tier=SSS");
 		expect(result).toContain("approved");
 	});
 
 	it("truncates error to 60 chars", () => {
-		const sliceId = seedSlice(db);
 		const longError = "a".repeat(80);
-		insertEventLog(db, {
-			channel: "phase",
+		bus.emit("tff:phase", {
+			timestamp: "2026-04-11T13:00:00.000Z",
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
 			type: "phase_failed",
-			sliceId,
-			payload: JSON.stringify({ timestamp: "2026-04-11T13:00:00.000Z", error: longError }),
+			error: longError,
 		});
 
-		const result = handleLogs(db, sliceId);
+		const result = handleLogs(root, LABEL);
 		expect(result).toContain("a".repeat(60));
 		expect(result).not.toContain("a".repeat(61));
 	});
 
 	it("returns json when format is json", () => {
-		const sliceId = seedSlice(db);
-		const payload1 = JSON.stringify({ timestamp: "2026-04-11T10:00:00.000Z", phase: "plan" });
-		const payload2 = JSON.stringify({ timestamp: "2026-04-11T10:05:00.000Z", phase: "execute" });
-		insertEventLog(db, { channel: "phase", type: "phase_started", sliceId, payload: payload1 });
-		insertEventLog(db, { channel: "phase", type: "phase_started", sliceId, payload: payload2 });
+		bus.emit("tff:phase", {
+			timestamp: "2026-04-11T10:00:00.000Z",
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
+			type: "phase_started",
+			phase: "plan",
+		});
+		bus.emit("tff:phase", {
+			timestamp: "2026-04-11T10:05:00.000Z",
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
+			type: "phase_started",
+			phase: "execute",
+		});
 
-		const result = handleLogs(db, sliceId, { json: true });
+		const result = handleLogs(root, LABEL, { json: true });
 		const lines = result.split("\n");
 		expect(lines).toHaveLength(2);
 		for (const line of lines) {
@@ -134,15 +148,15 @@ describe("handleLogs", () => {
 	});
 
 	it("uses fallback time when timestamp missing", () => {
-		const sliceId = seedSlice(db);
-		insertEventLog(db, {
-			channel: "phase",
+		bus.emit("tff:phase", {
+			sliceId: "s1",
+			sliceLabel: LABEL,
+			milestoneNumber: 1,
 			type: "phase_started",
-			sliceId,
-			payload: JSON.stringify({ phase: "discuss" }),
+			phase: "discuss",
 		});
 
-		const result = handleLogs(db, sliceId);
+		const result = handleLogs(root, LABEL);
 		expect(result).toContain("??:??:??");
 	});
 });

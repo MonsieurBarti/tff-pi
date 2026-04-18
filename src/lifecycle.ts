@@ -224,7 +224,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 
 				ctx.initError = null;
 
-				// Initialize monitoring (EventLogger + TUIMonitor + fffBridge)
+				// Initialize monitoring (PerSliceLog + TUIMonitor + fffBridge)
 				await initMonitoring(pi, ctx, root, uiCtx);
 
 				if (uiCtx.hasUI) {
@@ -261,7 +261,8 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	// Lifecycle: session_shutdown
 	// -------------------------------------------------------------------------
 	pi.on("session_shutdown", async () => {
-		ctx.eventLogger = null;
+		ctx.perSliceLog?.dispose();
+		ctx.perSliceLog = null;
 		ctx.tuiMonitor = null;
 		await shutdownFffBridge();
 		ctx.fffBridge = null;

@@ -8,18 +8,7 @@ import { handleInit } from "../../../src/commands/init.js";
 import { handleNew, runNew } from "../../../src/commands/new.js";
 import { artifactExists, readArtifact } from "../../../src/common/artifacts.js";
 import { createTffContext } from "../../../src/common/context.js";
-import {
-	applyMigrations,
-	getMilestones,
-	getProject,
-	getSlice,
-	getSlices,
-	insertMilestone,
-	insertProject,
-	insertSlice,
-} from "../../../src/common/db.js";
-import { makeBaseEvent } from "../../../src/common/events.js";
-import type { PhaseEvent } from "../../../src/common/events.js";
+import { applyMigrations, getMilestones, getProject } from "../../../src/common/db.js";
 import { readProjectIdFile } from "../../../src/common/project-home.js";
 import { must } from "../../helpers.js";
 
@@ -153,7 +142,7 @@ function makeMockPi() {
 	return { pi, bus };
 }
 
-describe("runNew — EventLogger wiring", () => {
+describe("runNew — PerSliceLog wiring", () => {
 	let root: string;
 	let tffHome: string;
 	const savedEnv: Record<string, string | undefined> = {};
@@ -188,50 +177,14 @@ describe("runNew — EventLogger wiring", () => {
 		}
 	});
 
-	it("sets ctx.db and ctx.eventLogger after runNew", async () => {
+	it("sets ctx.db and ctx.perSliceLog after runNew", async () => {
 		const { pi } = makeMockPi();
 		const ctx = createTffContext();
 
 		await runNew(pi, ctx, null, ["TestProject"]);
 
 		expect(ctx.db).toBeTruthy();
-		expect(ctx.eventLogger).toBeTruthy();
-	});
-
-	it("phase_start event reaches EventLogger and reconciles slice status to 'discussing'", async () => {
-		const { pi, bus } = makeMockPi();
-		const ctx = createTffContext();
-
-		await runNew(pi, ctx, null, ["TestProject"]);
-
-		// Seed DB with project + milestone + slice so reconcileSliceStatus has data
-		// Note: runNew sets up the DB but doesn't insert a project row — that's
-		// done by the tff_create_project tool. Insert manually here.
-		const db = must(ctx.db);
-		const projectId = insertProject(db, { name: "TestProject", vision: "V" });
-		const milestoneId = insertMilestone(db, {
-			projectId,
-			number: 1,
-			name: "M1",
-			branch: "milestone/M01",
-		});
-		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
-		const sliceId = must(getSlices(db, milestoneId)[0]).id;
-
-		// Verify initial status is "created"
-		expect(must(getSlice(db, sliceId)).status).toBe("created");
-
-		// Emit phase_start on the bus — this should reach EventLogger → reconcileSliceStatus
-		const base = makeBaseEvent(sliceId, "M01-S01", 1);
-		const phaseStart: PhaseEvent = {
-			...base,
-			type: "phase_start",
-			phase: "discuss",
-		};
-		bus.emit("tff:phase", phaseStart);
-
-		// Slice status should now be "discussing"
-		expect(must(getSlice(db, sliceId)).status).toBe("discussing");
+		expect(ctx.perSliceLog).toBeTruthy();
 	});
 });
 

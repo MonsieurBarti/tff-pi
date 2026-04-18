@@ -4,10 +4,12 @@ import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import { getSlice, updateSliceTier } from "../common/db.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
-import { TIERS, type Tier } from "../common/types.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
+import { getMilestone, getSlice } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { makeBaseEvent } from "../common/events.js";
+import { computeNextHint } from "../common/phase-completion.js";
+import { projectCommand } from "../common/projection.js";
+import { TIERS, type Tier, sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -15,7 +17,12 @@ export interface ToolResult {
 	isError?: boolean;
 }
 
-export function handleClassify(db: Database.Database, sliceId: string, tier: Tier): ToolResult {
+export function handleClassify(
+	db: Database.Database,
+	root: string,
+	sliceId: string,
+	tier: Tier,
+): ToolResult {
 	const slice = getSlice(db, sliceId);
 	if (!slice) {
 		return {
@@ -25,7 +32,11 @@ export function handleClassify(db: Database.Database, sliceId: string, tier: Tie
 		};
 	}
 
-	updateSliceTier(db, sliceId, tier);
+	db.transaction(() => {
+		projectCommand(db, root, "classify", { sliceId: slice.id, tier });
+		const { hash, row } = appendCommand(root, "classify", { sliceId: slice.id, tier });
+		updateLogCursor(db, hash, row);
+	})();
 
 	return {
 		content: [
@@ -76,26 +87,36 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 							isError: true,
 						};
 					}
-					const result = handleClassify(database, slice.id, tier);
-					if (!result.isError && ctx.projectRoot) {
-						const hint = emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							ctx.projectRoot,
-							slice,
-							"discuss",
-							verifyPhaseArtifacts,
-						);
-						if (hint) {
-							return {
-								...result,
-								content: [
-									{
-										type: "text" as const,
-										text: `${result.content[0]?.text ?? ""}\n\nDiscuss phase complete. Stop here; the user will advance.\n\n${hint}`,
-									},
-								],
-							};
+					const root = ctx.projectRoot;
+					if (!root) {
+						return {
+							content: [{ type: "text", text: "Error: No project root found." }],
+							details: {},
+							isError: true,
+						};
+					}
+					const result = handleClassify(database, root, slice.id, tier);
+					if (!result.isError) {
+						const milestone = getMilestone(database, slice.milestoneId);
+						if (milestone) {
+							const label = sliceLabel(milestone.number, slice.number);
+							pi.events.emit("tff:phase", {
+								...makeBaseEvent(slice.id, label, milestone.number),
+								type: "phase_complete",
+								phase: "discuss",
+							});
+							const hint = computeNextHint(database, slice, milestone.number);
+							if (hint) {
+								return {
+									...result,
+									content: [
+										{
+											type: "text" as const,
+											text: `${result.content[0]?.text ?? ""}\n\nDiscuss phase complete. Stop here; the user will advance.\n\n${hint}`,
+										},
+									],
+								};
+							}
 						}
 					}
 					return result;

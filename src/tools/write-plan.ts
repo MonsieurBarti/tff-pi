@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
@@ -5,20 +6,15 @@ import { writeArtifact } from "../common/artifacts.js";
 import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
-import {
-	clearSliceTasks,
-	getMilestone,
-	getSlice,
-	insertDependency,
-	insertTask,
-	updateTaskWave,
-} from "../common/db.js";
-import { emitPhaseCompleteIfArtifactsReady } from "../common/phase-completion.js";
+import { getMilestone, getSlice } from "../common/db.js";
+import { appendCommand, updateLogCursor } from "../common/event-log.js";
+import { makeBaseEvent } from "../common/events.js";
+import { computeNextHint } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
+import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { computeWaves } from "../common/waves.js";
-import { verifyPhaseArtifacts } from "../orchestrator.js";
 
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
@@ -62,15 +58,12 @@ export function handleWritePlan(
 	const path = `milestones/${mLabel}/slices/${label}/PLAN.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
 
-	clearSliceTasks(db, sliceId);
-
+	// Pre-generate stable UUIDs so the same ids flow into both the event-log
+	// params and the DB rows — required for deterministic replay.
 	const taskIds: Map<number, string> = new Map();
 	for (let i = 0; i < tasks.length; i++) {
-		const task = tasks[i];
-		if (!task) continue;
-		const taskNumber = i + 1;
-		const taskId = insertTask(db, { sliceId, number: taskNumber, title: task.title });
-		taskIds.set(taskNumber, taskId);
+		if (!tasks[i]) continue;
+		taskIds.set(i + 1, randomUUID());
 	}
 
 	const depRefs: { fromTaskId: string; toTaskId: string }[] = [];
@@ -83,7 +76,6 @@ export function handleWritePlan(
 		for (const depNum of task.dependsOn ?? []) {
 			const toId = taskIds.get(depNum);
 			if (toId) {
-				insertDependency(db, { fromTaskId: fromId, toTaskId: toId });
 				depRefs.push({ fromTaskId: fromId, toTaskId: toId });
 			}
 		}
@@ -91,9 +83,27 @@ export function handleWritePlan(
 
 	const taskRefs = [...taskIds.entries()].map(([num, id]) => ({ id, number: num }));
 	const waves = computeWaves(taskRefs, depRefs);
-	for (const [taskId, wave] of waves) {
-		updateTaskWave(db, taskId, wave);
-	}
+
+	const taskParams = [...taskIds.entries()].map(([taskNumber, taskId]) => {
+		const task = tasks[taskNumber - 1];
+		const wave = waves.get(taskId);
+		const base = { id: taskId, number: taskNumber, title: task?.title ?? "" };
+		return wave !== undefined ? { ...base, wave } : base;
+	});
+
+	db.transaction(() => {
+		projectCommand(db, root, "write-plan", {
+			sliceId: slice.id,
+			tasks: taskParams,
+			dependencies: depRefs,
+		});
+		const { hash, row } = appendCommand(root, "write-plan", {
+			sliceId: slice.id,
+			tasks: taskParams,
+			dependencies: depRefs,
+		});
+		updateLogCursor(db, hash, row);
+	})();
 
 	const waveCount = waves.size > 0 ? Math.max(...waves.values()) : 0;
 	return {
@@ -200,23 +210,25 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
-						const hint = emitPhaseCompleteIfArtifactsReady(
-							pi,
-							database,
-							root,
-							slice,
-							"plan",
-							verifyPhaseArtifacts,
-						);
-						return {
-							...writeResult,
-							content: [
-								{
-									type: "text" as const,
-									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared.${hint ? ` Plan phase complete. Stop here; the user will advance.\n\n${hint}` : ""}`,
-								},
-							],
-						};
+						const milestone = getMilestone(database, slice.milestoneId);
+						if (milestone) {
+							const sLabel = sliceLabel(milestone.number, slice.number);
+							pi.events.emit("tff:phase", {
+								...makeBaseEvent(slice.id, sLabel, milestone.number),
+								type: "phase_complete",
+								phase: "plan",
+							});
+							const hint = computeNextHint(database, slice, milestone.number);
+							return {
+								...writeResult,
+								content: [
+									{
+										type: "text" as const,
+										text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared.${hint ? ` Plan phase complete. Stop here; the user will advance.\n\n${hint}` : ""}`,
+									},
+								],
+							};
+						}
 					}
 					return writeResult;
 				} catch (err) {

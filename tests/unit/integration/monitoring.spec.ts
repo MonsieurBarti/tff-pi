@@ -5,9 +5,7 @@ import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	applyMigrations,
-	getEventLog,
 	getMilestones,
-	getPhaseRuns,
 	getProject,
 	getSlices,
 	insertMilestone,
@@ -15,9 +13,9 @@ import {
 	insertSlice,
 	openDatabase,
 } from "../../../src/common/db.js";
-import { EventLogger } from "../../../src/common/event-logger.js";
 import { makeBaseEvent } from "../../../src/common/events.js";
 import type { PhaseEvent, PipelineEvent } from "../../../src/common/events.js";
+import { PerSliceLog } from "../../../src/common/per-slice-log.js";
 import { TUIMonitor } from "../../../src/common/tui-monitor.js";
 import { must } from "../../helpers.js";
 
@@ -92,9 +90,9 @@ describe("monitoring integration", () => {
 		rmSync(logsDir, { recursive: true, force: true });
 	});
 
-	it("full pipeline: events flow through logger → DB + JSONL", () => {
-		const logger = new EventLogger(db, logsDir, logsDir);
-		logger.subscribe(bus);
+	it("full pipeline: events flow through PerSliceLog → per-slice JSONL", () => {
+		const perSliceLog = new PerSliceLog(logsDir);
+		perSliceLog.subscribe(bus);
 
 		const base = makeBaseEvent(sliceId, sliceLabel, 1);
 
@@ -113,27 +111,15 @@ describe("monitoring integration", () => {
 		bus.emit("tff:phase", phaseStart);
 		bus.emit("tff:phase", phaseComplete);
 
-		// DB: phase_run row exists with status "completed" and durationMs
-		const runs = getPhaseRuns(db, sliceId);
-		expect(runs).toHaveLength(1);
-		const run = must(runs[0]);
-		expect(run.phase).toBe("research");
-		expect(run.status).toBe("completed");
-		expect(run.durationMs).toBe(4200);
-
-		// DB: event_log has 2 tff:phase entries (tff:derived entries from reconciler are also written)
-		const entries = getEventLog(db, sliceId, "tff:phase");
-		expect(entries).toHaveLength(2);
-		expect(entries[0]?.type).toBe("phase_start");
-		expect(entries[1]?.type).toBe("phase_complete");
-
 		// JSONL: file exists and has exactly 2 lines
-		const jsonlPath = join(logsDir, `${sliceLabel}.jsonl`);
+		const jsonlPath = join(logsDir, ".tff", "logs", `${sliceLabel}.jsonl`);
 		expect(existsSync(jsonlPath)).toBe(true);
 		const lines = readFileSync(jsonlPath, "utf-8").trim().split("\n");
 		expect(lines).toHaveLength(2);
 		expect(JSON.parse(must(lines[0])).type).toBe("phase_start");
 		expect(JSON.parse(must(lines[1])).type).toBe("phase_complete");
+
+		perSliceLog.dispose();
 	});
 
 	it("TUIMonitor updates status and widget on events", () => {

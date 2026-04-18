@@ -117,6 +117,7 @@ export function executeRecovery(
 		case "skip": {
 			const nextStatus = skipForwardStatus(slice.status);
 			if (nextStatus) {
+				// Intentional: recover is an explicit repair tool operating outside the command-log invariants.
 				overrideSliceStatus(db, sliceId, nextStatus, "recover-skip");
 				pi.events.emit("tff:override", {
 					...makeBaseEvent(sliceId, sLabel, milestoneNumber),

@@ -18,6 +18,7 @@ import {
 	getSlices,
 	getTasks,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	insertTask,
@@ -57,12 +58,20 @@ describe("handleWriteReview", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("writes REVIEW.md on approved verdict and leaves slice reviewing", () => {
+	it("writes REVIEW.md on approved verdict; reconcile advances slice to shipping (phase_run-driven)", () => {
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "review",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 		const pi = makePi();
 		const result = handleWriteReview(pi, db, root, sliceId, "# Review\napproved", "approved");
 		expect(result.isError).toBeUndefined();
 		expect(readArtifact(root, "milestones/M01/slices/M01-S01/REVIEW.md")).toContain("approved");
-		expect(must(getSlice(db, sliceId)).status).toBe("reviewing");
+		// After projectCommand("write-review") the reconciler sees phase_run.review = completed
+		// + REVIEW.md present → advances to "shipping" (next phase precondition satisfied).
+		expect(must(getSlice(db, sliceId)).status).toBe("shipping");
 		// approved verdict does NOT emit phase_failed
 		expect(pi.events.emit).not.toHaveBeenCalled();
 	});
