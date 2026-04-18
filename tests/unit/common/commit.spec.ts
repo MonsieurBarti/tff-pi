@@ -67,7 +67,7 @@ describe("commitCommand — happy path (with fsOps)", () => {
 			"override-status",
 			{ sliceId, status: "discussing", reason: "r" },
 			() => {
-				writeFileSync(tmpPath, "hello");
+				writeFileSync(tmpPath, "hello", { mode: 0o600 });
 				return [{ tmp: tmpPath, final: finalPath }];
 			},
 		);
@@ -107,7 +107,6 @@ describe("commitCommand — fsOps failure", () => {
 		const sliceId = seedSlice(db);
 
 		const tmpPath = join(root, "should-be-cleaned.tmp");
-		const finalPath = join(root, "should-be-cleaned.txt");
 
 		// fsOps writes the file, returns the list, then the transaction succeeds,
 		// but we simulate a rename failure by pointing to a bad destination dir.
@@ -120,7 +119,7 @@ describe("commitCommand — fsOps failure", () => {
 				"override-status",
 				{ sliceId, status: "discussing", reason: "r" },
 				() => {
-					writeFileSync(tmpPath, "data");
+					writeFileSync(tmpPath, "data", { mode: 0o600 });
 					return [{ tmp: tmpPath, final: join(root, "missing-dir", "file.txt") }];
 				},
 			),
@@ -130,9 +129,6 @@ describe("commitCommand — fsOps failure", () => {
 		expect(existsSync(tmpPath)).toBe(false);
 		// The event was written (transaction succeeded before rename)
 		expect(readEvents(root)).toHaveLength(1);
-
-		// Silence unused variable warning
-		void finalPath;
 	});
 });
 
@@ -154,7 +150,7 @@ describe("commitCommand — projectCommand failure", () => {
 				"override-status",
 				{ sliceId: "x", status: "discussing", reason: "r" },
 				() => {
-					writeFileSync(tmpPath, "data");
+					writeFileSync(tmpPath, "data", { mode: 0o600 });
 					return [{ tmp: tmpPath, final: join(root, "final.txt") }];
 				},
 			),
@@ -185,8 +181,8 @@ describe("commitCommand — rename failure mid-list", () => {
 				"override-status",
 				{ sliceId, status: "discussing", reason: "r" },
 				() => {
-					writeFileSync(tmp1, "aaa");
-					writeFileSync(tmp2, "bbb");
+					writeFileSync(tmp1, "aaa", { mode: 0o600 });
+					writeFileSync(tmp2, "bbb", { mode: 0o600 });
 					return [
 						{ tmp: tmp1, final: final1 },
 						{ tmp: tmp2, final: finalBadDir },

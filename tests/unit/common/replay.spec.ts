@@ -263,8 +263,8 @@ describe("tailReplay — malformed log line", () => {
 
 		tailReplay(db, root);
 
-		// readEvents filters malformed line; only 2 valid events
-		expect(loadCursor(db).lastRow).toBe(2);
+		// physical cursor: 3 lines total (e1, malformed, e3) → lastRow = 3
+		expect(loadCursor(db).lastRow).toBe(3);
 		expect(getSlice(db, sId)?.status).toBe("researching");
 	});
 

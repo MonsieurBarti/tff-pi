@@ -59,7 +59,7 @@ export function handleWritePr(
 			const finalPath = tffPath(root, relativePath);
 			const tmpPath = `${finalPath}.tmp`;
 			mkdirSync(dirname(finalPath), { recursive: true });
-			writeFileSync(tmpPath, body, "utf-8");
+			writeFileSync(tmpPath, body, { encoding: "utf-8", mode: 0o600 });
 			return [{ tmp: tmpPath, final: finalPath }];
 		});
 	} catch (err) {

@@ -45,6 +45,45 @@ export function readEvents(root: string, fromPhysicalLine = 0): CommandEvent[] {
 	return out;
 }
 
+export interface EventWithPosition {
+	event: CommandEvent;
+	physicalLine: number; // 0-indexed position in the file
+}
+
+export function readEventsWithPositions(root: string, fromPhysicalLine = 0): EventWithPosition[] {
+	const path = logPath(root);
+	if (!existsSync(path)) return [];
+	const raw = readFileSync(path, "utf-8");
+	if (raw.length === 0) return [];
+	const lines = raw.split("\n").slice(fromPhysicalLine);
+	const out: EventWithPosition[] = [];
+	for (const [i, line] of lines.entries()) {
+		if (line.length === 0) continue;
+		try {
+			out.push({ event: JSON.parse(line) as CommandEvent, physicalLine: fromPhysicalLine + i });
+		} catch (err) {
+			logWarning("event-log", "malformed-line", {
+				row: String(fromPhysicalLine + i + 1),
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	return out;
+}
+
+export function readEventAtPhysicalLine(root: string, physicalLine: number): CommandEvent | null {
+	const path = logPath(root);
+	if (!existsSync(path)) return null;
+	const raw = readFileSync(path, "utf-8");
+	const line = raw.split("\n")[physicalLine];
+	if (!line || line.length === 0) return null;
+	try {
+		return JSON.parse(line) as CommandEvent;
+	} catch {
+		return null;
+	}
+}
+
 export interface AppendResult {
 	hash: string;
 	row: number;

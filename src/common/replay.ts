@@ -1,5 +1,11 @@
 import type Database from "better-sqlite3";
-import { hashEvent, loadCursor, readEvents, updateLogCursor } from "./event-log.js";
+import {
+	hashEvent,
+	loadCursor,
+	readEventAtPhysicalLine,
+	readEventsWithPositions,
+	updateLogCursor,
+} from "./event-log.js";
 import { logError, logWarning } from "./logger.js";
 import { validateCommandPreconditions } from "./preconditions.js";
 import { UnknownCommandError, projectCommand } from "./projection.js";
@@ -9,8 +15,7 @@ export function tailReplay(db: Database.Database, root: string): void {
 
 	// Cursor integrity check
 	if (lastRow > 0) {
-		const eventsAtCursor = readEvents(root, lastRow - 1);
-		const eventAtCursor = eventsAtCursor[0];
+		const eventAtCursor = readEventAtPhysicalLine(root, lastRow - 1);
 		if (!eventAtCursor) {
 			logError("replay", "cursor-hash-mismatch", {
 				row: String(lastRow),
@@ -28,14 +33,13 @@ export function tailReplay(db: Database.Database, root: string): void {
 	}
 
 	// lastRow is a physical newline count (set by appendCommand via byte scan).
-	// readEvents slices by physical line index before filtering, so malformed lines
-	// before lastRow do not cause over-replay on the next startup.
-	const tail = readEvents(root, lastRow);
+	// readEventsWithPositions carries the physical line index so that malformed
+	// lines before lastRow do not shift currentRow and cause over-replay on next boot.
+	const tail = readEventsWithPositions(root, lastRow);
 	if (tail.length === 0) return;
 
-	for (let i = 0; i < tail.length; i++) {
-		const event = tail[i] as (typeof tail)[number];
-		const currentRow = lastRow + i + 1;
+	for (const { event, physicalLine } of tail) {
+		const currentRow = physicalLine + 1;
 
 		const inv = validateCommandPreconditions(db, root, event.cmd, event.params);
 		if (!inv.ok) {
