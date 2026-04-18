@@ -20,6 +20,7 @@ import { initMonitoring } from "./common/monitoring-setup.js";
 import { clearPendingMessage, readPendingMessage } from "./common/phase.js";
 import { readProjectIdFile } from "./common/project-home.js";
 import { diagnoseRecovery, formatRecoveryBriefing, scanForStuckSlices } from "./common/recovery.js";
+import { tailReplay } from "./common/replay.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
 import { ensureStateBranch } from "./common/state-branch.js";
@@ -207,6 +208,11 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				ctx.db = openDatabase(dbPath);
 				applyMigrations(ctx.db, { root: ctx.projectRoot });
 				loadSettings(ctx, root);
+				try {
+					tailReplay(ctx.db, ctx.projectRoot);
+				} catch (err) {
+					logException("replay", err, { fn: "tail-replay", id: ctx.projectRoot });
+				}
 
 				// M10-S03/S5: ensure tff-state/<codeBranch> exists and alert on rename.
 				// Best-effort: a broken state branch must never block session start.
