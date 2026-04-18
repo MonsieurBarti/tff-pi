@@ -27,12 +27,17 @@ export function tailReplay(db: Database.Database, root: string): void {
 		}
 	}
 
+	// NOTE: readEvents skips malformed lines (parse failures). If malformed lines
+	// appear before lastRow, the physical-line offset used by readEvents will
+	// diverge from lastRow (which counts valid events). This can cause the last
+	// projected event to be replayed on the next startup. Since override-status
+	// and other projection handlers are idempotent or safe to replay, this is
+	// accepted as a known limitation until event-log.ts tracks physical row numbers.
 	const tail = readEvents(root, lastRow);
 	if (tail.length === 0) return;
 
 	for (let i = 0; i < tail.length; i++) {
-		const event = tail[i];
-		if (!event) continue;
+		const event = tail[i] as (typeof tail)[number];
 		const currentRow = lastRow + i + 1;
 
 		const inv = validateCommandPreconditions(db, root, event.cmd, event.params);
@@ -42,9 +47,7 @@ export function tailReplay(db: Database.Database, root: string): void {
 				row: String(currentRow),
 				...(inv.reason !== undefined && { error: inv.reason }),
 			});
-			db.transaction(() => {
-				updateLogCursor(db, event.hash, currentRow);
-			})();
+			updateLogCursor(db, event.hash, currentRow);
 			continue;
 		}
 
@@ -63,9 +66,7 @@ export function tailReplay(db: Database.Database, root: string): void {
 					error: err instanceof Error ? err.message : String(err),
 				});
 			}
-			db.transaction(() => {
-				updateLogCursor(db, event.hash, currentRow);
-			})();
+			updateLogCursor(db, event.hash, currentRow);
 		}
 	}
 }

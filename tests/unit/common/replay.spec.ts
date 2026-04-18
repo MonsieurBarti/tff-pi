@@ -113,14 +113,16 @@ describe("tailReplay — invariant violation", () => {
 		writeRawEvent(root, "write-verification", { sliceId: sId });
 
 		const warnSpy = vi.spyOn(logger, "logWarning");
-		tailReplay(db, root);
-
-		expect(loadCursor(db).lastRow).toBe(1);
-		expect(warnSpy.mock.calls.some(([c, m]) => c === "replay" && m === "invariant-violation")).toBe(
-			true,
-		);
-		expect(getSlice(db, sId)?.status).toBe("planning");
-		warnSpy.mockRestore();
+		try {
+			tailReplay(db, root);
+			expect(loadCursor(db).lastRow).toBe(1);
+			expect(
+				warnSpy.mock.calls.some(([c, m]) => c === "replay" && m === "invariant-violation"),
+			).toBe(true);
+			expect(getSlice(db, sId)?.status).toBe("planning");
+		} finally {
+			warnSpy.mockRestore();
+		}
 	});
 });
 
@@ -135,13 +137,42 @@ describe("tailReplay — cursor integrity check", () => {
 		updateLogCursor(db, "aaaa1111aaaa1111", 1); // wrong hash
 
 		const errorSpy = vi.spyOn(logger, "logError");
-		tailReplay(db, root);
+		try {
+			tailReplay(db, root);
+			expect(
+				errorSpy.mock.calls.some(([c, m]) => c === "replay" && m === "cursor-hash-mismatch"),
+			).toBe(true);
+			expect(loadCursor(db).lastRow).toBe(1);
+		} finally {
+			errorSpy.mockRestore();
+		}
+	});
 
-		expect(
-			errorSpy.mock.calls.some(([c, m]) => c === "replay" && m === "cursor-hash-mismatch"),
-		).toBe(true);
-		expect(loadCursor(db).lastRow).toBe(1);
-		errorSpy.mockRestore();
+	test("replay continues processing events after a hash mismatch warning", () => {
+		const { db, root } = seeded();
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+
+		writeRawEvent(root, "override-status", { sliceId: sId, status: "discussing", reason: "r" });
+		// Set cursor to row=1 with wrong hash (simulates hash mismatch after a previous event)
+		updateLogCursor(db, "aaaa1111aaaa1111", 1);
+		// Write a second event that should still be replayed
+		writeRawEvent(root, "override-status", { sliceId: sId, status: "researching", reason: "r2" });
+
+		const errorSpy = vi.spyOn(logger, "logError");
+		try {
+			tailReplay(db, root);
+			// logError fired for hash mismatch
+			expect(
+				errorSpy.mock.calls.some(([c, m]) => c === "replay" && m === "cursor-hash-mismatch"),
+			).toBe(true);
+			// Tail (from row=1) has 1 event (the second one), and it was projected
+			expect(loadCursor(db).lastRow).toBe(2);
+			expect(getSlice(db, sId)?.status).toBe("researching");
+		} finally {
+			errorSpy.mockRestore();
+		}
 	});
 });
 
@@ -152,13 +183,15 @@ describe("tailReplay — unknown command", () => {
 		writeRawEvent(root, "future-command-v99", { someParam: "x" });
 
 		const warnSpy = vi.spyOn(logger, "logWarning");
-		tailReplay(db, root);
-
-		expect(loadCursor(db).lastRow).toBe(1);
-		expect(warnSpy.mock.calls.some(([c, m]) => c === "replay" && m === "unknown-command")).toBe(
-			true,
-		);
-		warnSpy.mockRestore();
+		try {
+			tailReplay(db, root);
+			expect(loadCursor(db).lastRow).toBe(1);
+			expect(warnSpy.mock.calls.some(([c, m]) => c === "replay" && m === "unknown-command")).toBe(
+				true,
+			);
+		} finally {
+			warnSpy.mockRestore();
+		}
 	});
 });
 
