@@ -16,6 +16,7 @@ import {
 	getProject,
 	getSlices,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
@@ -53,6 +54,13 @@ describe("handleWriteResearch", () => {
 		initMilestoneDir(root, 1);
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
+		db.prepare("UPDATE slice SET status = 'researching' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "research",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 		initSliceDir(root, 1, 1);
 	});
 

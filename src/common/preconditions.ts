@@ -132,7 +132,7 @@ const CHECKERS: Record<string, Checker> = {
 		if (!milestone) return fail(`Milestone not found: ${slice.milestoneId}`);
 		const mLabel = milestoneLabel(milestone.number);
 		const sLabel = sliceLabel(milestone.number, slice.number);
-		const specPath = join(root, "milestones", mLabel, "slices", sLabel, "SPEC.md");
+		const specPath = join(root, ".tff", "milestones", mLabel, "slices", sLabel, "SPEC.md");
 		if (!existsSync(specPath)) return fail("SPEC.md missing for slice");
 		return ok();
 	},

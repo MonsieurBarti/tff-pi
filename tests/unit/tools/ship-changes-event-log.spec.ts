@@ -6,10 +6,11 @@ import { describe, expect, test, vi } from "vitest";
 import {
 	applyMigrations,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 } from "../../../src/common/db.js";
-import { loadCursor, readEvents } from "../../../src/common/event-log.js";
+import { appendCommand, loadCursor, readEvents } from "../../../src/common/event-log.js";
 import { handleShipChanges } from "../../../src/tools/ship-changes.js";
 
 function makePi() {
@@ -33,18 +34,28 @@ describe("handleShipChanges — event log", () => {
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
 		db.prepare("UPDATE slice SET status = 'shipping', tier = 'S' WHERE id = ?").run(sId);
+		insertPhaseRun(db, {
+			sliceId: sId,
+			phase: "ship",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		// write-pr must be in the event log before ship-changes (precondition)
+		appendCommand(root, "write-pr", { sliceId: sId });
 
 		const pi = makePi();
 		const result = await handleShipChanges(pi, db, root, sId, "Reviewer asked for changes.");
 		expect(result.isError).toBeFalsy();
 
 		const events = readEvents(root);
-		expect(events).toHaveLength(1);
-		expect(events[0]?.cmd).toBe("ship-changes");
-		expect(events[0]?.params).toMatchObject({ sliceId: sId });
+		// First event is write-pr (seeded for precondition), second is ship-changes
+		expect(events).toHaveLength(2);
+		const shipChangesEvent = events.find((e) => e.cmd === "ship-changes");
+		expect(shipChangesEvent).toBeDefined();
+		expect(shipChangesEvent?.params).toMatchObject({ sliceId: sId });
 
 		const cursor = loadCursor(db);
-		expect(cursor.lastRow).toBe(1);
-		expect(cursor.lastHash).toBe(events[0]?.hash);
+		expect(cursor.lastRow).toBe(2);
+		expect(cursor.lastHash).toBe(shipChangesEvent?.hash);
 	});
 });

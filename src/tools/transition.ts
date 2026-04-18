@@ -2,13 +2,12 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
 import { expectedInProgressStatusFor } from "../common/derived-state.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
-import { projectCommand } from "../common/projection.js";
 import { SLICE_TRANSITIONS, canTransitionSlice, nextSliceStatus } from "../common/state-machine.js";
 import { type Phase, SLICE_STATUSES, type SliceStatus, sliceLabel } from "../common/types.js";
 
@@ -129,23 +128,13 @@ export function handleTransition(
 	// projectCommand("transition") does UPDATE slice SET status + insertPhaseRun.
 	// No reconcile: transition is the authoritative override.
 	const startedAt = new Date().toISOString();
-	db.transaction(() => {
-		projectCommand(db, root, "transition", {
-			sliceId: slice.id,
-			from: slice.status,
-			to: target,
-			phase: phaseForTarget,
-			startedAt,
-		});
-		const { hash, row } = appendCommand(root, "transition", {
-			sliceId: slice.id,
-			from: slice.status,
-			to: target,
-			phase: phaseForTarget,
-			startedAt,
-		});
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "transition", {
+		sliceId: slice.id,
+		from: slice.status,
+		to: target,
+		phase: phaseForTarget,
+		startedAt,
+	});
 
 	// Post-commit bus emit for TUIMonitor subscribers (write-only; no DB side-effects).
 	pi.events.emit("tff:phase", {

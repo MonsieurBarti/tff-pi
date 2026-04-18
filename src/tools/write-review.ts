@@ -3,13 +3,12 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { computeNextHint } from "../common/phase-completion.js";
-import { projectCommand } from "../common/projection.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
@@ -56,11 +55,7 @@ export function handleWriteReview(
 	writeArtifact(root, path, content);
 
 	if (verdict === "denied") {
-		db.transaction(() => {
-			projectCommand(db, root, "review-rejected", { sliceId: slice.id });
-			const { hash, row } = appendCommand(root, "review-rejected", { sliceId: slice.id });
-			updateLogCursor(db, hash, row);
-		})();
+		commitCommand(db, root, "review-rejected", { sliceId: slice.id });
 
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, label, milestone.number),
@@ -79,12 +74,8 @@ export function handleWriteReview(
 		};
 	}
 
-	// Approved: enter tx block (phase_run completed + event log).
-	db.transaction(() => {
-		projectCommand(db, root, "write-review", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "write-review", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	// Approved: commit (phase_run completed + event log).
+	commitCommand(db, root, "write-review", { sliceId: slice.id });
 
 	return {
 		content: [

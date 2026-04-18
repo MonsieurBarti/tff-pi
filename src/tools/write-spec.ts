@@ -2,15 +2,14 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { writeArtifact } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { computeNextHint } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
-import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
@@ -47,11 +46,7 @@ export function handleWriteSpec(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/SPEC.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
-	db.transaction(() => {
-		projectCommand(db, root, "write-spec", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "write-spec", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "write-spec", { sliceId: slice.id });
 	return {
 		content: [{ type: "text", text: `SPEC.md written for ${label}.` }],
 		details: { sliceId, path },
@@ -85,11 +80,7 @@ export function handleWriteRequirements(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/REQUIREMENTS.md`;
 	writeArtifact(root, path, compressIfEnabled(content, "artifacts", settings));
-	db.transaction(() => {
-		projectCommand(db, root, "write-requirements", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "write-requirements", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "write-requirements", { sliceId: slice.id });
 	return {
 		content: [{ type: "text", text: `REQUIREMENTS.md written for ${label}.` }],
 		details: { sliceId, path },

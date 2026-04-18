@@ -2,14 +2,13 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type Database from "better-sqlite3";
 import { deleteArtifact, writeArtifact } from "../common/artifacts.js";
+import { commitCommand } from "../common/commit.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { makeBaseEvent } from "../common/events.js";
 import { auditVerification, formatAuditReport } from "../common/evidence-auditor.js";
 import { computeNextHint } from "../common/phase-completion.js";
-import { projectCommand } from "../common/projection.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 
 export interface ToolResult {
@@ -44,11 +43,7 @@ export function handleWriteVerification(
 	const mLabel = milestoneLabel(milestone.number);
 	const path = `milestones/${mLabel}/slices/${label}/VERIFICATION.md`;
 	writeArtifact(root, path, content);
-	db.transaction(() => {
-		projectCommand(db, root, "write-verification", { sliceId: slice.id });
-		const { hash, row } = appendCommand(root, "write-verification", { sliceId: slice.id });
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "write-verification", { sliceId: slice.id });
 	return {
 		content: [{ type: "text", text: `VERIFICATION.md written for ${label}.` }],
 		details: { sliceId, path },

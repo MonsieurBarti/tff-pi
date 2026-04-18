@@ -3,12 +3,11 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import type Database from "better-sqlite3";
 import { initMilestoneDir, writeArtifact } from "../common/artifacts.js";
 import { milestoneBranchName } from "../common/branch-naming.js";
+import { commitCommand } from "../common/commit.js";
 import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, requireProject } from "../common/context.js";
 import { getNextMilestoneNumber, getProject } from "../common/db.js";
-import { appendCommand, updateLogCursor } from "../common/event-log.js";
 import { branchExists, createBranch, getCurrentBranch, pushBranch } from "../common/git.js";
-import { projectCommand } from "../common/projection.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel } from "../common/types.js";
 
@@ -30,11 +29,7 @@ export function createMilestone(
 	const id = randomUUID();
 	const branch = milestoneBranchName({ id });
 	const params = { id, projectId, number, name, branch };
-	db.transaction(() => {
-		projectCommand(db, root, "create-milestone", params);
-		const { hash, row } = appendCommand(root, "create-milestone", params);
-		updateLogCursor(db, hash, row);
-	})();
+	commitCommand(db, root, "create-milestone", params);
 	const milestoneId = id;
 	initMilestoneDir(root, number);
 

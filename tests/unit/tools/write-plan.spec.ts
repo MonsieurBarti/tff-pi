@@ -18,6 +18,7 @@ import {
 	getSlices,
 	getTasks,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
@@ -55,6 +56,13 @@ describe("handleWritePlan", () => {
 		initMilestoneDir(root, 1);
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
+		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "plan",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 		initSliceDir(root, 1, 1);
 	});
 
@@ -135,6 +143,14 @@ describe("handleWritePlan", () => {
 		expect(getTasks(db, sliceId)).toHaveLength(3);
 		expect(getDependencies(db, sliceId)).toHaveLength(2);
 
+		// Reset slice to planning + insert a fresh started phase_run so preconditions pass
+		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "plan",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
 		handleWritePlan(db, root, sliceId, "# Plan v2\n", second);
 
 		const tasksAfter = getTasks(db, sliceId);

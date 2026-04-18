@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
+import { writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getSlice,
@@ -22,6 +23,8 @@ describe("handleClassify — event log", () => {
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
+		db.prepare("UPDATE slice SET status = 'discussing' WHERE id = ?").run(sId);
+		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec\n");
 
 		const result = handleClassify(db, root, sId, "SS");
 		expect(result.isError).toBeFalsy();

@@ -53,6 +53,7 @@ describe("handleWriteSpec", () => {
 		initMilestoneDir(root, 1);
 		insertSlice(db, { milestoneId, number: 1, title: "Auth" });
 		sliceId = must(getSlices(db, milestoneId)[0]).id;
+		db.prepare("UPDATE slice SET status = 'discussing' WHERE id = ?").run(sliceId);
 		initSliceDir(root, 1, 1);
 	});
 
