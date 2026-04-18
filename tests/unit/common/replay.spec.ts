@@ -267,4 +267,47 @@ describe("tailReplay — malformed log line", () => {
 		expect(loadCursor(db).lastRow).toBe(2);
 		expect(getSlice(db, sId)?.status).toBe("researching");
 	});
+
+	test("no over-replay on second run when cursor is physical and log has malformed line", () => {
+		const { db, root } = seeded();
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+
+		const logPath = join(root, ".tff", "event-log.jsonl");
+		const eA = {
+			v: 2,
+			cmd: "override-status",
+			params: { sliceId: sId, status: "discussing", reason: "r1" },
+			ts: new Date().toISOString(),
+			hash: hashEvent("override-status", { sliceId: sId, status: "discussing", reason: "r1" }),
+			actor: "agent",
+			session_id: "s",
+		};
+		const eB = {
+			v: 2,
+			cmd: "override-status",
+			params: { sliceId: sId, status: "researching", reason: "r2" },
+			ts: new Date().toISOString(),
+			hash: hashEvent("override-status", { sliceId: sId, status: "researching", reason: "r2" }),
+			actor: "agent",
+			session_id: "s",
+		};
+		appendFileSync(logPath, `${JSON.stringify(eA)}\n`);
+		appendFileSync(logPath, "CORRUPTED LINE\n");
+		appendFileSync(logPath, `${JSON.stringify(eB)}\n`);
+
+		// First run: project all valid events from cursor=0
+		tailReplay(db, root);
+		expect(getSlice(db, sId)?.status).toBe("researching");
+
+		// Simulate physical cursor: 3 physical lines; set cursor to 3 (as appendCommand would)
+		updateLogCursor(db, eB.hash, 3);
+
+		// Second run: readEvents(root, 3) should return nothing — no over-replay
+		tailReplay(db, root);
+
+		expect(loadCursor(db).lastRow).toBe(3);
+		expect(getSlice(db, sId)?.status).toBe("researching");
+	});
 });

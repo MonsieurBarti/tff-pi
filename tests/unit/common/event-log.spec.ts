@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -138,6 +138,83 @@ describe("appendCommand", () => {
 		appendCommand(root, "state-rename", { from: "x", to: "y" }, { actor: "user" });
 		const raw = readFileSync(join(root, ".tff/event-log.jsonl"), "utf-8");
 		expect(JSON.parse(raw.trim()).actor).toBe("user");
+	});
+
+	test("row is physical newline count, not filtered-event count", () => {
+		const root = tempRoot();
+		const r1 = appendCommand(root, "write-spec", { sliceId: "s1" });
+		expect(r1.row).toBe(1);
+
+		// Inject a malformed line directly (bypassing appendCommand)
+		const logPath = join(root, ".tff/event-log.jsonl");
+		appendFileSync(logPath, "not valid json\n");
+
+		// After malformed line, physical count becomes 3 for the next append
+		const r2 = appendCommand(root, "write-plan", { sliceId: "s1" });
+		expect(r2.row).toBe(3);
+	});
+});
+
+describe("readEvents — physical line offset", () => {
+	test("fromPhysicalLine skips exactly N physical lines including malformed", () => {
+		const root = tempRoot();
+		const logPath = join(root, ".tff/event-log.jsonl");
+
+		const eventA = JSON.stringify({
+			v: 2,
+			cmd: "write-spec",
+			params: {},
+			ts: "t",
+			hash: "hA",
+			actor: "agent" as const,
+			session_id: "s",
+		});
+		const eventB = JSON.stringify({
+			v: 2,
+			cmd: "write-plan",
+			params: {},
+			ts: "t",
+			hash: "hB",
+			actor: "agent" as const,
+			session_id: "s",
+		});
+		appendFileSync(logPath, `${eventA}\n`);
+		appendFileSync(logPath, "not valid json\n");
+		appendFileSync(logPath, `${eventB}\n`);
+
+		// 3 physical lines total; readEvents(root, 3) must return nothing
+		expect(readEvents(root, 3)).toHaveLength(0);
+	});
+
+	test("fromPhysicalLine=2 starts at the third physical line", () => {
+		const root = tempRoot();
+		const logPath = join(root, ".tff/event-log.jsonl");
+
+		const eventA = JSON.stringify({
+			v: 2,
+			cmd: "write-spec",
+			params: {},
+			ts: "t",
+			hash: "hA",
+			actor: "agent" as const,
+			session_id: "s",
+		});
+		const eventB = JSON.stringify({
+			v: 2,
+			cmd: "write-plan",
+			params: {},
+			ts: "t",
+			hash: "hB",
+			actor: "agent" as const,
+			session_id: "s",
+		});
+		appendFileSync(logPath, `${eventA}\n`);
+		appendFileSync(logPath, "not valid json\n");
+		appendFileSync(logPath, `${eventB}\n`);
+
+		const events = readEvents(root, 2);
+		expect(events).toHaveLength(1);
+		expect(events[0]?.cmd).toBe("write-plan");
 	});
 });
 

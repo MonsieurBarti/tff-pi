@@ -27,12 +27,9 @@ export function tailReplay(db: Database.Database, root: string): void {
 		}
 	}
 
-	// NOTE: readEvents skips malformed lines (parse failures). If malformed lines
-	// appear before lastRow, the physical-line offset used by readEvents will
-	// diverge from lastRow (which counts valid events). This can cause the last
-	// projected event to be replayed on the next startup. Since override-status
-	// and other projection handlers are idempotent or safe to replay, this is
-	// accepted as a known limitation until event-log.ts tracks physical row numbers.
+	// lastRow is a physical newline count (set by appendCommand via byte scan).
+	// readEvents slices by physical line index before filtering, so malformed lines
+	// before lastRow do not cause over-replay on the next startup.
 	const tail = readEvents(root, lastRow);
 	if (tail.length === 0) return;
 
