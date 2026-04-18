@@ -269,6 +269,7 @@ const HANDLERS: Record<string, ProjectionHandler> = {
 	classify: projectClassify,
 	transition: projectTransition,
 	"ship-changes": projectArtifactOnly,
+	"write-pr": projectArtifactOnly,
 	"ship-apply-done": projectPhaseComplete("ship"),
 	"ship-merged": projectShipMerged,
 	"ship-fix": projectShipFix,
