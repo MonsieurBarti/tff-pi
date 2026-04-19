@@ -95,7 +95,7 @@ describe("handleDoctor", () => {
 		expect(report.message).toMatch(/\/tff plan M01-S01/);
 	});
 
-	it("recovers stalled phase_runs when --recover is passed", () => {
+	it("recovers stalled phase_runs when --repair is passed", () => {
 		const now = Date.now();
 		insertPhaseRun(db, {
 			sliceId,
@@ -103,7 +103,7 @@ describe("handleDoctor", () => {
 			status: "started",
 			startedAt: new Date(now - STALLED_THRESHOLD_MS - 60_000).toISOString(),
 		});
-		const report = handleDoctor(db, { now, recover: true });
+		const report = handleDoctor(db, { now, repair: true });
 		expect(report.message).toMatch(/recovered 1/);
 
 		// Subsequent run should show no stalled phases (all marked abandoned).
@@ -164,10 +164,10 @@ describe("handleDoctor — drift reconcile", () => {
 		expect(sliceAfter.status).toBe("created");
 
 		expect(report.message).toMatch(/Detected 1 slice\(s\)/);
-		expect(report.message).toMatch(/--recover/);
+		expect(report.message).toMatch(/--repair/);
 	});
 
-	it("detects and reconciles a drifted slice.status with --recover", () => {
+	it("detects and reconciles a drifted slice.status with --repair", () => {
 		insertPhaseRun(db, {
 			sliceId,
 			phase: "execute",
@@ -175,7 +175,7 @@ describe("handleDoctor — drift reconcile", () => {
 			startedAt: new Date().toISOString(),
 		});
 
-		const report = handleDoctor(db, { root, recover: true });
+		const report = handleDoctor(db, { root, repair: true });
 
 		expect(report.ok).toBe(true);
 		expect(report.drifts).toHaveLength(1);
