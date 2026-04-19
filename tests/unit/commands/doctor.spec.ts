@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { STALLED_THRESHOLD_MS, buildShadowDb, handleDoctor } from "../../../src/commands/doctor.js";
+import {
+	STALLED_THRESHOLD_MS,
+	buildShadowDb,
+	checkLogProjectionDrift,
+	handleDoctor,
+} from "../../../src/commands/doctor.js";
 import { initMilestoneDir, initSliceDir, initTffDirectory } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
@@ -226,5 +231,106 @@ describe("buildShadowDb", () => {
 		const rows = shadow.prepare("SELECT * FROM project").all() as { name: string }[];
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.name).toBe("TFF");
+	});
+});
+
+describe("checkLogProjectionDrift", () => {
+	let liveDb: Database.Database;
+	let shadowDb: Database.Database;
+	let sliceId: string;
+
+	beforeEach(() => {
+		liveDb = openDatabase(":memory:");
+		applyMigrations(liveDb);
+		shadowDb = openDatabase(":memory:");
+		applyMigrations(shadowDb);
+
+		insertProject(liveDb, { name: "P", vision: "V" });
+		const projectId = must(getProject(liveDb)).id;
+		insertMilestone(liveDb, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(liveDb, projectId)[0]).id;
+		insertSlice(liveDb, { milestoneId, number: 1, title: "S" });
+		sliceId = must(getSlices(liveDb, milestoneId)[0]).id;
+
+		// Mirror structure in shadowDb
+		insertProject(shadowDb, { name: "P", vision: "V" });
+		const shadowProjectId = must(getProject(shadowDb)).id;
+		insertMilestone(shadowDb, {
+			projectId: shadowProjectId,
+			number: 1,
+			name: "M1",
+			branch: "milestone/M01",
+		});
+		const shadowMilestoneId = must(getMilestones(shadowDb, shadowProjectId)[0]).id;
+		insertSlice(shadowDb, { milestoneId: shadowMilestoneId, number: 1, title: "S" });
+	});
+
+	it("returns empty when live and shadow phase_runs match", () => {
+		insertPhaseRun(liveDb, {
+			sliceId,
+			phase: "plan",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+		const shadowSliceId = must(
+			getSlices(shadowDb, must(getMilestones(shadowDb, must(getProject(shadowDb)).id)[0]).id)[0],
+		).id;
+		insertPhaseRun(shadowDb, {
+			sliceId: shadowSliceId,
+			phase: "plan",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+
+		const drifts = checkLogProjectionDrift(liveDb, shadowDb);
+		expect(drifts).toHaveLength(0);
+	});
+
+	it("detects phase_run count mismatch", () => {
+		insertPhaseRun(liveDb, {
+			sliceId,
+			phase: "plan",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+		// Shadow has no phase_runs
+
+		const drifts = checkLogProjectionDrift(liveDb, shadowDb);
+		expect(drifts).toHaveLength(1);
+		expect(must(drifts[0]).field).toBe("phase_run_count");
+		expect(must(drifts[0]).live).toBe("1");
+		expect(must(drifts[0]).replayed).toBe("0");
+	});
+
+	it("detects phase_run status mismatch", () => {
+		insertPhaseRun(liveDb, {
+			sliceId,
+			phase: "plan",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+		const shadowSliceId = must(
+			getSlices(shadowDb, must(getMilestones(shadowDb, must(getProject(shadowDb)).id)[0]).id)[0],
+		).id;
+		insertPhaseRun(shadowDb, {
+			sliceId: shadowSliceId,
+			phase: "plan",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+
+		const drifts = checkLogProjectionDrift(liveDb, shadowDb);
+		expect(drifts).toHaveLength(1);
+		expect(must(drifts[0]).field).toBe("phase_run_status");
+		expect(must(drifts[0]).phase).toBe("plan");
+		expect(must(drifts[0]).live).toBe("completed");
+		expect(must(drifts[0]).replayed).toBe("started");
+	});
+
+	it("returns empty when no project in live DB", () => {
+		const emptyDb = openDatabase(":memory:");
+		applyMigrations(emptyDb);
+		const drifts = checkLogProjectionDrift(emptyDb, shadowDb);
+		expect(drifts).toHaveLength(0);
 	});
 });

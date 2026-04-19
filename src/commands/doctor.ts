@@ -85,6 +85,71 @@ export function buildShadowDb(root: string): Database.Database {
 	return shadow;
 }
 
+export function checkLogProjectionDrift(
+	db: Database.Database,
+	shadowDb: Database.Database,
+): LogDrift[] {
+	const drifts: LogDrift[] = [];
+	const project = getProject(db);
+	if (!project) return drifts;
+
+	const shadowProject = getProject(shadowDb);
+
+	const milestones = getMilestones(db, project.id);
+	for (const m of milestones) {
+		const slices = getSlices(db, m.id);
+		for (const s of slices) {
+			const label = sliceLabel(m.number, s.number);
+			const liveRuns = getPhaseRuns(db, s.id);
+
+			// Correlate by milestone/slice number, not by ID, since shadow DB has
+			// its own auto-generated UUIDs.
+			let shadowRuns: ReturnType<typeof getPhaseRuns> = [];
+			if (shadowProject) {
+				const shadowMilestone = getMilestones(shadowDb, shadowProject.id).find(
+					(sm) => sm.number === m.number,
+				);
+				if (shadowMilestone) {
+					const shadowSlice = getSlices(shadowDb, shadowMilestone.id).find(
+						(ss) => ss.number === s.number,
+					);
+					if (shadowSlice) {
+						shadowRuns = getPhaseRuns(shadowDb, shadowSlice.id);
+					}
+				}
+			}
+
+			if (liveRuns.length !== shadowRuns.length) {
+				drifts.push({
+					sliceId: s.id,
+					sliceLabel: label,
+					field: "phase_run_count",
+					live: String(liveRuns.length),
+					replayed: String(shadowRuns.length),
+				});
+				continue;
+			}
+
+			for (const liveRun of liveRuns) {
+				const shadowRun = shadowRuns.find((r) => r.phase === liveRun.phase);
+				if (!shadowRun) continue;
+				if (shadowRun.status !== liveRun.status) {
+					drifts.push({
+						sliceId: s.id,
+						sliceLabel: label,
+						field: "phase_run_status",
+						phase: liveRun.phase,
+						live: liveRun.status,
+						replayed: shadowRun.status,
+					});
+				}
+			}
+		}
+	}
+
+	return drifts;
+}
+
 /**
  * Scans phase_run for any entry still marked 'started' past STALLED_THRESHOLD_MS.
  * These are phases the agent started but never signalled complete for — typically
