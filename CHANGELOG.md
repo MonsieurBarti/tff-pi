@@ -19,6 +19,73 @@
 ### Removed
 - `updateSliceStatus()` — status is no longer a directly-written column.
 
+## [0.1.6](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.5...tff-pi-v0.1.6) (2026-04-19)
+
+
+### Features
+
+* **derived-state:** export expectedinprogressstatusfor helper ([3133056](https://github.com/MonsieurBarti/tff-pi/commit/31330566b9079392ed5eba9d42aa153f890efdcf))
+* **m11-s2:** dynamic per-tab truncation in question-tabs ([9d949c8](https://github.com/MonsieurBarti/tff-pi/commit/9d949c84c0a0bed412049148bd169990d2abce28))
+* **m11-s2:** raise tff_ask_user caps to 5 options / 32-char headers ([04b4e87](https://github.com/MonsieurBarti/tff-pi/commit/04b4e87faf5d663cd4db24c451802b17dd67d169))
+* **m11-s2:** relax tff_ask_user caps ([3513530](https://github.com/MonsieurBarti/tff-pi/commit/3513530ec1cf8168a995c87bf6417c7b5c31d261))
+* **m11-s3:** add computenexthint helper ([2717556](https://github.com/MonsieurBarti/tff-pi/commit/27175564cee160f5bbdf075159c02e29cdd1bceb))
+* **m11-s3:** add count open slices in milestone db helper ([b865f1c](https://github.com/MonsieurBarti/tff-pi/commit/b865f1c128b2b46faab9ac1b24ddfd54c9c70ac1))
+* **m11-s3:** add tff_execute_done tool ([fe4a959](https://github.com/MonsieurBarti/tff-pi/commit/fe4a9593c258f6aed1acd41e43dbca868c1fd0fa))
+* **m11-s3:** emit phase-end hint via senduser message ([2d2c7b5](https://github.com/MonsieurBarti/tff-pi/commit/2d2c7b553a86f9178d25e287995b242b82ff139f))
+* **m11-s3:** flip phase transitions to user-driven, drop /tff next ([6073954](https://github.com/MonsieurBarti/tff-pi/commit/607395468160aabacd9fb315006da506b1bb2c34))
+* **m11-s3:** replace /tff next with deprecation stub ([7c307d8](https://github.com/MonsieurBarti/tff-pi/commit/7c307d86d41f77ec72a1fbadaa15c5904fceed30))
+* **m11-s4:** add branch-naming helper for UUID slug branches ([6f3c631](https://github.com/MonsieurBarti/tff-pi/commit/6f3c6317e0ba06281cdefd2539472bb3c2a731dc))
+* **m11-s4:** store uuid-form milestone branch on creation ([0bdf047](https://github.com/MonsieurBarti/tff-pi/commit/0bdf04728e968cc8cf591b0a0412a66fab06cfa8))
+* **m11-s4:** uuid-based git branch names ([627f290](https://github.com/MonsieurBarti/tff-pi/commit/627f29094ff4520e97be23b9fdf1b0f54d3c908d))
+* **m11-s4:** worktree helpers compose uuid-form slice branches ([e73975d](https://github.com/MonsieurBarti/tff-pi/commit/e73975d1a6715e48fe201dc7cb0b0eae4b5235d1))
+* **m12-s01:** route event-logger errors through logexception ([b116b10](https://github.com/MonsieurBarti/tff-pi/commit/b116b10978d44b61a807bb1db7540cc4adeb471c))
+* **m12-s01:** route phase-completion warning through logwarning ([358a020](https://github.com/MonsieurBarti/tff-pi/commit/358a020ff09f2d37f2e8995e0412b6bcc5146003))
+* **m12-s01:** structured logger with audit log ([df51df6](https://github.com/MonsieurBarti/tff-pi/commit/df51df62cf93a96e83bd65490c662e43539ddfb3))
+* **m12-s01:** wire setlogbasepath into activation ([29127eb](https://github.com/MonsieurBarti/tff-pi/commit/29127eb3cf7f3e008e7011d7e1425b00569e0d45))
+* **m12-s02:** event-log source-of-truth infra + retire event-logger ([27ec726](https://github.com/MonsieurBarti/tff-pi/commit/27ec7264c9564e27994d421bdc74d020e5128341))
+* **m12-s03:** add integrity error class and projection guards ([6b69c7f](https://github.com/MonsieurBarti/tff-pi/commit/6b69c7fe69d9261ad49749efd1d6c143e0b35086))
+* **m12-s03:** add precondition table covering all commands ([6fa2661](https://github.com/MonsieurBarti/tff-pi/commit/6fa26617f55670f25c9123e7faf6fa2c3cf8f929))
+* **m12-s03:** add tail-replay with cursor integrity and invariant validation ([92ed3bf](https://github.com/MonsieurBarti/tff-pi/commit/92ed3bf550eab066a67bc546073aed29a43b37c3))
+* **m12-s03:** replay invariants — preconditions, tailReplay, projection guards ([9873d2c](https://github.com/MonsieurBarti/tff-pi/commit/9873d2cedbf51cb4049d5615df8448df9e7a4a12))
+* **m12-s03:** wire tailreplay into session_start after applymigrations ([87aec6f](https://github.com/MonsieurBarti/tff-pi/commit/87aec6fa565e2338e9f0c5ac2cf15c4cb5239308))
+* **m12-s04:** add commit-command two-phase protocol ([658bc4c](https://github.com/MonsieurBarti/tff-pi/commit/658bc4c9b95a3c1de2ea4e55f2a5d85e78968658))
+* **m12-s04:** add write-pr handler and ship-changes write-pr gate ([d37b16e](https://github.com/MonsieurBarti/tff-pi/commit/d37b16e8e3495741bca71775fd3cba7c8571e6e9))
+* **m12-s04:** commit protocol — commitCommand, physical-row cursor, write-pr gate ([a07dc09](https://github.com/MonsieurBarti/tff-pi/commit/a07dc09d554cefbfbcaf791b30c2b91ef78e17d4))
+* **m12-s04:** physical-row cursor in append-command + slice-before-filter in read-events ([4e37a0a](https://github.com/MonsieurBarti/tff-pi/commit/4e37a0a0b89941d3c5695d8117023454c2d1d6ee))
+* **m12-s04:** replace all bare triples with commitcommand ([febed5e](https://github.com/MonsieurBarti/tff-pi/commit/febed5eea435ec70212f457bc0cfffe1be5d06ed))
+* **m12-s04:** wire write-pr tool through commit protocol ([23ba521](https://github.com/MonsieurBarti/tff-pi/commit/23ba52199af896b7465133e76eb40b9fdd6abb9d))
+* **m12-s05:** add buildshadowdb — in-memory event-log replay ([5a05c05](https://github.com/MonsieurBarti/tff-pi/commit/5a05c05194b352d6dafc7041d5476ff0ca1cdde1))
+* **m12-s05:** add checkinvariantsweep — event-by-event precondition validation ([a8450d2](https://github.com/MonsieurBarti/tff-pi/commit/a8450d26023d0b9473ba1ccf7cf4d92560cec213))
+* **m12-s05:** add checklogprojectiondrift — phase_run comparison via shadow replay ([4098307](https://github.com/MonsieurBarti/tff-pi/commit/4098307db72596eae6874e772598728a71f97621))
+* **m12-s05:** doctor upgrades — repair rename, shadow replay, invariant sweep ([563c2af](https://github.com/MonsieurBarti/tff-pi/commit/563c2af827b873ca53f5c199c4161b2c647ed132))
+* **m12-s05:** rename --recover to --repair, extend doctor-report types ([fd70c77](https://github.com/MonsieurBarti/tff-pi/commit/fd70c778252f7e06e7d5c298d0953263171986f6))
+* **m12-s05:** wire checklogprojectiondrift and checkinvariantsweep into handledoctor ([fae1370](https://github.com/MonsieurBarti/tff-pi/commit/fae137072f5a2931a57c3faab5b90e57e5976906))
+
+
+### Bug Fixes
+
+* **complete-milestone:** avoid double user-message send on success ([c81458c](https://github.com/MonsieurBarti/tff-pi/commit/c81458c8e0f2dfd3a6df3c2b9ef58ad5ecd64bc6))
+* **doctor:** skip closed slices in stall scan, sweep orphan phase_runs ([f1ed3e6](https://github.com/MonsieurBarti/tff-pi/commit/f1ed3e6911a7ec24a44e3d95f86f356abb001907))
+* **event-logger:** surface handler errors to stderr + event_log ([2ec7854](https://github.com/MonsieurBarti/tff-pi/commit/2ec78544b0ad1549c0eeaafdc391dfc8319911bd))
+* **m11-s3:** deliver phase-end hint via tool return text ([52a6857](https://github.com/MonsieurBarti/tff-pi/commit/52a68574bb9d9cba3ebae7b85f412ab49fd2878a))
+* **m11-s3:** route recover hints away from removed tff next ([71a90af](https://github.com/MonsieurBarti/tff-pi/commit/71a90af9ff0ec9f95326b4e01e34ea19ad60441e))
+* **m12-s01:** address code-review blockers and polish ([ea1c5c8](https://github.com/MonsieurBarti/tff-pi/commit/ea1c5c880d21a8b5572ffa7566774bcfd72aa720))
+* **m12-s01:** enforce stack auto-capture precedence in logexception ([b83e243](https://github.com/MonsieurBarti/tff-pi/commit/b83e243204d968af939313b28a57b925942b510b))
+* **m12-s01:** update transition error text to reference audit-log ([176454f](https://github.com/MonsieurBarti/tff-pi/commit/176454fc4a9a7b8247923aca630fb7776de179db))
+* **m12-s02:** exhaustive switch in complete-milestone-merged + drop stale root guard in transition ([842d06c](https://github.com/MonsieurBarti/tff-pi/commit/842d06cdd5b69e14fe69932528008921c18bf540))
+* **m12-s02:** lenient jsonl parsing + enum validation in projection handlers ([52bc32e](https://github.com/MonsieurBarti/tff-pi/commit/52bc32e0fa556771d21dd8d4dbc63245f15c0687))
+* **m12-s03:** exclude 'created' from write-requirements precondition ([aae853a](https://github.com/MonsieurBarti/tff-pi/commit/aae853acd5cc3ee99e7e671d7a63ca838853d3ef))
+* **m12-s03:** guard corrupt db status before cantransitionslice ([2305309](https://github.com/MonsieurBarti/tff-pi/commit/230530935f15d69ed532a109ff4876855b422b9a))
+* **m12-s03:** replay dead guard, malformed-line note, spy teardown safety, continuation test ([53673f4](https://github.com/MonsieurBarti/tff-pi/commit/53673f497b42194e378c8153e3c5cbf42ef42c7a))
+* **m12-s04:** physical cursor in tailreplay, fix integrity check, tmp mode 0o600 ([4d1cd8c](https://github.com/MonsieurBarti/tff-pi/commit/4d1cd8c8bb45c750c3ea5f96cd937a0973074254))
+* **m12-s05:** filter abandoned phase_runs from drift, surface --recover deprecation ([52f9dda](https://github.com/MonsieurBarti/tff-pi/commit/52f9ddaae0e58a0f0317110a5d3c776e782c97a4))
+* **m12-s05:** fix ok logic, single event-log read, flag context key, missing tests ([57f2c7e](https://github.com/MonsieurBarti/tff-pi/commit/57f2c7e4e87739d94870c53a41cca227b2ce5b4d))
+* **m12-s05:** update remaining --recover reference in test title ([dd88af7](https://github.com/MonsieurBarti/tff-pi/commit/dd88af70be160f4e4a59fecc0ba07ff8f7ecd76d))
+* **m12-s05:** update stale --recover comment in doctor spec ([bee796b](https://github.com/MonsieurBarti/tff-pi/commit/bee796bb785ee2b377fd1d90f49b825f6086262c))
+* **phase-completion:** log missing artifacts when skipping phase_complete ([9acbd96](https://github.com/MonsieurBarti/tff-pi/commit/9acbd9652e834177f227214ff9d6c4ee0a909a10))
+* transition persistence + silent-failure observability ([bd907ce](https://github.com/MonsieurBarti/tff-pi/commit/bd907cec63df71925d0f0a5580ad15fafeeeecb5))
+* **transition:** return iserror when emit does not persist slice.status ([bb8c935](https://github.com/MonsieurBarti/tff-pi/commit/bb8c93583b272363cadd40d9c094eda6833fa802))
+
 ## [0.1.5](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.4...tff-pi-v0.1.5) (2026-04-15)
 
 
