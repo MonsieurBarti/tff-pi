@@ -33,6 +33,7 @@ export function handleShipApplyDone(
 	// Block 2: side-effect work (clean up artifact)
 	const feedbackPath = join(
 		root,
+		".pi",
 		".tff",
 		"milestones",
 		mLabel,

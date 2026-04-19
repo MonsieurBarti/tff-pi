@@ -94,9 +94,9 @@ describe("ToolCallLogger → PerSliceLog round-trip", () => {
 			isError: false,
 		});
 
-		const files = readdirSync(join(tmp, ".tff", "logs"));
+		const files = readdirSync(join(tmp, ".pi", ".tff", "logs"));
 		expect(files).toContain("M09-S01.jsonl");
-		const content = readFileSync(join(tmp, ".tff", "logs", "M09-S01.jsonl"), "utf-8");
+		const content = readFileSync(join(tmp, ".pi", ".tff", "logs", "M09-S01.jsonl"), "utf-8");
 		expect(content).toContain('"toolName":"bash"');
 		expect(content).toContain('"output"');
 
@@ -120,9 +120,9 @@ describe("ToolCallLogger → PerSliceLog round-trip", () => {
 			isError: false,
 		});
 
-		const files = readdirSync(join(tmp, ".tff", "logs"));
+		const files = readdirSync(join(tmp, ".pi", ".tff", "logs"));
 		expect(files).toContain("ambient.jsonl");
-		expect(existsSync(join(tmp, ".tff", "logs", "ambient.jsonl"))).toBe(true);
+		expect(existsSync(join(tmp, ".pi", ".tff", "logs", "ambient.jsonl"))).toBe(true);
 
 		perSliceLog.dispose();
 	});
@@ -152,7 +152,7 @@ describe("ToolCallLogger → PerSliceLog round-trip", () => {
 			isError: false,
 		});
 
-		const content = readFileSync(join(tmp, ".tff", "logs", "M09-S01.jsonl"), "utf-8");
+		const content = readFileSync(join(tmp, ".pi", ".tff", "logs", "M09-S01.jsonl"), "utf-8");
 		const parsed = JSON.parse(content.trim()) as Record<string, unknown>;
 		// The output field should contain "[truncated" marker or full value
 		// depending on ToolCallLogger truncation logic
@@ -186,7 +186,7 @@ describe("ToolCallLogger → PerSliceLog round-trip", () => {
 			isError: false,
 		});
 
-		const content = readFileSync(join(tmp, ".tff", "logs", "M09-S01.jsonl"), "utf-8");
+		const content = readFileSync(join(tmp, ".pi", ".tff", "logs", "M09-S01.jsonl"), "utf-8");
 		// Must not throw — regression guard against invalid JSON lines.
 		expect(() => JSON.parse(content.trim())).not.toThrow();
 

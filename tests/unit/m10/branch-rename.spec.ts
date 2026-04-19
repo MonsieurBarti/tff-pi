@@ -59,7 +59,7 @@ describe("/tff branch rename", () => {
 
 	it("does code-branch rename only when toggle disabled", async () => {
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: false\n",
 			"utf-8",
 		);

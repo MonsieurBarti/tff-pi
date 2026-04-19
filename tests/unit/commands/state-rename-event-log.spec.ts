@@ -74,7 +74,7 @@ describe("runStateRename — event log (state-rename)", () => {
 		db = new Database(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-sr-el-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		// Need a project row for updateLogCursor to work
 		insertProject(db, { id: "p1", name: "P", vision: "V" });
 	});

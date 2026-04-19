@@ -44,7 +44,7 @@ describe("state-branch gate (toggle off)", () => {
 
 	it("ensureStateBranch creates ref when toggle on", async () => {
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: true\n",
 			"utf-8",
 		);

@@ -76,7 +76,7 @@ export async function handleShipMerged(
 						const parentCount = parentsOutput.split(" ").length - 1;
 						if (parentCount > 1) {
 							pi.sendUserMessage(
-								`WARNING: ${sLabel} PR was merged with a merge commit (${parentCount} parents). Slice PRs should be squash-merged — the milestone branch now contains intermediate per-task commits. Future slices will not repeat this if ship.merge_method is "squash" in .tff/settings.yaml (the default).`,
+								`WARNING: ${sLabel} PR was merged with a merge commit (${parentCount} parents). Slice PRs should be squash-merged — the milestone branch now contains intermediate per-task commits. Future slices will not repeat this if ship.merge_method is "squash" in .pi/.tff/settings.yaml (the default).`,
 							);
 						}
 					}

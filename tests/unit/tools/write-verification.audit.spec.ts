@@ -69,7 +69,7 @@ describe("write-verification audit integration", () => {
 
 	beforeEach(() => {
 		tmp = mkdtempSync(join(tmpdir(), "tff-wva-"));
-		mkdirSync(join(tmp, ".tff"), { recursive: true });
+		mkdirSync(join(tmp, ".pi", ".tff"), { recursive: true });
 		db = new Database(":memory:");
 		applyMigrations(db);
 
@@ -138,9 +138,9 @@ describe("write-verification audit integration", () => {
 	it("deleteArtifact removes stale VERIFICATION-AUDIT.md on passing retry", () => {
 		const auditPath = "milestones/M01/slices/M01-S01/VERIFICATION-AUDIT.md";
 		writeArtifact(tmp, auditPath, "# stale");
-		expect(existsSync(join(tmp, ".tff", auditPath))).toBe(true);
+		expect(existsSync(join(tmp, ".pi", ".tff", auditPath))).toBe(true);
 		deleteArtifact(tmp, auditPath);
-		expect(existsSync(join(tmp, ".tff", auditPath))).toBe(false);
+		expect(existsSync(join(tmp, ".pi", ".tff", auditPath))).toBe(false);
 	});
 
 	it("mismatch path writes .audit-blocked sentinel in the slice directory", () => {
@@ -153,22 +153,22 @@ describe("write-verification audit integration", () => {
 		if (report.hasMismatches) {
 			writeArtifact(tmp, "milestones/M01/slices/M01-S01/.audit-blocked", "blocked\n");
 		}
-		expect(existsSync(join(tmp, ".tff", "milestones/M01/slices/M01-S01/.audit-blocked"))).toBe(
-			true,
-		);
+		expect(
+			existsSync(join(tmp, ".pi", ".tff", "milestones/M01/slices/M01-S01/.audit-blocked")),
+		).toBe(true);
 	});
 
 	it("clean retry removes .audit-blocked sentinel", () => {
 		// First, write the sentinel as if a prior run had failed.
 		writeArtifact(tmp, "milestones/M01/slices/M01-S01/.audit-blocked", "blocked\n");
-		expect(existsSync(join(tmp, ".tff", "milestones/M01/slices/M01-S01/.audit-blocked"))).toBe(
-			true,
-		);
+		expect(
+			existsSync(join(tmp, ".pi", ".tff", "milestones/M01/slices/M01-S01/.audit-blocked")),
+		).toBe(true);
 
 		// Simulate a clean retry by calling deleteArtifact.
 		deleteArtifact(tmp, "milestones/M01/slices/M01-S01/.audit-blocked");
-		expect(existsSync(join(tmp, ".tff", "milestones/M01/slices/M01-S01/.audit-blocked"))).toBe(
-			false,
-		);
+		expect(
+			existsSync(join(tmp, ".pi", ".tff", "milestones/M01/slices/M01-S01/.audit-blocked")),
+		).toBe(false);
 	});
 });

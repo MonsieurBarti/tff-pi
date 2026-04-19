@@ -16,7 +16,7 @@ import * as projModule from "../../../src/common/projection.js";
 
 function tempRoot(): string {
 	const root = mkdtempSync(join(tmpdir(), "tff-commit-"));
-	mkdirSync(join(root, ".tff"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	return root;
 }
 

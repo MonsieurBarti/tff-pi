@@ -34,7 +34,7 @@ describe("handleCreateSlice", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		root = createTempRoot();
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;
@@ -75,7 +75,7 @@ describe("handleCreateSlice", () => {
 	it("creates slice directory", () => {
 		handleCreateSlice(db, root, milestoneId, "Auth");
 
-		const dirPath = join(root, ".tff", "milestones", "M01", "slices", "M01-S01");
+		const dirPath = join(root, ".pi", ".tff", "milestones", "M01", "slices", "M01-S01");
 		expect(existsSync(dirPath)).toBe(true);
 	});
 

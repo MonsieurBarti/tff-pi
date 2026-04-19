@@ -22,7 +22,7 @@ describe("handleCreateSlice — event log", () => {
 		db = new Database(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-cs-el-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		milestoneId = insertMilestone(db, {
 			id: "m1",

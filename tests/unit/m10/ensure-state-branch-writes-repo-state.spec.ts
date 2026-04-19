@@ -10,7 +10,7 @@ describe("ensureStateBranch writes repo-state.json", () => {
 	beforeEach(() => {
 		p = initTestProject();
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: true\n",
 			"utf-8",
 		);

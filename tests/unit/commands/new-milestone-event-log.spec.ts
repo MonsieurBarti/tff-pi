@@ -36,7 +36,7 @@ describe("createMilestone — event log", () => {
 		db = new Database(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-nm-el-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 	});
 

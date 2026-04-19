@@ -33,7 +33,7 @@ describe("integration: toggle flip-on mid-project", () => {
 
 		// Flip on
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: true\n",
 			"utf-8",
 		);

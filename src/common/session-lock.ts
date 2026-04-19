@@ -21,7 +21,7 @@ const LOCK_FILE = "session.lock";
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function lockPath(root: string): string {
-	return join(root, ".tff", LOCK_FILE);
+	return join(root, ".pi", ".tff", LOCK_FILE);
 }
 
 export function acquireLock(root: string, opts: { phase: Phase; sliceId: string }): void {

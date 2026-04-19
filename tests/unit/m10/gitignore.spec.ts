@@ -30,11 +30,10 @@ describe("ensureGitignoreEntries", () => {
 		}
 	});
 
-	it("creates .gitignore with /.tff and standard TFF entries when absent", () => {
+	it("creates .gitignore with .pi/ and standard TFF entries when absent", () => {
 		ensureGitignoreEntries(repo);
 		const content = readFileSync(join(repo, ".gitignore"), "utf-8");
-		expect(content).toContain("/.tff\n");
-		expect(content).toContain(".pi/");
+		expect(content).toContain(".pi/\n");
 		expect(content).toContain("node_modules/");
 	});
 
@@ -51,7 +50,7 @@ describe("ensureGitignoreEntries", () => {
 		ensureGitignoreEntries(repo);
 		const content = readFileSync(join(repo, ".gitignore"), "utf-8");
 		expect(content).toContain("my-secret");
-		expect(content).toContain("/.tff");
+		expect(content).toContain(".pi/");
 	});
 
 	it("does not include .tff-project-id (tracked file)", () => {

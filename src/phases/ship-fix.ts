@@ -46,7 +46,7 @@ export const shipFixPhase: PhaseModule = {
 			`## Slice: ${sLabel} — "${sanitizeForPrompt(slice.title)}"`,
 			"",
 			`Worktree: ${wtPath}`,
-			`Feedback artifact: .tff/${feedbackRel}`,
+			`Feedback artifact: .pi/.tff/${feedbackRel}`,
 			"",
 			"## Reviewer feedback",
 			feedback,

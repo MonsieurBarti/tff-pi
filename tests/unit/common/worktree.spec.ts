@@ -78,7 +78,7 @@ describe("worktree", () => {
 	describe("getWorktreePath", () => {
 		it("returns the expected path", () => {
 			const path = getWorktreePath(repoDir, "M01-S01");
-			expect(path).toBe(join(repoDir, ".tff", "worktrees", "M01-S01"));
+			expect(path).toBe(join(repoDir, ".pi", ".tff", "worktrees", "M01-S01"));
 		});
 	});
 
@@ -127,7 +127,7 @@ describe("worktree", () => {
 			);
 			removeWorktree(repoDir, "M01-S01", { id: "deadbeef00000000aaaaaaaaaaaaaaaa" });
 			expect(worktreeExists(repoDir, "M01-S01")).toBe(false);
-			expect(existsSync(join(repoDir, ".tff", "worktrees", "M01-S01"))).toBe(false);
+			expect(existsSync(join(repoDir, ".pi", ".tff", "worktrees", "M01-S01"))).toBe(false);
 		});
 
 		it("is a no-op if worktree does not exist", () => {
@@ -185,7 +185,7 @@ describe("createWorktree — M10-S01 inner symlink", () => {
 			mainBranch,
 		);
 
-		const innerLink = join(wtPath, ".tff");
+		const innerLink = join(wtPath, ".pi", ".tff");
 		expect(lstatSync(innerLink).isSymbolicLink()).toBe(true);
 
 		const projectId = readFileSync(join(repo, ".tff-project-id"), "utf-8").trim();

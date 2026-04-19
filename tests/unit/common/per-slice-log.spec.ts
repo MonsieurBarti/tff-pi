@@ -40,7 +40,7 @@ describe("PerSliceLog", () => {
 			type: "phase_complete",
 			phase: "verify",
 		});
-		const logPath = join(root, ".tff", "logs", "M01-S01.jsonl");
+		const logPath = join(root, ".pi", ".tff", "logs", "M01-S01.jsonl");
 		expect(existsSync(logPath)).toBe(true);
 		const line = JSON.parse(readFileSync(logPath, "utf-8").trim()) as Record<string, unknown>;
 		expect(line.ch).toBe("tff:phase");
@@ -67,7 +67,7 @@ describe("PerSliceLog", () => {
 			startedAt: "t",
 			phase: null,
 		});
-		expect(existsSync(join(root, ".tff", "logs", "ambient.jsonl"))).toBe(true);
+		expect(existsSync(join(root, ".pi", ".tff", "logs", "ambient.jsonl"))).toBe(true);
 	});
 
 	test("captures tff:derived status_changed events in per-slice JSONL", () => {
@@ -84,7 +84,7 @@ describe("PerSliceLog", () => {
 			from: "executing",
 			to: "verifying",
 		});
-		const logPath = join(root, ".tff", "logs", "M01-S01.jsonl");
+		const logPath = join(root, ".pi", ".tff", "logs", "M01-S01.jsonl");
 		expect(existsSync(logPath)).toBe(true);
 		const line = JSON.parse(readFileSync(logPath, "utf-8").trim()) as Record<string, unknown>;
 		expect(line.ch).toBe("tff:derived");
@@ -129,7 +129,7 @@ describe("PerSliceLog", () => {
 			type: "phase_complete",
 			phase: "verify",
 		});
-		expect(existsSync(join(root, ".tff", "logs", "M01-S01.jsonl"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "logs", "M01-S01.jsonl"))).toBe(false);
 	});
 });
 
@@ -141,9 +141,9 @@ describe("readPerSliceLog", () => {
 
 	test("readPerSliceLog skips malformed JSON lines", () => {
 		const root = mkdtempSync(join(tmpdir(), "tff-read-bad-"));
-		mkdirSync(join(root, ".tff", "logs"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff", "logs"), { recursive: true });
 		const good = JSON.stringify({ ts: "t", ch: "tff:phase", sliceLabel: "M01-S01" });
-		writeFileSync(join(root, ".tff/logs/M01-S01.jsonl"), `${good}\n{not json\n${good}\n`);
+		writeFileSync(join(root, ".pi/.tff/logs/M01-S01.jsonl"), `${good}\n{not json\n${good}\n`);
 		const lines = readPerSliceLog(root, "M01-S01");
 		expect(lines).toHaveLength(2);
 	});

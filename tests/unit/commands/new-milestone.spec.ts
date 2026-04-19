@@ -57,7 +57,7 @@ describe("createMilestone", () => {
 		execSync('git config user.name "Test"', { cwd: root, stdio: "pipe" });
 		execSync("git commit --allow-empty -m 'init'", { cwd: root, stdio: "pipe" });
 
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		initTffDirectory(root);
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		projectId = must(getProject(db)).id;

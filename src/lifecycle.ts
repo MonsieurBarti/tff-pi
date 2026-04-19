@@ -203,7 +203,7 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 		await refreshCompressionLevel(root);
 
 		const dbPath = tffPath(root, "state.db");
-		if (existsSync(join(root, ".tff")) && existsSync(dbPath)) {
+		if (existsSync(join(root, ".pi", ".tff")) && existsSync(dbPath)) {
 			try {
 				ctx.db = openDatabase(dbPath);
 				applyMigrations(ctx.db, { root: ctx.projectRoot });

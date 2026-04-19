@@ -14,7 +14,7 @@ describe("session-lock", () => {
 
 	beforeEach(() => {
 		root = join(tmpdir(), `tff-lock-test-${Date.now()}`);
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	});
 
 	afterEach(() => {
@@ -42,7 +42,7 @@ describe("session-lock", () => {
 	});
 
 	it("readLock returns null for malformed JSON", () => {
-		writeFileSync(join(root, ".tff", "session.lock"), "not json", "utf-8");
+		writeFileSync(join(root, ".pi", ".tff", "session.lock"), "not json", "utf-8");
 		expect(readLock(root)).toBeNull();
 	});
 
@@ -90,7 +90,7 @@ describe("session-lock", () => {
 			pid: process.pid,
 			timestamp: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
 		};
-		writeFileSync(join(root, ".tff", "session.lock"), JSON.stringify(staleLock), "utf-8");
+		writeFileSync(join(root, ".pi", ".tff", "session.lock"), JSON.stringify(staleLock), "utf-8");
 
 		acquireLock(root, { phase: "plan", sliceId: "new-slice" });
 		const current = readLock(root);

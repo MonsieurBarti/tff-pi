@@ -26,45 +26,47 @@ describe("artifacts", () => {
 
 	describe("tffPath", () => {
 		it("joins root + .tff + segments", () => {
-			expect(tffPath(root, "milestones", "M01")).toBe(join(root, ".tff", "milestones", "M01"));
+			expect(tffPath(root, "milestones", "M01")).toBe(
+				join(root, ".pi", ".tff", "milestones", "M01"),
+			);
 		});
 
 		it("works with no extra segments", () => {
-			expect(tffPath(root)).toBe(join(root, ".tff"));
+			expect(tffPath(root)).toBe(join(root, ".pi", ".tff"));
 		});
 	});
 
 	describe("milestoneDir", () => {
 		it("returns .tff/milestones/M01 for number 1", () => {
-			expect(milestoneDir(root, 1)).toBe(join(root, ".tff", "milestones", "M01"));
+			expect(milestoneDir(root, 1)).toBe(join(root, ".pi", ".tff", "milestones", "M01"));
 		});
 
 		it("pads single digit numbers", () => {
-			expect(milestoneDir(root, 3)).toBe(join(root, ".tff", "milestones", "M03"));
+			expect(milestoneDir(root, 3)).toBe(join(root, ".pi", ".tff", "milestones", "M03"));
 		});
 
 		it("handles two-digit numbers", () => {
-			expect(milestoneDir(root, 12)).toBe(join(root, ".tff", "milestones", "M12"));
+			expect(milestoneDir(root, 12)).toBe(join(root, ".pi", ".tff", "milestones", "M12"));
 		});
 	});
 
 	describe("sliceDir", () => {
 		it("returns correct path for M01/S03", () => {
 			expect(sliceDir(root, 1, 3)).toBe(
-				join(root, ".tff", "milestones", "M01", "slices", "M01-S03"),
+				join(root, ".pi", ".tff", "milestones", "M01", "slices", "M01-S03"),
 			);
 		});
 
 		it("pads milestone and slice numbers", () => {
 			expect(sliceDir(root, 2, 5)).toBe(
-				join(root, ".tff", "milestones", "M02", "slices", "M02-S05"),
+				join(root, ".pi", ".tff", "milestones", "M02", "slices", "M02-S05"),
 			);
 		});
 	});
 
 	describe("writeArtifact / readArtifact", () => {
 		beforeEach(() => {
-			mkdirSync(join(root, ".tff"), { recursive: true });
+			mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		});
 
 		it("round-trips content", () => {
@@ -88,7 +90,7 @@ describe("artifacts", () => {
 
 	describe("readArtifact", () => {
 		beforeEach(() => {
-			mkdirSync(join(root, ".tff"), { recursive: true });
+			mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		});
 
 		it("returns null for missing file", () => {
@@ -98,7 +100,7 @@ describe("artifacts", () => {
 
 	describe("artifactExists", () => {
 		beforeEach(() => {
-			mkdirSync(join(root, ".tff"), { recursive: true });
+			mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		});
 
 		it("returns true for existing file", () => {
@@ -113,12 +115,12 @@ describe("artifacts", () => {
 
 	describe("initMilestoneDir", () => {
 		beforeEach(() => {
-			mkdirSync(join(root, ".tff"), { recursive: true });
+			mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		});
 
 		it("creates milestone directory", () => {
 			initMilestoneDir(root, 1);
-			expect(existsSync(join(root, ".tff", "milestones", "M01"))).toBe(true);
+			expect(existsSync(join(root, ".pi", ".tff", "milestones", "M01"))).toBe(true);
 		});
 
 		it("is idempotent", () => {
@@ -129,13 +131,15 @@ describe("artifacts", () => {
 
 	describe("initSliceDir", () => {
 		beforeEach(() => {
-			mkdirSync(join(root, ".tff"), { recursive: true });
+			mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 			initMilestoneDir(root, 1);
 		});
 
 		it("creates slice directory under milestone", () => {
 			initSliceDir(root, 1, 3);
-			expect(existsSync(join(root, ".tff", "milestones", "M01", "slices", "M01-S03"))).toBe(true);
+			expect(existsSync(join(root, ".pi", ".tff", "milestones", "M01", "slices", "M01-S03"))).toBe(
+				true,
+			);
 		});
 
 		it("is idempotent", () => {

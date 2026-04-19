@@ -49,7 +49,7 @@ export const verifyPhase: PhaseModule = {
 			: "";
 
 		const prInstruction =
-			"\n\nAfter VERIFICATION.md is written and tests pass, call `tff_write_pr` to author PR.md — the pull request description. Use concise, reviewer-facing copy; do not dump internal process notes. Ship will use this verbatim as the PR body, so projects can override the template at .tff/templates/pr-body.md.";
+			"\n\nAfter VERIFICATION.md is written and tests pass, call `tff_write_pr` to author PR.md — the pull request description. Use concise, reviewer-facing copy; do not dump internal process notes. Ship will use this verbatim as the PR body, so projects can override the template at .pi/.tff/templates/pr-body.md.";
 
 		const { agentPrompt, protocol } = loadPhaseResources("verify");
 		const milestoneRow = getMilestone(db, slice.milestoneId);

@@ -84,7 +84,7 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 			name: "tff_write_pr",
 			label: "TFF Write PR Body",
 			description:
-				"Write the PR.md artifact (pull request description) by filling the project's PR template. Called during the verify phase after VERIFICATION.md, before ship. Project can override the template at .tff/templates/pr-body.md.",
+				"Write the PR.md artifact (pull request description) by filling the project's PR template. Called during the verify phase after VERIFICATION.md, before ship. Project can override the template at .pi/.tff/templates/pr-body.md.",
 			promptGuidelines: [
 				"Call after VERIFICATION.md is written and tests pass",
 				"Write concise, reviewer-facing copy — not internal process notes",

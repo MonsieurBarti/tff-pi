@@ -18,7 +18,7 @@ describe("handleWriteSpec — event log", () => {
 		const db = new Database(":memory:");
 		applyMigrations(db);
 		const root = mkdtempSync(join(tmpdir(), "tff-write-spec-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });
@@ -43,7 +43,7 @@ describe("handleWriteSpec — projection throw rolls back tx", () => {
 		const db = new Database(":memory:");
 		applyMigrations(db);
 		const root = mkdtempSync(join(tmpdir(), "tff-write-spec-rollback-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "T" });

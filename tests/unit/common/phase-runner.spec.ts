@@ -33,7 +33,7 @@ describe("runPhaseWithFreshContext", () => {
 
 	beforeEach(() => {
 		root = join(tmpdir(), `tff-phase-runner-${Date.now()}-${Math.random()}`);
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	});
 
 	afterEach(() => {

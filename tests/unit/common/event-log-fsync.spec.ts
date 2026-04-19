@@ -23,7 +23,7 @@ describe("appendCommand — fsync guarantee", () => {
 		// Import after mock is established
 		const { appendCommand } = await import("../../../src/common/event-log.js");
 		const root = mkdtempSync(join(tmpdir(), "tff-fsync-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		fsyncCalls.length = 0;
 		appendCommand(root, "write-spec", { sliceId: "s1" });
 		expect(fsyncCalls.length).toBeGreaterThanOrEqual(1);

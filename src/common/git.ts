@@ -109,7 +109,6 @@ export function getDefaultBranch(cwd?: string): string | null {
 }
 
 const DEFAULT_GITIGNORE_ENTRIES = [
-	"/.tff",
 	".pi/",
 	"node_modules/",
 	"dist/",
@@ -135,11 +134,9 @@ export function ensureGitignoreEntries(cwd: string): void {
 		const header = existing.length > 0 ? "\n# TFF defaults\n" : "";
 		writeFileSync(filePath, `${existing}${suffix}${header}${missing.join("\n")}\n`);
 	}
-	// Defensively untrack .tff/ and .pi/ if a reused remote has them committed.
-	// Observed: testtff project inherited a prior project's .tff/state.db via
-	// rebase, so getNextMilestoneNumber saw an M01 row and handed out M02.
+	// Defensively untrack .pi/ (and legacy .tff/) if a reused remote has them committed.
 	// --ignore-unmatch keeps this a no-op when nothing is tracked.
-	execFileSync("git", ["rm", "-r", "--cached", "--ignore-unmatch", ".tff", ".pi"], {
+	execFileSync("git", ["rm", "-r", "--cached", "--ignore-unmatch", ".pi", ".tff"], {
 		cwd,
 		stdio: "pipe",
 		env: gitEnv(),

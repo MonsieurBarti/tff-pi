@@ -116,7 +116,7 @@ describe("lifecycle — session_start pending message delivery", () => {
 			tmpdir(),
 			`tff-lifecycle-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 		);
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		vi.mocked(getGitRoot).mockReturnValue(root);
 		vi.mocked(scanForStuckSlices).mockReturnValue([]);
 	});
@@ -230,7 +230,7 @@ describe("lifecycle — pending-execute-worktree marker", () => {
 			tmpdir(),
 			`tff-lifecycle-wt-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 		);
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		vi.mocked(getGitRoot).mockReturnValue(root);
 		vi.mocked(scanForStuckSlices).mockReturnValue([]);
 		vi.mocked(ensureSliceWorktree).mockReturnValue("/fake/wt");

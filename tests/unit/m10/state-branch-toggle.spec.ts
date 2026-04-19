@@ -9,9 +9,9 @@ import {
 
 function makeRoot(settingsYaml?: string): string {
 	const dir = mkdtempSync(join(tmpdir(), "tff-toggle-"));
-	mkdirSync(join(dir, ".tff"), { recursive: true });
+	mkdirSync(join(dir, ".pi", ".tff"), { recursive: true });
 	if (settingsYaml !== undefined) {
-		writeFileSync(join(dir, ".tff", "settings.yaml"), settingsYaml, "utf-8");
+		writeFileSync(join(dir, ".pi", ".tff", "settings.yaml"), settingsYaml, "utf-8");
 	}
 	return dir;
 }

@@ -36,7 +36,7 @@ describe("handleTransition persistence check", () => {
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "tff-transition-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		insertProject(db, { name: "TFF", vision: "V" });
@@ -75,7 +75,7 @@ describe("handleTransition persistence check", () => {
 describe("handleTransition with real bus (no logger needed)", () => {
 	it("returns success with persistenceVerified=true when root is provided", () => {
 		const root = mkdtempSync(join(tmpdir(), "tff-transition-happy-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		const db = openDatabase(":memory:");
 		applyMigrations(db);
 		insertProject(db, { name: "TFF", vision: "V" });

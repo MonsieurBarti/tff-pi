@@ -82,7 +82,7 @@ let suppressRecursion = false;
 
 /**
  * Sets the audit-log base directory. `root` is the git repo root (the path
- * containing `.tff/`, which may itself be a symlink into `~/.tff/{projectId}/`),
+ * containing `.pi/.tff/`, which may itself be a symlink into `~/.tff/{projectId}/`),
  * not the project-home directory directly. Validated like TFF_HOME: absolute,
  * no `..`/`.` components, no NUL bytes.
  */
@@ -167,7 +167,7 @@ function emit(env: Envelope): void {
 
 	if (suppressRecursion) return;
 	try {
-		const dir = join(basePath, ".tff");
+		const dir = join(basePath, ".pi", ".tff");
 		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 		const auditPath = join(dir, "audit-log.jsonl");
 		// O_NOFOLLOW rejects the write if auditPath is a symlink — prevents a
@@ -251,7 +251,7 @@ export function logException(component: LogComponent, err: unknown, ctx?: LogCon
 export function readAuditLog(root?: string): AuditLogLine[] {
 	const target = root ?? basePath;
 	if (target === null) return [];
-	const path = join(target, ".tff", "audit-log.jsonl");
+	const path = join(target, ".pi", ".tff", "audit-log.jsonl");
 	if (!fs.existsSync(path)) return [];
 	const raw = fs.readFileSync(path, "utf-8");
 	const out: AuditLogLine[] = [];

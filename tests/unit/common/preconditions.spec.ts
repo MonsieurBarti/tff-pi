@@ -17,7 +17,7 @@ import { validateCommandPreconditions } from "../../../src/common/preconditions.
 
 function tempRoot(): string {
 	const root = mkdtempSync(join(tmpdir(), "tff-prec-"));
-	mkdirSync(join(root, ".tff"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	return root;
 }
 
@@ -189,7 +189,7 @@ describe("validateCommandPreconditions — ship-changes write-pr gate", () => {
 		insertPhaseRun(db, { sliceId: sId, phase: "ship", status: "started", startedAt: "t0" });
 
 		// Write a write-pr event directly to the log
-		const logPath = join(root, ".tff/event-log.jsonl");
+		const logPath = join(root, ".pi/.tff/event-log.jsonl");
 		const event = {
 			v: 2,
 			cmd: "write-pr",

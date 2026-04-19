@@ -47,6 +47,7 @@ describe("M10-S04: milestone-needs-changes integration", () => {
 
 		const feedbackPath = join(
 			fx.alice,
+			".pi",
 			".tff",
 			"milestones",
 			"M10",

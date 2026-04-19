@@ -8,7 +8,7 @@ import { discussPhase } from "../../../src/phases/discuss.js";
 
 function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
 	const root = mkdtempSync(join(tmpdir(), "tff-discuss-"));
-	mkdirSync(join(root, ".tff"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	const db = openDatabase(":memory:");
 	applyMigrations(db);
 
