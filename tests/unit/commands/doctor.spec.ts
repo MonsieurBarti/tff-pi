@@ -215,7 +215,7 @@ describe("buildShadowDb", () => {
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "tff-shadow-test-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	});
 
 	afterEach(() => {
@@ -356,7 +356,7 @@ describe("checkInvariantSweep", () => {
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "tff-sweep-test-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	});
 
 	afterEach(() => {
@@ -441,7 +441,7 @@ describe("handleDoctor — log drift and invariant sweep", () => {
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-doctor-full-test-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	});
 
 	afterEach(() => {
