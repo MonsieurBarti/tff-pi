@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { STALLED_THRESHOLD_MS, handleDoctor } from "../../../src/commands/doctor.js";
+import { STALLED_THRESHOLD_MS, buildShadowDb, handleDoctor } from "../../../src/commands/doctor.js";
 import { initMilestoneDir, initSliceDir, initTffDirectory } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
@@ -18,6 +18,7 @@ import {
 	openDatabase,
 	updatePhaseRun,
 } from "../../../src/common/db.js";
+import { appendCommand } from "../../../src/common/event-log.js";
 import { must } from "../../helpers.js";
 
 describe("handleDoctor", () => {
@@ -198,5 +199,32 @@ describe("handleDoctor — drift reconcile", () => {
 
 		const report = handleDoctor(db, {});
 		expect(report.drifts).toEqual([]);
+	});
+});
+
+describe("buildShadowDb", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "tff-shadow-test-"));
+		mkdirSync(join(root, ".tff"), { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("returns an empty projection when event-log does not exist", () => {
+		const shadow = buildShadowDb(root);
+		const rows = shadow.prepare("SELECT * FROM project").all();
+		expect(rows).toHaveLength(0);
+	});
+
+	it("projects create-project event into shadow DB", () => {
+		appendCommand(root, "create-project", { id: "p1", name: "TFF", vision: "V" });
+		const shadow = buildShadowDb(root);
+		const rows = shadow.prepare("SELECT * FROM project").all() as { name: string }[];
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.name).toBe("TFF");
 	});
 });

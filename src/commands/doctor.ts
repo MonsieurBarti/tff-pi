@@ -4,15 +4,19 @@ import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import {
 	type PhaseRun,
+	applyMigrations,
 	getMilestones,
 	getPhaseRuns,
 	getProject,
 	getSlices,
+	openDatabase,
 	recoverOrphanedPhaseRuns,
 	updatePhaseRun,
 } from "../common/db.js";
 import { computeSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
+import { readEventsWithPositions } from "../common/event-log.js";
 import { logWarning } from "../common/logger.js";
+import { UnknownCommandError, projectCommand } from "../common/projection.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
 import { type SliceStatus, sliceLabel } from "../common/types.js";
 
@@ -60,6 +64,25 @@ export interface DoctorReport {
 	logDrifts: LogDrift[];
 	invariantViolations: InvariantViolation[];
 	message: string;
+}
+
+export function buildShadowDb(root: string): Database.Database {
+	const shadow = openDatabase(":memory:");
+	applyMigrations(shadow);
+	const events = readEventsWithPositions(root, 0);
+	for (const { event } of events) {
+		try {
+			projectCommand(shadow, root, event.cmd, event.params as Record<string, unknown>);
+		} catch (err) {
+			if (!(err instanceof UnknownCommandError)) {
+				logWarning("doctor", "shadow-projection-failed", {
+					cmd: event.cmd,
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+	}
+	return shadow;
 }
 
 /**
