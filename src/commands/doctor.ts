@@ -16,6 +16,7 @@ import {
 import { computeSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
 import { readEventsWithPositions } from "../common/event-log.js";
 import { logWarning } from "../common/logger.js";
+import { validateCommandPreconditions } from "../common/preconditions.js";
 import { UnknownCommandError, projectCommand } from "../common/projection.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
 import { type SliceStatus, sliceLabel } from "../common/types.js";
@@ -148,6 +149,45 @@ export function checkLogProjectionDrift(
 	}
 
 	return drifts;
+}
+
+export function checkInvariantSweep(
+	root: string,
+	sweepDbFactory?: () => Database.Database,
+): InvariantViolation[] {
+	const violations: InvariantViolation[] = [];
+	const sweepDb = sweepDbFactory ? sweepDbFactory() : openDatabase(":memory:");
+	applyMigrations(sweepDb);
+
+	const events = readEventsWithPositions(root, 0);
+	for (const { event, physicalLine } of events) {
+		const result = validateCommandPreconditions(
+			sweepDb,
+			root,
+			event.cmd,
+			event.params as Record<string, unknown>,
+		);
+		if (!result.ok) {
+			violations.push({
+				cmd: event.cmd,
+				row: physicalLine + 1,
+				reason: result.reason ?? "precondition failed",
+			});
+		}
+		try {
+			projectCommand(sweepDb, root, event.cmd, event.params as Record<string, unknown>);
+		} catch (err) {
+			if (!(err instanceof UnknownCommandError)) {
+				logWarning("doctor", "sweep-projection-failed", {
+					cmd: event.cmd,
+					row: String(physicalLine + 1),
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+	}
+
+	return violations;
 }
 
 /**

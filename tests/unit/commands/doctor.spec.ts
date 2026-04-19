@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	STALLED_THRESHOLD_MS,
 	buildShadowDb,
+	checkInvariantSweep,
 	checkLogProjectionDrift,
 	handleDoctor,
 } from "../../../src/commands/doctor.js";
@@ -332,5 +333,87 @@ describe("checkLogProjectionDrift", () => {
 		applyMigrations(emptyDb);
 		const drifts = checkLogProjectionDrift(emptyDb, shadowDb);
 		expect(drifts).toHaveLength(0);
+	});
+});
+
+describe("checkInvariantSweep", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "tff-sweep-test-"));
+		mkdirSync(join(root, ".tff"), { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("returns empty when event log does not exist", () => {
+		const violations = checkInvariantSweep(root);
+		expect(violations).toHaveLength(0);
+	});
+
+	it("returns empty for a valid sequence of events", () => {
+		const projectId = "proj-1";
+		appendCommand(root, "create-project", { id: projectId, name: "P", vision: "V" });
+		const milestoneId = "m-1";
+		appendCommand(root, "create-milestone", {
+			id: milestoneId,
+			projectId,
+			number: 1,
+			name: "M1",
+			branch: "milestone/M01",
+		});
+
+		const violations = checkInvariantSweep(root);
+		expect(violations).toHaveLength(0);
+	});
+
+	it("records a violation when a precondition fails", () => {
+		// write-plan requires slice to be in "planning" status
+		// We inject a write-plan without a preceding create-slice → precondition fails
+		appendCommand(root, "write-plan", { sliceId: "nonexistent-slice" });
+
+		const violations = checkInvariantSweep(root);
+		expect(violations).toHaveLength(1);
+		expect(must(violations[0]).cmd).toBe("write-plan");
+		expect(must(violations[0]).row).toBe(1);
+		expect(must(violations[0]).reason).toBeTruthy();
+	});
+
+	it("uses injected sweepDbFactory for testing isolation", () => {
+		appendCommand(root, "write-plan", { sliceId: "nonexistent-slice" });
+
+		let factoryCalled = false;
+		const factory = () => {
+			factoryCalled = true;
+			const db = openDatabase(":memory:");
+			applyMigrations(db);
+			return db;
+		};
+
+		checkInvariantSweep(root, factory);
+		expect(factoryCalled).toBe(true);
+	});
+
+	it("continues projecting after a violation so subsequent checks use correct state", () => {
+		const projectId = "proj-2";
+		// First: valid create-project
+		appendCommand(root, "create-project", { id: projectId, name: "P", vision: "V" });
+		// Second: invalid write-plan (no slice) — should record violation
+		appendCommand(root, "write-plan", { sliceId: "nonexistent-slice" });
+		// Third: valid create-milestone (should succeed; create-project was projected)
+		appendCommand(root, "create-milestone", {
+			id: "m-2",
+			projectId,
+			number: 1,
+			name: "M1",
+			branch: "milestone/M01",
+		});
+
+		const violations = checkInvariantSweep(root);
+		// Only the write-plan should be a violation
+		expect(violations).toHaveLength(1);
+		expect(must(violations[0]).cmd).toBe("write-plan");
 	});
 });
