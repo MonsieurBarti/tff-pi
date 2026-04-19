@@ -159,7 +159,7 @@ describe("handleDoctor — drift reconcile", () => {
 		expect(drift.from).toBe("created");
 		expect(drift.to).toBe("executing");
 
-		// DB must NOT be updated without --recover
+		// DB must NOT be updated without --repair
 		const sliceAfter = must(getSlice(db, sliceId));
 		expect(sliceAfter.status).toBe("created");
 
