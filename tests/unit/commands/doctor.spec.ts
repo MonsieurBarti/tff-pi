@@ -136,7 +136,7 @@ describe("handleDoctor — drift reconcile", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("detects a drifted slice.status without reconciling (no --recover)", () => {
+	it("detects a drifted slice.status without reconciling (no --repair)", () => {
 		// slice.status starts as "created" (default after insert).
 		// Seed execute/started phase_run so computeSliceStatus returns "executing".
 		// The slice.status in DB is "created" (default), so drift is created → executing.
