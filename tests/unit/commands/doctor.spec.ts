@@ -417,3 +417,83 @@ describe("checkInvariantSweep", () => {
 		expect(must(violations[0]).cmd).toBe("write-plan");
 	});
 });
+
+describe("handleDoctor — log drift and invariant sweep", () => {
+	let db: Database.Database;
+	let root: string;
+
+	beforeEach(() => {
+		db = openDatabase(":memory:");
+		applyMigrations(db);
+		root = mkdtempSync(join(tmpdir(), "tff-doctor-full-test-"));
+		mkdirSync(join(root, ".tff"), { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("includes empty logDrifts and invariantViolations when event log is absent", () => {
+		const report = handleDoctor(db, { root });
+		expect(report.logDrifts).toEqual([]);
+		expect(report.invariantViolations).toEqual([]);
+	});
+
+	it("includes logDrifts when shadow replay diverges from live DB", () => {
+		// Seed live DB with a project + milestone + slice + phase_run
+		insertProject(db, { name: "P", vision: "V" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "S" });
+		const sliceId2 = must(getSlices(db, milestoneId)[0]).id;
+		insertPhaseRun(db, {
+			sliceId: sliceId2,
+			phase: "plan",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+
+		// Event log is empty → shadow has no phase_runs → drift detected
+		const report = handleDoctor(db, { root });
+		expect(report.logDrifts.length).toBeGreaterThan(0);
+		expect(report.ok).toBe(false);
+	});
+
+	it("includes invariantViolations when event log has a bad event", () => {
+		// Write an event that will fail preconditions: write-plan with no slice
+		appendCommand(root, "write-plan", { sliceId: "ghost-slice" });
+
+		const report = handleDoctor(db, { root });
+		expect(report.invariantViolations.length).toBeGreaterThan(0);
+		expect(must(report.invariantViolations[0]).cmd).toBe("write-plan");
+		expect(report.ok).toBe(false);
+	});
+
+	it("--repair does not mutate logDrifts or invariantViolations findings", () => {
+		appendCommand(root, "write-plan", { sliceId: "ghost-slice" });
+		const before = handleDoctor(db, { root, repair: true });
+		const after = handleDoctor(db, { root });
+		// violations still present after repair — repair has no effect on them
+		expect(before.invariantViolations).toHaveLength(after.invariantViolations.length);
+	});
+
+	it("message includes log drift section", () => {
+		insertProject(db, { name: "P", vision: "V" });
+		const projectId = must(getProject(db)).id;
+		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });
+		const milestoneId = must(getMilestones(db, projectId)[0]).id;
+		insertSlice(db, { milestoneId, number: 1, title: "S" });
+		const sliceId2 = must(getSlices(db, milestoneId)[0]).id;
+		insertPhaseRun(db, {
+			sliceId: sliceId2,
+			phase: "plan",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+
+		const report = handleDoctor(db, { root });
+		expect(report.message).toMatch(/Log\/projection drift/);
+		expect(report.message).toMatch(/manual investigation required/);
+	});
+});

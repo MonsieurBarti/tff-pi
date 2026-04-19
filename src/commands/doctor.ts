@@ -199,15 +199,24 @@ export function handleDoctor(
 	db: Database.Database,
 	options: { repair?: boolean; now?: number; root?: string } = {},
 ): DoctorReport {
+	// Invariant sweep is independent of the live DB project — compute it first
+	// so even the "no project" early return can surface event-log violations.
+	const invariantViolations: InvariantViolation[] = options.root
+		? checkInvariantSweep(options.root)
+		: [];
+
 	const project = getProject(db);
 	if (!project) {
 		return {
-			ok: true,
+			ok: invariantViolations.length === 0,
 			stalledPhases: [],
 			drifts: [],
 			logDrifts: [],
-			invariantViolations: [],
-			message: "No project yet. Run `/tff new` to create one.",
+			invariantViolations,
+			message:
+				invariantViolations.length > 0
+					? `No project yet. Run \`/tff new\` to create one.\n- Invariant violations (${invariantViolations.length}): manual investigation required`
+					: "No project yet. Run `/tff new` to create one.",
 		};
 	}
 
@@ -273,10 +282,16 @@ export function handleDoctor(
 		}
 	}
 
+	const logDrifts: LogDrift[] = options.root
+		? checkLogProjectionDrift(db, buildShadowDb(options.root))
+		: [];
+
 	if (stalled.length === 0) {
 		const verb = options.repair ? "Reconciled" : "Detected";
+		const allClear =
+			drifts.length === 0 && logDrifts.length === 0 && invariantViolations.length === 0;
 		const lines: string[] = [
-			`TFF doctor: ${drifts.length === 0 ? "OK" : options.repair ? "reconciled drift" : "drift detected"}`,
+			`TFF doctor: ${allClear ? "OK" : options.repair ? "reconciled drift" : "drift detected"}`,
 			`- ${milestones.length} milestone(s), no stalled phases.`,
 			`- Stall threshold: ${Math.round(STALLED_THRESHOLD_MS / 60000)} minutes.`,
 		];
@@ -288,12 +303,36 @@ export function handleDoctor(
 				lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
 			}
 		}
+		if (logDrifts.length > 0) {
+			lines.push(`- Log/projection drift (${logDrifts.length}): manual investigation required`);
+			for (const d of logDrifts) {
+				const detail =
+					d.field === "phase_run_status"
+						? `${d.sliceLabel} (${d.phase ?? "?"}): live=${d.live} replayed=${d.replayed}`
+						: `${d.sliceLabel} (phase_run_count): live=${d.live} replayed=${d.replayed}`;
+				lines.push(`    ${detail}`);
+			}
+		} else {
+			lines.push("- Log/projection drift (0): none.");
+		}
+		if (invariantViolations.length > 0) {
+			lines.push(
+				`- Invariant violations (${invariantViolations.length}): manual investigation required`,
+			);
+			for (const v of invariantViolations) {
+				lines.push(`    row ${v.row}: ${v.cmd} — ${v.reason}`);
+			}
+		} else {
+			lines.push("- Invariant violations (0): none.");
+		}
 		return {
-			ok: drifts.length === 0 || !!options.repair,
+			ok:
+				(drifts.length === 0 && logDrifts.length === 0 && invariantViolations.length === 0) ||
+				!!options.repair,
 			stalledPhases: [],
 			drifts,
-			logDrifts: [],
-			invariantViolations: [],
+			logDrifts,
+			invariantViolations,
 			message: lines.join("\n"),
 		};
 	}
@@ -304,9 +343,15 @@ export function handleDoctor(
 			ok: true,
 			stalledPhases: stalled,
 			drifts,
-			logDrifts: [],
-			invariantViolations: [],
-			message: formatStalledReport(stalled, { recovered: count, drifts, repair: true }),
+			logDrifts,
+			invariantViolations,
+			message: formatStalledReport(stalled, {
+				recovered: count,
+				drifts,
+				repair: true,
+				logDrifts,
+				invariantViolations,
+			}),
 		};
 	}
 
@@ -314,9 +359,14 @@ export function handleDoctor(
 		ok: false,
 		stalledPhases: stalled,
 		drifts,
-		logDrifts: [],
-		invariantViolations: [],
-		message: formatStalledReport(stalled, { drifts, repair: false }),
+		logDrifts,
+		invariantViolations,
+		message: formatStalledReport(stalled, {
+			drifts,
+			repair: false,
+			logDrifts,
+			invariantViolations,
+		}),
 	};
 }
 
@@ -329,7 +379,13 @@ function isStalled(run: PhaseRun, now: number): boolean {
 
 function formatStalledReport(
 	stalled: StalledPhase[],
-	opts: { recovered?: number; drifts?: SliceDrift[]; repair?: boolean } = {},
+	opts: {
+		recovered?: number;
+		drifts?: SliceDrift[];
+		repair?: boolean;
+		logDrifts?: LogDrift[];
+		invariantViolations?: InvariantViolation[];
+	} = {},
 ): string {
 	const lines: string[] = [];
 	if (opts.recovered !== undefined) {
@@ -362,6 +418,32 @@ function formatStalledReport(
 		for (const d of drifts) {
 			lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
 		}
+	}
+
+	const logDrifts = opts.logDrifts ?? [];
+	if (logDrifts.length > 0) {
+		lines.push(`- Log/projection drift (${logDrifts.length}): manual investigation required`);
+		for (const d of logDrifts) {
+			const detail =
+				d.field === "phase_run_status"
+					? `${d.sliceLabel} (${d.phase ?? "?"}): live=${d.live} replayed=${d.replayed}`
+					: `${d.sliceLabel} (phase_run_count): live=${d.live} replayed=${d.replayed}`;
+			lines.push(`    ${detail}`);
+		}
+	} else {
+		lines.push("- Log/projection drift (0): none.");
+	}
+
+	const invariantViolations = opts.invariantViolations ?? [];
+	if (invariantViolations.length > 0) {
+		lines.push(
+			`- Invariant violations (${invariantViolations.length}): manual investigation required`,
+		);
+		for (const v of invariantViolations) {
+			lines.push(`    row ${v.row}: ${v.cmd} — ${v.reason}`);
+		}
+	} else {
+		lines.push("- Invariant violations (0): none.");
 	}
 
 	return lines.join("\n");
