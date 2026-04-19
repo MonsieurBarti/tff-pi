@@ -120,21 +120,23 @@ export function checkLogProjectionDrift(
 				}
 			}
 
-			if (liveRuns.length !== shadowRuns.length) {
+			const liveActiveRuns = liveRuns.filter((r) => r.status !== "abandoned");
+
+			if (liveActiveRuns.length !== shadowRuns.length) {
 				drifts.push({
 					sliceId: s.id,
 					sliceLabel: label,
 					field: "phase_run_count",
-					live: String(liveRuns.length),
+					live: String(liveActiveRuns.length),
 					replayed: String(shadowRuns.length),
 				});
 				continue;
 			}
 
-			for (const liveRun of liveRuns) {
+			for (const liveRun of liveActiveRuns) {
 				const shadowRun = shadowRuns.find((r) => r.phase === liveRun.phase);
 				if (!shadowRun) continue;
-				if (shadowRun.status !== liveRun.status) {
+				if (shadowRun.status !== liveRun.status && liveRun.status !== "abandoned") {
 					drifts.push({
 						sliceId: s.id,
 						sliceLabel: label,
@@ -488,12 +490,16 @@ export async function runDoctor(
 	let msg: string;
 	try {
 		const repair = args.includes("--repair");
-		if (args.includes("--recover")) {
+		const usedLegacyFlag = args.includes("--recover");
+		if (usedLegacyFlag) {
 			logWarning("doctor", "unknown-flag", { cmd: "--recover" });
 		}
 		const root = ctx.projectRoot ?? undefined;
 		const report = handleDoctor(getDb(ctx), root !== undefined ? { repair, root } : { repair });
 		msg = report.message;
+		if (usedLegacyFlag) {
+			msg = `WARNING: --recover is deprecated. Use --repair instead.\n\n${msg}`;
+		}
 	} catch (err) {
 		msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
 	}
