@@ -184,7 +184,9 @@ describe("handleDoctor — drift reconcile", () => {
 
 		const report = handleDoctor(db, { root, repair: true });
 
-		expect(report.ok).toBe(true);
+		// ok is false: live DB has a phase_run not present in the event log → log drift
+		// cannot be auto-repaired, so ok stays false even when slice drift is reconciled.
+		expect(report.ok).toBe(false);
 		expect(report.drifts).toHaveLength(1);
 
 		// DB should be updated after reconcile
@@ -332,6 +334,19 @@ describe("checkLogProjectionDrift", () => {
 		const emptyDb = openDatabase(":memory:");
 		applyMigrations(emptyDb);
 		const drifts = checkLogProjectionDrift(emptyDb, shadowDb);
+		expect(drifts).toHaveLength(0);
+	});
+
+	it("treats abandoned live phase_runs as non-existent for drift purposes", () => {
+		// Insert an abandoned run in live — shadow has 0 runs (no event-log entry)
+		insertPhaseRun(liveDb, {
+			sliceId,
+			phase: "plan",
+			status: "abandoned",
+			startedAt: new Date().toISOString(),
+		});
+
+		const drifts = checkLogProjectionDrift(liveDb, shadowDb);
 		expect(drifts).toHaveLength(0);
 	});
 });
@@ -495,5 +510,12 @@ describe("handleDoctor — log drift and invariant sweep", () => {
 		const report = handleDoctor(db, { root });
 		expect(report.message).toMatch(/Log\/projection drift/);
 		expect(report.message).toMatch(/manual investigation required/);
+	});
+
+	it("ok is false when --repair runs but invariant violations remain", () => {
+		appendCommand(root, "write-plan", { sliceId: "ghost-slice" });
+		const report = handleDoctor(db, { root, repair: true });
+		expect(report.ok).toBe(false);
+		expect(report.invariantViolations.length).toBeGreaterThan(0);
 	});
 });

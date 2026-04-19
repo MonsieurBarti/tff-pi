@@ -67,10 +67,12 @@ export interface DoctorReport {
 	message: string;
 }
 
-export function buildShadowDb(root: string): Database.Database {
+function buildShadowDbFromEvents(
+	root: string,
+	events: ReturnType<typeof readEventsWithPositions>,
+): Database.Database {
 	const shadow = openDatabase(":memory:");
 	applyMigrations(shadow);
-	const events = readEventsWithPositions(root, 0);
 	for (const { event } of events) {
 		try {
 			projectCommand(shadow, root, event.cmd, event.params as Record<string, unknown>);
@@ -84,6 +86,49 @@ export function buildShadowDb(root: string): Database.Database {
 		}
 	}
 	return shadow;
+}
+
+export function buildShadowDb(root: string): Database.Database {
+	return buildShadowDbFromEvents(root, readEventsWithPositions(root, 0));
+}
+
+function checkInvariantSweepFromEvents(
+	root: string,
+	events: ReturnType<typeof readEventsWithPositions>,
+	sweepDbFactory?: () => Database.Database,
+): InvariantViolation[] {
+	const violations: InvariantViolation[] = [];
+	const sweepDb = sweepDbFactory ? sweepDbFactory() : openDatabase(":memory:");
+	applyMigrations(sweepDb);
+
+	for (const { event, physicalLine } of events) {
+		const result = validateCommandPreconditions(
+			sweepDb,
+			root,
+			event.cmd,
+			event.params as Record<string, unknown>,
+		);
+		if (!result.ok) {
+			violations.push({
+				cmd: event.cmd,
+				row: physicalLine + 1,
+				reason: result.reason ?? "precondition failed",
+			});
+		}
+		try {
+			projectCommand(sweepDb, root, event.cmd, event.params as Record<string, unknown>);
+		} catch (err) {
+			if (!(err instanceof UnknownCommandError)) {
+				logWarning("doctor", "sweep-projection-failed", {
+					cmd: event.cmd,
+					row: String(physicalLine + 1),
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+	}
+
+	return violations;
 }
 
 export function checkLogProjectionDrift(
@@ -157,39 +202,7 @@ export function checkInvariantSweep(
 	root: string,
 	sweepDbFactory?: () => Database.Database,
 ): InvariantViolation[] {
-	const violations: InvariantViolation[] = [];
-	const sweepDb = sweepDbFactory ? sweepDbFactory() : openDatabase(":memory:");
-	applyMigrations(sweepDb);
-
-	const events = readEventsWithPositions(root, 0);
-	for (const { event, physicalLine } of events) {
-		const result = validateCommandPreconditions(
-			sweepDb,
-			root,
-			event.cmd,
-			event.params as Record<string, unknown>,
-		);
-		if (!result.ok) {
-			violations.push({
-				cmd: event.cmd,
-				row: physicalLine + 1,
-				reason: result.reason ?? "precondition failed",
-			});
-		}
-		try {
-			projectCommand(sweepDb, root, event.cmd, event.params as Record<string, unknown>);
-		} catch (err) {
-			if (!(err instanceof UnknownCommandError)) {
-				logWarning("doctor", "sweep-projection-failed", {
-					cmd: event.cmd,
-					row: String(physicalLine + 1),
-					error: err instanceof Error ? err.message : String(err),
-				});
-			}
-		}
-	}
-
-	return violations;
+	return checkInvariantSweepFromEvents(root, readEventsWithPositions(root, 0), sweepDbFactory);
 }
 
 /**
@@ -201,10 +214,15 @@ export function handleDoctor(
 	db: Database.Database,
 	options: { repair?: boolean; now?: number; root?: string } = {},
 ): DoctorReport {
+	// Read events once — used by both invariant sweep and shadow-db checks below.
+	const events: ReturnType<typeof readEventsWithPositions> = options.root
+		? readEventsWithPositions(options.root, 0)
+		: [];
+
 	// Invariant sweep is independent of the live DB project — compute it first
 	// so even the "no project" early return can surface event-log violations.
 	const invariantViolations: InvariantViolation[] = options.root
-		? checkInvariantSweep(options.root)
+		? checkInvariantSweepFromEvents(options.root, events)
 		: [];
 
 	const project = getProject(db);
@@ -285,7 +303,7 @@ export function handleDoctor(
 	}
 
 	const logDrifts: LogDrift[] = options.root
-		? checkLogProjectionDrift(db, buildShadowDb(options.root))
+		? checkLogProjectionDrift(db, buildShadowDbFromEvents(options.root, events))
 		: [];
 
 	if (stalled.length === 0) {
@@ -329,8 +347,9 @@ export function handleDoctor(
 		}
 		return {
 			ok:
-				(drifts.length === 0 && logDrifts.length === 0 && invariantViolations.length === 0) ||
-				!!options.repair,
+				(drifts.length === 0 || !!options.repair) &&
+				logDrifts.length === 0 &&
+				invariantViolations.length === 0,
 			stalledPhases: [],
 			drifts,
 			logDrifts,
@@ -342,7 +361,7 @@ export function handleDoctor(
 	if (options.repair) {
 		const count = recoverOrphanedPhaseRuns(db);
 		return {
-			ok: true,
+			ok: logDrifts.length === 0 && invariantViolations.length === 0,
 			stalledPhases: stalled,
 			drifts,
 			logDrifts,
@@ -492,7 +511,7 @@ export async function runDoctor(
 		const repair = args.includes("--repair");
 		const usedLegacyFlag = args.includes("--recover");
 		if (usedLegacyFlag) {
-			logWarning("doctor", "unknown-flag", { cmd: "--recover" });
+			logWarning("doctor", "unknown-flag", { flag: "--recover" });
 		}
 		const root = ctx.projectRoot ?? undefined;
 		const report = handleDoctor(getDb(ctx), root !== undefined ? { repair, root } : { repair });
