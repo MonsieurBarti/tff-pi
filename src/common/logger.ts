@@ -39,6 +39,7 @@ export interface LogContext {
 	step?: string;
 	stderr?: string;
 	cmd?: string;
+	flag?: string;
 	row?: string;
 }
 
@@ -56,6 +57,7 @@ const ALLOWLIST: ReadonlyArray<Exclude<keyof LogContext, "stack">> = [
 	"step",
 	"stderr",
 	"cmd",
+	"flag",
 	"row",
 ];
 

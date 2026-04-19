@@ -4,14 +4,20 @@ import type Database from "better-sqlite3";
 import { type TffContext, getDb } from "../common/context.js";
 import {
 	type PhaseRun,
+	applyMigrations,
 	getMilestones,
 	getPhaseRuns,
 	getProject,
 	getSlices,
+	openDatabase,
 	recoverOrphanedPhaseRuns,
 	updatePhaseRun,
 } from "../common/db.js";
 import { computeSliceStatus, reconcileSliceStatus } from "../common/derived-state.js";
+import { readEventsWithPositions } from "../common/event-log.js";
+import { logWarning } from "../common/logger.js";
+import { validateCommandPreconditions } from "../common/preconditions.js";
+import { UnknownCommandError, projectCommand } from "../common/projection.js";
 import { isStateBranchEnabledForRoot } from "../common/state-branch-toggle.js";
 import { type SliceStatus, sliceLabel } from "../common/types.js";
 
@@ -37,11 +43,166 @@ export interface SliceDrift {
 	to: SliceStatus;
 }
 
+export interface LogDrift {
+	sliceId: string;
+	sliceLabel: string;
+	field: "phase_run_count" | "phase_run_status";
+	phase?: string;
+	live: string;
+	replayed: string;
+}
+
+export interface InvariantViolation {
+	cmd: string;
+	row: number;
+	reason: string;
+}
+
 export interface DoctorReport {
 	ok: boolean;
 	stalledPhases: StalledPhase[];
 	drifts: SliceDrift[];
+	logDrifts: LogDrift[];
+	invariantViolations: InvariantViolation[];
 	message: string;
+}
+
+function buildShadowDbFromEvents(
+	root: string,
+	events: ReturnType<typeof readEventsWithPositions>,
+): Database.Database {
+	const shadow = openDatabase(":memory:");
+	applyMigrations(shadow);
+	for (const { event } of events) {
+		try {
+			projectCommand(shadow, root, event.cmd, event.params as Record<string, unknown>);
+		} catch (err) {
+			if (!(err instanceof UnknownCommandError)) {
+				logWarning("doctor", "shadow-projection-failed", {
+					cmd: event.cmd,
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+	}
+	return shadow;
+}
+
+export function buildShadowDb(root: string): Database.Database {
+	return buildShadowDbFromEvents(root, readEventsWithPositions(root, 0));
+}
+
+function checkInvariantSweepFromEvents(
+	root: string,
+	events: ReturnType<typeof readEventsWithPositions>,
+	sweepDbFactory?: () => Database.Database,
+): InvariantViolation[] {
+	const violations: InvariantViolation[] = [];
+	const sweepDb = sweepDbFactory ? sweepDbFactory() : openDatabase(":memory:");
+	applyMigrations(sweepDb);
+
+	for (const { event, physicalLine } of events) {
+		const result = validateCommandPreconditions(
+			sweepDb,
+			root,
+			event.cmd,
+			event.params as Record<string, unknown>,
+		);
+		if (!result.ok) {
+			violations.push({
+				cmd: event.cmd,
+				row: physicalLine + 1,
+				reason: result.reason ?? "precondition failed",
+			});
+		}
+		try {
+			projectCommand(sweepDb, root, event.cmd, event.params as Record<string, unknown>);
+		} catch (err) {
+			if (!(err instanceof UnknownCommandError)) {
+				logWarning("doctor", "sweep-projection-failed", {
+					cmd: event.cmd,
+					row: String(physicalLine + 1),
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+	}
+
+	return violations;
+}
+
+export function checkLogProjectionDrift(
+	db: Database.Database,
+	shadowDb: Database.Database,
+): LogDrift[] {
+	const drifts: LogDrift[] = [];
+	const project = getProject(db);
+	if (!project) return drifts;
+
+	const shadowProject = getProject(shadowDb);
+
+	const milestones = getMilestones(db, project.id);
+	for (const m of milestones) {
+		const slices = getSlices(db, m.id);
+		for (const s of slices) {
+			const label = sliceLabel(m.number, s.number);
+			const liveRuns = getPhaseRuns(db, s.id);
+
+			// Correlate by milestone/slice number, not by ID, since shadow DB has
+			// its own auto-generated UUIDs.
+			let shadowRuns: ReturnType<typeof getPhaseRuns> = [];
+			if (shadowProject) {
+				const shadowMilestone = getMilestones(shadowDb, shadowProject.id).find(
+					(sm) => sm.number === m.number,
+				);
+				if (shadowMilestone) {
+					const shadowSlice = getSlices(shadowDb, shadowMilestone.id).find(
+						(ss) => ss.number === s.number,
+					);
+					if (shadowSlice) {
+						shadowRuns = getPhaseRuns(shadowDb, shadowSlice.id);
+					}
+				}
+			}
+
+			const liveActiveRuns = liveRuns.filter((r) => r.status !== "abandoned");
+
+			if (liveActiveRuns.length !== shadowRuns.length) {
+				drifts.push({
+					sliceId: s.id,
+					sliceLabel: label,
+					field: "phase_run_count",
+					live: String(liveActiveRuns.length),
+					replayed: String(shadowRuns.length),
+				});
+				continue;
+			}
+
+			for (const liveRun of liveActiveRuns) {
+				const shadowRun = shadowRuns.find((r) => r.phase === liveRun.phase);
+				if (!shadowRun) continue;
+				if (shadowRun.status !== liveRun.status && liveRun.status !== "abandoned") {
+					drifts.push({
+						sliceId: s.id,
+						sliceLabel: label,
+						field: "phase_run_status",
+						phase: liveRun.phase,
+						live: liveRun.status,
+						replayed: shadowRun.status,
+					});
+				}
+			}
+		}
+	}
+
+	return drifts;
+}
+
+export function checkInvariantSweep(
+	root: string,
+	sweepDbFactory?: () => Database.Database,
+): InvariantViolation[] {
+	return checkInvariantSweepFromEvents(root, readEventsWithPositions(root, 0), sweepDbFactory);
 }
 
 /**
@@ -51,15 +212,31 @@ export interface DoctorReport {
  */
 export function handleDoctor(
 	db: Database.Database,
-	options: { recover?: boolean; now?: number; root?: string } = {},
+	options: { repair?: boolean; now?: number; root?: string } = {},
 ): DoctorReport {
+	// Read events once — used by both invariant sweep and shadow-db checks below.
+	const events: ReturnType<typeof readEventsWithPositions> = options.root
+		? readEventsWithPositions(options.root, 0)
+		: [];
+
+	// Invariant sweep is independent of the live DB project — compute it first
+	// so even the "no project" early return can surface event-log violations.
+	const invariantViolations: InvariantViolation[] = options.root
+		? checkInvariantSweepFromEvents(options.root, events)
+		: [];
+
 	const project = getProject(db);
 	if (!project) {
 		return {
-			ok: true,
+			ok: invariantViolations.length === 0,
 			stalledPhases: [],
 			drifts: [],
-			message: "No project yet. Run `/tff new` to create one.",
+			logDrifts: [],
+			invariantViolations,
+			message:
+				invariantViolations.length > 0
+					? `No project yet. Run \`/tff new\` to create one.\n- Invariant violations (${invariantViolations.length}): manual investigation required`
+					: "No project yet. Run `/tff new` to create one.",
 		};
 	}
 
@@ -117,7 +294,7 @@ export function handleDoctor(
 						from: s.status,
 						to: computed,
 					});
-					if (options.recover) {
+					if (options.repair) {
 						reconcileSliceStatus(db, options.root, s.id);
 					}
 				}
@@ -125,36 +302,77 @@ export function handleDoctor(
 		}
 	}
 
+	const logDrifts: LogDrift[] = options.root
+		? checkLogProjectionDrift(db, buildShadowDbFromEvents(options.root, events))
+		: [];
+
 	if (stalled.length === 0) {
-		const verb = options.recover ? "Reconciled" : "Detected";
+		const verb = options.repair ? "Reconciled" : "Detected";
+		const allClear =
+			drifts.length === 0 && logDrifts.length === 0 && invariantViolations.length === 0;
 		const lines: string[] = [
-			`TFF doctor: ${drifts.length === 0 ? "OK" : options.recover ? "reconciled drift" : "drift detected"}`,
+			`TFF doctor: ${allClear ? "OK" : options.repair ? "reconciled drift" : "drift detected"}`,
 			`- ${milestones.length} milestone(s), no stalled phases.`,
 			`- Stall threshold: ${Math.round(STALLED_THRESHOLD_MS / 60000)} minutes.`,
 		];
 		if (drifts.length > 0) {
 			lines.push(
-				`- ${verb} ${drifts.length} slice(s) with drifted status${options.recover ? "" : " (run /tff doctor --recover to reconcile)"}:`,
+				`- ${verb} ${drifts.length} slice(s) with drifted status${options.repair ? "" : " (run /tff doctor --repair to reconcile)"}:`,
 			);
 			for (const d of drifts) {
 				lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
 			}
 		}
+		if (logDrifts.length > 0) {
+			lines.push(`- Log/projection drift (${logDrifts.length}): manual investigation required`);
+			for (const d of logDrifts) {
+				const detail =
+					d.field === "phase_run_status"
+						? `${d.sliceLabel} (${d.phase ?? "?"}): live=${d.live} replayed=${d.replayed}`
+						: `${d.sliceLabel} (phase_run_count): live=${d.live} replayed=${d.replayed}`;
+				lines.push(`    ${detail}`);
+			}
+		} else {
+			lines.push("- Log/projection drift (0): none.");
+		}
+		if (invariantViolations.length > 0) {
+			lines.push(
+				`- Invariant violations (${invariantViolations.length}): manual investigation required`,
+			);
+			for (const v of invariantViolations) {
+				lines.push(`    row ${v.row}: ${v.cmd} — ${v.reason}`);
+			}
+		} else {
+			lines.push("- Invariant violations (0): none.");
+		}
 		return {
-			ok: drifts.length === 0 || !!options.recover,
+			ok:
+				(drifts.length === 0 || !!options.repair) &&
+				logDrifts.length === 0 &&
+				invariantViolations.length === 0,
 			stalledPhases: [],
 			drifts,
+			logDrifts,
+			invariantViolations,
 			message: lines.join("\n"),
 		};
 	}
 
-	if (options.recover) {
+	if (options.repair) {
 		const count = recoverOrphanedPhaseRuns(db);
 		return {
-			ok: true,
+			ok: logDrifts.length === 0 && invariantViolations.length === 0,
 			stalledPhases: stalled,
 			drifts,
-			message: formatStalledReport(stalled, { recovered: count, drifts, recover: true }),
+			logDrifts,
+			invariantViolations,
+			message: formatStalledReport(stalled, {
+				recovered: count,
+				drifts,
+				repair: true,
+				logDrifts,
+				invariantViolations,
+			}),
 		};
 	}
 
@@ -162,7 +380,14 @@ export function handleDoctor(
 		ok: false,
 		stalledPhases: stalled,
 		drifts,
-		message: formatStalledReport(stalled, { drifts, recover: false }),
+		logDrifts,
+		invariantViolations,
+		message: formatStalledReport(stalled, {
+			drifts,
+			repair: false,
+			logDrifts,
+			invariantViolations,
+		}),
 	};
 }
 
@@ -175,7 +400,13 @@ function isStalled(run: PhaseRun, now: number): boolean {
 
 function formatStalledReport(
 	stalled: StalledPhase[],
-	opts: { recovered?: number; drifts?: SliceDrift[]; recover?: boolean } = {},
+	opts: {
+		recovered?: number;
+		drifts?: SliceDrift[];
+		repair?: boolean;
+		logDrifts?: LogDrift[];
+		invariantViolations?: InvariantViolation[];
+	} = {},
 ): string {
 	const lines: string[] = [];
 	if (opts.recovered !== undefined) {
@@ -195,19 +426,45 @@ function formatStalledReport(
 	}
 
 	if (opts.recovered === undefined) {
-		lines.push("Run `/tff doctor --recover` to mark these as abandoned.");
+		lines.push("Run `/tff doctor --repair` to mark these as abandoned.");
 	}
 
 	const drifts = opts.drifts ?? [];
 	if (drifts.length > 0) {
-		const verb = opts.recover ? "Reconciled" : "Detected";
+		const verb = opts.repair ? "Reconciled" : "Detected";
 		lines.push("");
 		lines.push(
-			`${verb} ${drifts.length} slice(s) with drifted status${opts.recover ? "" : " (run /tff doctor --recover to reconcile)"}:`,
+			`${verb} ${drifts.length} slice(s) with drifted status${opts.repair ? "" : " (run /tff doctor --repair to reconcile)"}:`,
 		);
 		for (const d of drifts) {
 			lines.push(`    ${d.sliceLabel}: ${d.from} → ${d.to}`);
 		}
+	}
+
+	const logDrifts = opts.logDrifts ?? [];
+	if (logDrifts.length > 0) {
+		lines.push(`- Log/projection drift (${logDrifts.length}): manual investigation required`);
+		for (const d of logDrifts) {
+			const detail =
+				d.field === "phase_run_status"
+					? `${d.sliceLabel} (${d.phase ?? "?"}): live=${d.live} replayed=${d.replayed}`
+					: `${d.sliceLabel} (phase_run_count): live=${d.live} replayed=${d.replayed}`;
+			lines.push(`    ${detail}`);
+		}
+	} else {
+		lines.push("- Log/projection drift (0): none.");
+	}
+
+	const invariantViolations = opts.invariantViolations ?? [];
+	if (invariantViolations.length > 0) {
+		lines.push(
+			`- Invariant violations (${invariantViolations.length}): manual investigation required`,
+		);
+		for (const v of invariantViolations) {
+			lines.push(`    row ${v.row}: ${v.cmd} — ${v.reason}`);
+		}
+	} else {
+		lines.push("- Invariant violations (0): none.");
 	}
 
 	return lines.join("\n");
@@ -251,10 +508,17 @@ export async function runDoctor(
 ): Promise<void> {
 	let msg: string;
 	try {
-		const recover = args.includes("--recover");
+		const repair = args.includes("--repair");
+		const usedLegacyFlag = args.includes("--recover");
+		if (usedLegacyFlag) {
+			logWarning("doctor", "unknown-flag", { flag: "--recover" });
+		}
 		const root = ctx.projectRoot ?? undefined;
-		const report = handleDoctor(getDb(ctx), root !== undefined ? { recover, root } : { recover });
+		const report = handleDoctor(getDb(ctx), root !== undefined ? { repair, root } : { repair });
 		msg = report.message;
+		if (usedLegacyFlag) {
+			msg = `WARNING: --recover is deprecated. Use --repair instead.\n\n${msg}`;
+		}
 	} catch (err) {
 		msg = `TFF doctor: error — ${err instanceof Error ? err.message : String(err)}`;
 	}
