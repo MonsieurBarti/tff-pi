@@ -42,7 +42,6 @@ describe("git-setup", () => {
 		it("creates a new .gitignore with default entries", () => {
 			createGitignore(repoDir);
 			const content = readFileSync(join(repoDir, ".gitignore"), "utf-8");
-			expect(content).toContain("/.tff");
 			expect(content).toContain(".pi/");
 			expect(content).toContain("node_modules/");
 			expect(content).toContain("dist/");
@@ -60,7 +59,6 @@ describe("git-setup", () => {
 			// Original entries preserved
 			expect(content).toContain("custom-entry");
 			// New defaults added
-			expect(content).toContain("/.tff");
 			expect(content).toContain(".pi/");
 			// No duplicate node_modules/
 			const matches = content.split("\n").filter((l) => l === "node_modules/");

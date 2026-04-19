@@ -17,7 +17,7 @@ import { tailReplay } from "../../../src/common/replay.js";
 
 function tempRoot(): string {
 	const root = mkdtempSync(join(tmpdir(), "tff-replay-"));
-	mkdirSync(join(root, ".tff"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	return root;
 }
 
@@ -42,7 +42,7 @@ function writeRawEvent(root: string, cmd: string, params: Record<string, unknown
 		actor: "agent",
 		session_id: "test-session",
 	};
-	appendFileSync(join(root, ".tff", "event-log.jsonl"), `${JSON.stringify(event)}\n`);
+	appendFileSync(join(root, ".pi", ".tff", "event-log.jsonl"), `${JSON.stringify(event)}\n`);
 }
 
 describe("tailReplay — basic catch-up", () => {
@@ -238,7 +238,7 @@ describe("tailReplay — malformed log line", () => {
 		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
 
-		const logPath = join(root, ".tff", "event-log.jsonl");
+		const logPath = join(root, ".pi", ".tff", "event-log.jsonl");
 		const e1 = {
 			v: 2,
 			cmd: "override-status",
@@ -274,7 +274,7 @@ describe("tailReplay — malformed log line", () => {
 		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
 		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
 
-		const logPath = join(root, ".tff", "event-log.jsonl");
+		const logPath = join(root, ".pi", ".tff", "event-log.jsonl");
 		const eA = {
 			v: 2,
 			cmd: "override-status",

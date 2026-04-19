@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, serializeSettings } from "./settings.js";
 import { milestoneLabel, sliceLabel } from "./types.js";
 
 export function tffPath(root: string, ...segments: string[]): string {
-	return join(root, ".tff", ...segments);
+	return join(root, ".pi", ".tff", ...segments);
 }
 
 /**
@@ -24,7 +24,7 @@ export function initTffDirectory(root: string): void {
 }
 
 function safeTffPath(root: string, relativePath: string): string {
-	const tffRoot = resolve(root, ".tff");
+	const tffRoot = resolve(root, ".pi", ".tff");
 	const fullPath = resolve(tffRoot, relativePath);
 	if (fullPath !== tffRoot && !fullPath.startsWith(`${tffRoot}/`)) {
 		throw new Error(`Path traversal detected: ${relativePath}`);

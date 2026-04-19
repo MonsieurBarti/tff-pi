@@ -43,7 +43,7 @@ describe("handleTransition", () => {
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "tff-transition-unit-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		db = createTestDb();
 		pi = makeMockPi();
 		insertProject(db, { name: "TFF", vision: "Vision" });

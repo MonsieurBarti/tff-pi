@@ -29,7 +29,7 @@ yarn-error.log*
 .env.local
 .env.*.local
 
-# PI runtime (hippo DB + tff state)
+# PI runtime, hippo DB, tff state (symlink .pi/.tff → ~/.tff/{projectId}/)
 .pi/
 
 # Worktrees
@@ -41,13 +41,3 @@ docs/plans/
 docs/research/
 .hippo/
 .superpowers/
-
-# TFF runtime state and logs (may contain captured tool outputs incl. secrets)
-.tff/state.db
-.tff/state.db-journal
-.tff/state.db-wal
-.tff/state.db-shm
-.tff/logs/
-.tff/audit-log.jsonl
-.tff/session.lock
-.tff/pending-phase-message.txt

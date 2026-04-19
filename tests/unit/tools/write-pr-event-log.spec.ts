@@ -17,8 +17,8 @@ function seeded() {
 	const db = new Database(":memory:");
 	applyMigrations(db);
 	const root = mkdtempSync(join(tmpdir(), "tff-write-pr-"));
-	mkdirSync(join(root, ".tff"), { recursive: true });
-	mkdirSync(join(root, ".tff", "milestones"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff", "milestones"), { recursive: true });
 	return { db, root };
 }
 
@@ -49,7 +49,7 @@ describe("handleWritePr — event log", () => {
 		expect((events[0]?.params as { sliceId?: string }).sliceId).toBe(sId);
 
 		// PR.md written at final path (under .tff/); no .tmp left
-		const prPath = join(root, ".tff", "milestones", "M01", "slices", "M01-S01", "PR.md");
+		const prPath = join(root, ".pi", ".tff", "milestones", "M01", "slices", "M01-S01", "PR.md");
 		expect(existsSync(prPath)).toBe(true);
 		expect(existsSync(`${prPath}.tmp`)).toBe(false);
 	});

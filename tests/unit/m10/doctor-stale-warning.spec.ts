@@ -17,13 +17,13 @@ describe("/tff doctor stale state-branch warning", () => {
 
 		// Enable, create a state branch, then disable — leaves stale ref
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: true\n",
 			"utf-8",
 		);
 		await ensureStateBranch(p.repo, p.init.projectId);
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: false\n",
 			"utf-8",
 		);

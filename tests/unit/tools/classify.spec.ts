@@ -32,7 +32,7 @@ describe("handleClassify", () => {
 	beforeEach(() => {
 		db = createTestDb();
 		root = mkdtempSync(join(tmpdir(), "tff-classify-spec-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		insertProject(db, { name: "TFF", vision: "Vision" });
 		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "Foundation", branch: "milestone/M01" });

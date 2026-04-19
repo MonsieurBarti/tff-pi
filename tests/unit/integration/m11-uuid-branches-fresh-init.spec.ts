@@ -34,7 +34,7 @@ describe("M11-S4: fresh init → UUID branches end-to-end", () => {
 		execFileSync("git", ["-C", tmp, "commit", "--allow-empty", "-m", "init"]);
 		// readProjectIdFile validates UUID v4 — use a real one.
 		writeFileSync(join(tmp, ".tff-project-id"), "11111111-2222-4333-8444-555555555555");
-		mkdirSync(join(tmp, ".tff"), { recursive: true });
+		mkdirSync(join(tmp, ".pi", ".tff"), { recursive: true });
 		db = openDatabase(join(tmp, "state.db"));
 		applyMigrations(db, { root: tmp });
 		projectId = insertProject(db, { name: "demo", vision: "v" });

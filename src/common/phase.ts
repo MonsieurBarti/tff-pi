@@ -21,7 +21,7 @@ import { type Phase, type Slice, sliceLabel } from "./types.js";
 const PENDING_MESSAGE_FILE = "pending-phase-message.txt";
 
 function pendingMessagePath(root: string): string {
-	return join(root, ".tff", PENDING_MESSAGE_FILE);
+	return join(root, ".pi", ".tff", PENDING_MESSAGE_FILE);
 }
 
 /**
@@ -30,7 +30,7 @@ function pendingMessagePath(root: string): string {
  * handler reads this file and any async race would leave it empty.
  */
 export function writePendingMessage(root: string, message: string): void {
-	mkdirSync(join(root, ".tff"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 	writeFileSync(pendingMessagePath(root), message, "utf-8");
 }
 

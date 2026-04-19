@@ -15,7 +15,7 @@ function validateSliceLabel(label: string): void {
 }
 
 export function getWorktreePath(root: string, sliceLabel: string): string {
-	return join(root, ".tff", "worktrees", sliceLabel);
+	return join(root, ".pi", ".tff", "worktrees", sliceLabel);
 }
 
 export function worktreeExists(root: string, sliceLabel: string): boolean {
@@ -48,7 +48,7 @@ export function createWorktree(
 		return wtPath;
 	}
 
-	mkdirSync(join(root, ".tff", "worktrees"), { recursive: true });
+	mkdirSync(join(root, ".pi", ".tff", "worktrees"), { recursive: true });
 
 	const branchName = sliceBranchName(slice);
 	const env = gitEnv();
@@ -80,10 +80,10 @@ export function createWorktree(
 		});
 	}
 
-	// M10-S01: recreate the .tff/ symlink inside the new worktree so it shares
+	// M10-S01: recreate the .pi/.tff symlink inside the new worktree so it shares
 	// the main project home. The git checkout includes .tff-project-id (tracked)
-	// but not the .tff/ symlink (gitignored). After symlink creation, slice
-	// worktrees read/write the same DB and artifacts as the main repo.
+	// but not the .pi/.tff symlink (gitignored via .pi/). After symlink creation,
+	// slice worktrees read/write the same DB and artifacts as the main repo.
 	const projectId = readProjectIdFile(root);
 	if (!projectId) {
 		throw new ProjectHomeError(

@@ -51,6 +51,7 @@ describe("handleShipApplyDone", () => {
 		writeArtifact(root, "milestones/M01/slices/M01-S01/REVIEW_FEEDBACK.md", "# feedback");
 		feedbackPath = join(
 			root,
+			".pi",
 			".tff",
 			"milestones",
 			"M01",

@@ -29,7 +29,7 @@ describe("auto-detect rename", () => {
 
 	it("no-op when toggle off", async () => {
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: false\n",
 			"utf-8",
 		);
@@ -40,7 +40,7 @@ describe("auto-detect rename", () => {
 
 	it("no-op when auto_detect_rename=false", async () => {
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: true\n  auto_detect_rename: false\n",
 			"utf-8",
 		);
@@ -101,14 +101,14 @@ describe("auto-detect rename", () => {
 		execSync("git branch -m feature/epsilon", { cwd: p.repo });
 		const ask: AutoDetectAskUser = async () => "Never ask";
 		await detectAndHandleRename(p.repo, p.init.projectId, ask);
-		const yaml = readFileSync(join(p.repo, ".tff", "settings.yaml"), "utf-8");
+		const yaml = readFileSync(join(p.repo, ".pi", ".tff", "settings.yaml"), "utf-8");
 		expect(yaml).toMatch(/auto_detect_rename:\s*false/);
 	});
 
 	it("Never ask preserves unknown YAML keys and writes atomically", async () => {
 		execSync("git branch -m feature/zeta", { cwd: p.repo });
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			`${[
 				"state_branch:",
 				"  enabled: true",
@@ -125,7 +125,7 @@ describe("auto-detect rename", () => {
 		const ask: AutoDetectAskUser = async () => "Never ask";
 		await detectAndHandleRename(p.repo, p.init.projectId, ask);
 
-		const yaml = readFileSync(join(p.repo, ".tff", "settings.yaml"), "utf-8");
+		const yaml = readFileSync(join(p.repo, ".pi", ".tff", "settings.yaml"), "utf-8");
 		// Preserved unknown keys
 		expect(yaml).toMatch(/custom_team_setting/);
 		expect(yaml).toMatch(/- alice/);
@@ -186,7 +186,7 @@ describe("detectRenameAlert", () => {
 
 	it("skipped-disabled when state_branch toggle is off: emit NOT called", async () => {
 		writeFileSync(
-			join(p.repo, ".tff", "settings.yaml"),
+			join(p.repo, ".pi", ".tff", "settings.yaml"),
 			"state_branch:\n  enabled: false\n",
 			"utf-8",
 		);

@@ -20,7 +20,7 @@ export function hashEvent(cmd: string, params: Record<string, unknown>): string 
 }
 
 function logPath(root: string): string {
-	return join(root, ".tff", "event-log.jsonl");
+	return join(root, ".pi", ".tff", "event-log.jsonl");
 }
 
 export function readEvents(root: string, fromPhysicalLine = 0): CommandEvent[] {

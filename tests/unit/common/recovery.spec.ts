@@ -82,7 +82,7 @@ describe("recovery", () => {
 		}
 
 		root = join(tmpdir(), `tff-recovery-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 
 		const env = gitEnv();
 		execFileSync("git", ["init"], { cwd: root, env });
@@ -90,7 +90,7 @@ describe("recovery", () => {
 		execFileSync("git", ["config", "user.name", "Test"], { cwd: root, env });
 		execFileSync("git", ["commit", "--allow-empty", "-m", "init"], { cwd: root, env });
 
-		db = openDatabase(join(root, ".tff", "state.db"));
+		db = openDatabase(join(root, ".pi", ".tff", "state.db"));
 		applyMigrations(db);
 		insertProject(db, { name: "TestProj", vision: "Testing" });
 	});
@@ -202,7 +202,7 @@ describe("recovery", () => {
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
 			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("verifying", sId);
 
-			const sliceDir = join(root, ".tff", "milestones", "M01", "slices", "M01-S01");
+			const sliceDir = join(root, ".pi", ".tff", "milestones", "M01", "slices", "M01-S01");
 			mkdirSync(sliceDir, { recursive: true });
 			writeFileSync(join(sliceDir, "SPEC.md"), "spec", "utf-8");
 			writeFileSync(join(sliceDir, "PLAN.md"), "plan", "utf-8");

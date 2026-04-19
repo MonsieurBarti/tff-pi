@@ -50,7 +50,7 @@ describe("handleCompleteMilestoneMerged", () => {
 	});
 
 	function seedMilestone(status: "in_progress" | "completing" | "closed" = "completing") {
-		const realDbPath = join(dir, ".tff", "state.db");
+		const realDbPath = join(dir, ".pi", ".tff", "state.db");
 		const realDb = openDatabase(realDbPath);
 		applyMigrations(realDb, { root: dir });
 		insertProject(realDb, { name: "p", vision: "v" });

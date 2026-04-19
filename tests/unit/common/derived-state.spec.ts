@@ -122,14 +122,14 @@ describe("computeSliceStatus — rule 7 (no phase_runs)", () => {
 	});
 
 	it("returns 'discussing' when SPEC.md exists out-of-band", () => {
-		const dir = join(root, ".tff", "milestones", mLabel, "slices", sLabel);
+		const dir = join(root, ".pi", ".tff", "milestones", mLabel, "slices", sLabel);
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "SPEC.md"), "spec content");
 		expect(computeSliceStatus(db, root, sliceId)).toBe("discussing");
 	});
 
 	it("returns 'discussing' when REQUIREMENTS.md exists out-of-band", () => {
-		const dir = join(root, ".tff", "milestones", mLabel, "slices", sLabel);
+		const dir = join(root, ".pi", ".tff", "milestones", mLabel, "slices", sLabel);
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "REQUIREMENTS.md"), "req content");
 		expect(computeSliceStatus(db, root, sliceId)).toBe("discussing");
@@ -137,7 +137,7 @@ describe("computeSliceStatus — rule 7 (no phase_runs)", () => {
 });
 
 function writeSliceArtifact(name: string, content = "content"): void {
-	const dir = join(root, ".tff", "milestones", mLabel, "slices", sLabel);
+	const dir = join(root, ".pi", ".tff", "milestones", mLabel, "slices", sLabel);
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(join(dir, name), content);
 }

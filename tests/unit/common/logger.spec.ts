@@ -50,7 +50,7 @@ describe("logger", () => {
 	});
 
 	function readAudit(): Array<Record<string, unknown>> {
-		const path = join(root, ".tff", "audit-log.jsonl");
+		const path = join(root, ".pi", ".tff", "audit-log.jsonl");
 		if (!existsSync(path)) return [];
 		return readFileSync(path, "utf-8")
 			.split("\n")
@@ -89,7 +89,7 @@ describe("logger", () => {
 	it("logWarning writes only to stderr, no audit-log file", () => {
 		logWarning("state-branch", "push_failed", { step: "worktree-add" });
 		expect(readAudit()).toHaveLength(0);
-		expect(existsSync(join(root, ".tff", "audit-log.jsonl"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "audit-log.jsonl"))).toBe(false);
 		const lines = stderrLines();
 		expect(lines).toHaveLength(1);
 		expect((lines[0] as { level: string }).level).toBe("warn");
@@ -143,7 +143,7 @@ describe("logger", () => {
 			setLogBasePath(root2);
 			logError("logger", "second");
 			expect(readAudit()).toHaveLength(1);
-			const secondPath = join(root2, ".tff", "audit-log.jsonl");
+			const secondPath = join(root2, ".pi", ".tff", "audit-log.jsonl");
 			expect(existsSync(secondPath)).toBe(true);
 			const second = readFileSync(secondPath, "utf-8").trim().split("\n");
 			expect(second).toHaveLength(1);

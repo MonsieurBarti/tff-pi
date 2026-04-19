@@ -25,7 +25,7 @@ describe("handleWriteReview — event log", () => {
 		const db = new Database(":memory:");
 		applyMigrations(db);
 		const root = mkdtempSync(join(tmpdir(), "tff-write-review-el-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });

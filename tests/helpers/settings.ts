@@ -19,6 +19,6 @@ export function seedEnabledSettings(
 			...overrides,
 		},
 	};
-	mkdirSync(join(root, ".tff"), { recursive: true });
-	writeFileSync(join(root, ".tff", "settings.yaml"), serializeSettings(s), "utf-8");
+	mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
+	writeFileSync(join(root, ".pi", ".tff", "settings.yaml"), serializeSettings(s), "utf-8");
 }

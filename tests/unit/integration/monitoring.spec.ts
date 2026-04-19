@@ -112,7 +112,7 @@ describe("monitoring integration", () => {
 		bus.emit("tff:phase", phaseComplete);
 
 		// JSONL: file exists and has exactly 2 lines
-		const jsonlPath = join(logsDir, ".tff", "logs", `${sliceLabel}.jsonl`);
+		const jsonlPath = join(logsDir, ".pi", ".tff", "logs", `${sliceLabel}.jsonl`);
 		expect(existsSync(jsonlPath)).toBe(true);
 		const lines = readFileSync(jsonlPath, "utf-8").trim().split("\n");
 		expect(lines).toHaveLength(2);

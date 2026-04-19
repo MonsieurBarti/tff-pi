@@ -53,7 +53,7 @@ describe("handleInit", () => {
 		expect(result.projectHome).toBe(join(home, result.projectId));
 		expect(existsSync(join(home, result.projectId))).toBe(true);
 		expect(existsSync(join(home, result.projectId, "milestones"))).toBe(true);
-		expect(lstatSync(join(repo, ".tff")).isSymbolicLink()).toBe(true);
+		expect(lstatSync(join(repo, ".pi", ".tff")).isSymbolicLink()).toBe(true);
 		expect(readFileSync(join(repo, ".tff-project-id"), "utf-8").trim()).toBe(result.projectId);
 	});
 
@@ -65,7 +65,7 @@ describe("handleInit", () => {
 	});
 
 	it("throws ProjectHomeError when .tff/ is a real directory", () => {
-		mkdirSync(join(repo, ".tff"), { recursive: true });
+		mkdirSync(join(repo, ".pi", ".tff"), { recursive: true });
 		expect(() => handleInit(repo)).toThrow(ProjectHomeError);
 	});
 
@@ -77,12 +77,12 @@ describe("handleInit", () => {
 	it("recovers when ~/.tff/{id}/ was deleted: re-creates home, keeps id", () => {
 		const first = handleInit(repo);
 		rmSync(first.projectHome, { recursive: true, force: true });
-		rmSync(join(repo, ".tff"));
+		rmSync(join(repo, ".pi", ".tff"));
 		const second = handleInit(repo);
 		expect(second.projectId).toBe(first.projectId);
 		expect(second.created).toBe(false);
 		expect(existsSync(first.projectHome)).toBe(true);
-		expect(lstatSync(join(repo, ".tff")).isSymbolicLink()).toBe(true);
+		expect(lstatSync(join(repo, ".pi", ".tff")).isSymbolicLink()).toBe(true);
 	});
 
 	it("throws on Windows", () => {

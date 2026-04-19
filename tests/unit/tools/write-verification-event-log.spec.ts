@@ -22,7 +22,7 @@ describe("handleWriteVerification — event log", () => {
 		const db = new Database(":memory:");
 		applyMigrations(db);
 		const root = mkdtempSync(join(tmpdir(), "tff-write-verif-el-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
@@ -79,7 +79,7 @@ describe("handleWriteVerification — audit mismatch leaves event log unchanged"
 		const db = new Database(":memory:");
 		applyMigrations(db);
 		const root = mkdtempSync(join(tmpdir(), "tff-wv-mismatch-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		const mId = insertMilestone(db, { id: "m1", projectId, number: 1, name: "M", branch: "b" });
@@ -126,9 +126,9 @@ describe("handleWriteVerification — audit mismatch leaves event log unchanged"
 		expect(getLatestPhaseRun(db, sId, "verify")?.status).toBe("started");
 
 		// The audit-blocked marker path: write it as execute() would, then verify
-		const blockedPath = join(root, ".tff", "milestones/M01/slices/M01-S01/.audit-blocked");
+		const blockedPath = join(root, ".pi", ".tff", "milestones/M01/slices/M01-S01/.audit-blocked");
 		// (The marker is written by execute(), not handleWriteVerification — simulate it)
-		mkdirSync(join(root, ".tff", "milestones/M01/slices/M01-S01"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff", "milestones/M01/slices/M01-S01"), { recursive: true });
 		writeArtifact(root, "milestones/M01/slices/M01-S01/.audit-blocked", "blocked\n");
 		expect(existsSync(blockedPath)).toBe(true);
 	});

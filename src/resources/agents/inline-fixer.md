@@ -20,7 +20,7 @@ You MUST verify the patch passes the project's quality gates BEFORE
 asking the user to approve it. The exact commands depend on the project
 — discover them by inspecting the worktree in this order:
 
-1. **`.tff/settings.yaml`** — if it has a `commands:` block with
+1. **`.pi/.tff/settings.yaml`** — if it has a `commands:` block with
    `lint`, `typecheck`, `test`, `build` keys, USE THOSE verbatim.
 2. **`lefthook.yml` / `lefthook.yaml`** — the `pre-commit` block lists
    the project's local quality gates. Run each command listed there.

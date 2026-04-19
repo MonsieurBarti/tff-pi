@@ -49,7 +49,7 @@ describe("handleCompleteMilestoneChanges", () => {
 	});
 
 	function seed(status: "in_progress" | "completing" = "completing") {
-		const db = openDatabase(join(dir, ".tff", "state.db"));
+		const db = openDatabase(join(dir, ".pi", ".tff", "state.db"));
 		applyMigrations(db, { root: dir });
 		insertProject(db, { name: "p", vision: "v" });
 		const p = db.prepare("SELECT id FROM project LIMIT 1").get() as { id: string };
@@ -74,7 +74,14 @@ describe("handleCompleteMilestoneChanges", () => {
 			"Please rename X to Y.",
 		);
 		expect(result.success).toBe(true);
-		const feedbackPath = join(dir, ".tff", "milestones", "M10", "MILESTONE_REVIEW_FEEDBACK.md");
+		const feedbackPath = join(
+			dir,
+			".pi",
+			".tff",
+			"milestones",
+			"M10",
+			"MILESTONE_REVIEW_FEEDBACK.md",
+		);
 		expect(existsSync(feedbackPath)).toBe(true);
 		expect(readFileSync(feedbackPath, "utf-8")).toContain("Please rename X to Y.");
 		expect(getMilestone(db, "M10")?.status).toBe("completing");

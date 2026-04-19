@@ -21,7 +21,7 @@ describe("detectRenameAlert — TFF-managed branches", () => {
 		// readProjectIdFile validates UUID v4; use a real one (the worktree-uuid-branch.spec
 		// did the same fix in T3).
 		projectId = "11111111-2222-4333-8444-555555555555";
-		mkdirSync(join(tmp, ".tff"), { recursive: true });
+		mkdirSync(join(tmp, ".pi", ".tff"), { recursive: true });
 		writeFileSync(join(tmp, ".tff-project-id"), projectId);
 		// Ensure ~/.tff/<projectId> exists for repo-state writes
 		const tffDir = join(homedir(), ".tff", projectId);

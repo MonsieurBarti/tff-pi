@@ -152,7 +152,7 @@ export function handleTransition(
 			content: [
 				{
 					type: "text",
-					text: `Transition command written for ${sliceId} (${slice.status} → ${target}) but slice.status is "${actual}". The transaction may have rolled back — check .tff/event-log.jsonl (or stderr if the write itself failed) for details. Recovery: inspect the logged error, fix the root cause, and re-run the transition.`,
+					text: `Transition command written for ${sliceId} (${slice.status} → ${target}) but slice.status is "${actual}". The transaction may have rolled back — check .pi/.tff/event-log.jsonl (or stderr if the write itself failed) for details. Recovery: inspect the logged error, fix the root cause, and re-run the transition.`,
 				},
 			],
 			details: {

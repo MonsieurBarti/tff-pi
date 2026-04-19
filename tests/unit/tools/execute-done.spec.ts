@@ -37,7 +37,7 @@ describe("handleExecuteDone", () => {
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-execute-done-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		insertProject(db, { name: "TFF", vision: "V" });
 		const projectId = must(getProject(db)).id;
 		insertMilestone(db, { projectId, number: 1, name: "M1", branch: "milestone/M01" });

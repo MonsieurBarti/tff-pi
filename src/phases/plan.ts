@@ -53,7 +53,7 @@ export const planPhase: PhaseModule = {
 			}
 		}
 
-		const artifactBase = `.tff/milestones/${mLabel}/slices/${sLabel}/`;
+		const artifactBase = `.pi/.tff/milestones/${mLabel}/slices/${sLabel}/`;
 		const pathHint = [
 			"",
 			`**Slice artifact path:** \`${artifactBase}\``,

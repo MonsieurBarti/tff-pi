@@ -171,7 +171,7 @@ describe("createTffSymlink", () => {
 	it("creates a symlink at repo/.tff pointing to the project home", () => {
 		ensureProjectHomeDir(projectId);
 		createTffSymlink(repo, projectId);
-		const linkPath = join(repo, ".tff");
+		const linkPath = join(repo, ".pi", ".tff");
 		expect(statSync(linkPath).isDirectory()).toBe(true);
 		expect(readlinkSync(linkPath)).toBe(join(tmp, projectId));
 	});
@@ -180,11 +180,11 @@ describe("createTffSymlink", () => {
 		ensureProjectHomeDir(projectId);
 		createTffSymlink(repo, projectId);
 		expect(() => createTffSymlink(repo, projectId)).not.toThrow();
-		expect(readlinkSync(join(repo, ".tff"))).toBe(join(tmp, projectId));
+		expect(readlinkSync(join(repo, ".pi", ".tff"))).toBe(join(tmp, projectId));
 	});
 
 	it("throws ProjectHomeError when .tff is a real directory", () => {
-		mkdirSync(join(repo, ".tff"), { recursive: true });
+		mkdirSync(join(repo, ".pi", ".tff"), { recursive: true });
 		expect(() => createTffSymlink(repo, projectId)).toThrow(ProjectHomeError);
 		expect(() => createTffSymlink(repo, projectId)).toThrow(/real directory/);
 	});
@@ -192,7 +192,8 @@ describe("createTffSymlink", () => {
 	it("throws ProjectHomeError when .tff symlink points to an unexpected target", () => {
 		const otherTarget = mkdtempSync(join(tmpdir(), "tff-other-target-"));
 		try {
-			symlinkSync(otherTarget, join(repo, ".tff"), "dir");
+			mkdirSync(join(repo, ".pi"), { recursive: true });
+			symlinkSync(otherTarget, join(repo, ".pi", ".tff"), "dir");
 			expect(() => createTffSymlink(repo, projectId)).toThrow(ProjectHomeError);
 			expect(() => createTffSymlink(repo, projectId)).toThrow(/points to/);
 		} finally {

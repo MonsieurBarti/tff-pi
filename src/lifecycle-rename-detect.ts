@@ -52,7 +52,7 @@ function branchExistsAnywhere(root: string, branch: string): boolean {
 }
 
 function writeAutoDetectOff(root: string): void {
-	const settingsPath = join(root, ".tff", "settings.yaml");
+	const settingsPath = join(root, ".pi", ".tff", "settings.yaml");
 	let raw: string;
 	try {
 		raw = readFileSync(settingsPath, "utf-8");

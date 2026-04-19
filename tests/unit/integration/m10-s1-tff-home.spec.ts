@@ -49,8 +49,8 @@ describe("m10-s1 — multi-project under single TFF_HOME", () => {
 		expect(a.projectHome).toBe(join(home, a.projectId));
 		expect(b.projectHome).toBe(join(home, b.projectId));
 
-		expect(readlinkSync(join(repoA, ".tff"))).toBe(a.projectHome);
-		expect(readlinkSync(join(repoB, ".tff"))).toBe(b.projectHome);
+		expect(readlinkSync(join(repoA, ".pi", ".tff"))).toBe(a.projectHome);
+		expect(readlinkSync(join(repoB, ".pi", ".tff"))).toBe(b.projectHome);
 
 		expect(existsSync(join(a.projectHome, "state.db"))).toBe(true);
 		expect(existsSync(join(b.projectHome, "state.db"))).toBe(true);

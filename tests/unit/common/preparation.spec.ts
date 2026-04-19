@@ -55,7 +55,7 @@ describe("preparation", () => {
 	});
 
 	it("picks up PROJECT.md when present", async () => {
-		const tffDir = join(root, ".tff");
+		const tffDir = join(root, ".pi", ".tff");
 		mkdirSync(tffDir, { recursive: true });
 		writeFileSync(join(tffDir, "PROJECT.md"), "# My Project\nVision here.");
 
@@ -79,7 +79,7 @@ describe("preparation", () => {
 	});
 
 	it("picks up REQUIREMENTS.md from milestone dir", async () => {
-		const mDir = join(root, ".tff", "milestones", "M01");
+		const mDir = join(root, ".pi", ".tff", "milestones", "M01");
 		mkdirSync(mDir, { recursive: true });
 		writeFileSync(join(mDir, "REQUIREMENTS.md"), "# Requirements\n- R01: Auth");
 
@@ -134,7 +134,7 @@ describe("preparation", () => {
 			"INSERT INTO slice (id, milestone_id, number, title, status, tier) VALUES (?, ?, ?, ?, ?, ?)",
 		).run("s0", "m1", 0, "Prior Slice", "closed", "S");
 
-		const specDir = join(root, ".tff", "milestones", "M01", "slices", "M01-S00");
+		const specDir = join(root, ".pi", ".tff", "milestones", "M01", "slices", "M01-S00");
 		mkdirSync(specDir, { recursive: true });
 		writeFileSync(join(specDir, "SPEC.md"), "# Prior Slice Spec\nDesign decisions here.");
 

@@ -76,7 +76,7 @@ describe("handleCompleteMilestone — event log (complete-milestone-changes)", (
 		db = new Database(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-cm-el-"));
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 
 		const projectId = insertProject(db, { id: "p1", name: "P", vision: "V" });
 		milestoneId = insertMilestone(db, {

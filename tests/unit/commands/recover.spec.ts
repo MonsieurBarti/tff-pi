@@ -50,12 +50,12 @@ describe("recover command", () => {
 		}
 
 		root = join(tmpdir(), `tff-recover-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-		mkdirSync(join(root, ".tff"), { recursive: true });
+		mkdirSync(join(root, ".pi", ".tff"), { recursive: true });
 		execFileSync("git", ["init"], { cwd: root, env: gitEnv() });
 		execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: root, env: gitEnv() });
 		execFileSync("git", ["config", "user.name", "Test"], { cwd: root, env: gitEnv() });
 		execFileSync("git", ["commit", "--allow-empty", "-m", "init"], { cwd: root, env: gitEnv() });
-		db = openDatabase(join(root, ".tff", "state.db"));
+		db = openDatabase(join(root, ".pi", ".tff", "state.db"));
 		applyMigrations(db);
 	});
 
@@ -138,7 +138,7 @@ describe("recover command", () => {
 		acquireLock(root, { phase: "execute", sliceId: sId });
 
 		// Create artifacts to support reconciliation after the skip
-		const planDir = join(root, ".tff/milestones/M01/slices/M01-S01");
+		const planDir = join(root, ".pi/.tff/milestones/M01/slices/M01-S01");
 		mkdirSync(planDir, { recursive: true });
 		writeFileSync(join(planDir, "PLAN.md"), "plan");
 
