@@ -13,6 +13,9 @@ import type { Phase } from "./types.js";
 
 export type AgentStatus = "DONE" | "DONE_WITH_CONCERNS" | "NEEDS_CONTEXT" | "BLOCKED";
 
+/** Maximum byte length for a single captured bash tool-call output. */
+export const MAX_OUTPUT_BYTES = 65536;
+
 export interface AgentResult {
 	status: AgentStatus;
 	summary: string;
@@ -368,6 +371,15 @@ function extractBashCalls(config: DispatchBatch, live: MinimalSingleResult[]): C
 							outputText += (part as { text: string }).text;
 						}
 					}
+				}
+				const originalByteLength = Buffer.byteLength(outputText, "utf8");
+				if (originalByteLength > MAX_OUTPUT_BYTES) {
+					// Truncate to MAX_OUTPUT_BYTES and append a diagnostic suffix.
+					const truncated = Buffer.from(outputText, "utf8")
+						.subarray(0, MAX_OUTPUT_BYTES)
+						.toString("utf8")
+						.replace(/\uFFFD$/, ""); // drop any split surrogate at boundary
+					outputText = `${truncated}\n...[truncated: ${originalByteLength} bytes]`;
 				}
 				const entry = calls[slot.index];
 				if (entry) {

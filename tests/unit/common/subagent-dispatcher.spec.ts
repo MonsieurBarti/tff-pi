@@ -9,6 +9,7 @@ import {
 	type DispatchResult,
 	type FinalizeInput,
 	type Finalizer,
+	MAX_OUTPUT_BYTES,
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 	prepareDispatch,
@@ -708,5 +709,70 @@ describe("tool_result hook — capture + finalizer", () => {
 		const capturedCalls = captured[0] ?? [];
 		expect(capturedCalls).toHaveLength(1);
 		expect(capturedCalls[0]?.outputText).toBe("part1 part2");
+	});
+
+	it("Fix-2: outputText >100 KB is truncated to <70 000 chars and ends with [truncated: N bytes]", async () => {
+		const captured: CapturedCall[][] = [];
+		registerPhaseFinalizer("verify", async ({ calls }) => {
+			captured.push(calls);
+		});
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "s1",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const pi = makePiWithEvents();
+		registerDispatchHook(pi as never);
+
+		// Produce a synthetic output that is well above MAX_OUTPUT_BYTES (65 536).
+		const bigText = "x".repeat(110_000);
+		const originalByteLength = Buffer.byteLength(bigText, "utf8");
+
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [
+						{
+							exitCode: 0,
+							finalOutput: "STATUS: DONE\nEVIDENCE: ok",
+							messages: [
+								{
+									role: "assistant",
+									content: [
+										{
+											type: "toolCall",
+											id: "big_call",
+											name: "bash",
+											arguments: { command: "cat big-file" },
+										},
+									],
+								},
+								{
+									role: "toolResult",
+									toolCallId: "big_call",
+									toolName: "bash",
+									content: [{ type: "text", text: bigText }],
+									isError: false,
+									timestamp: 1,
+								},
+							],
+						},
+					],
+				},
+			},
+			{ projectRoot: root },
+		);
+
+		const calls = captured[0] ?? [];
+		expect(calls).toHaveLength(1);
+		const outputText = calls[0]?.outputText ?? "";
+		expect(outputText.length).toBeLessThan(70_000);
+		expect(outputText).toContain(`[truncated: ${originalByteLength} bytes]`);
+		// MAX_OUTPUT_BYTES is respected as the byte cap
+		expect(MAX_OUTPUT_BYTES).toBe(65536);
 	});
 });
