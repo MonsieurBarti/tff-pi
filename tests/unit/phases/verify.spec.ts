@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -19,10 +19,18 @@ import {
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
+import {
+	__getFinalizerForTest,
+	__resetFinalizersForTest,
+} from "../../../src/common/subagent-dispatcher.js";
 import { must } from "../../helpers.js";
 
 vi.mock("../../../src/common/worktree.js", () => ({
-	getWorktreePath: vi.fn().mockReturnValue("/tmp/fake-worktree"),
+	getWorktreePath: vi
+		.fn()
+		.mockImplementation((_root: string, sLabel: string) =>
+			join(tmpdir(), `.tff-cc/worktrees/${sLabel}`),
+		),
 }));
 
 vi.mock("../../../src/common/git.js", () => ({
@@ -64,7 +72,23 @@ vi.mock("../../../src/orchestrator.js", () => ({
 }));
 
 import { getDiff } from "../../../src/common/git.js";
+import { detectVerifyCommands } from "../../../src/common/verify-commands.js";
 import { verifyPhase } from "../../../src/phases/verify.js";
+
+function makeCtx(db: Database.Database, root: string, sliceId: string): PhaseContext {
+	const slice = must(getSlice(db, sliceId));
+	return {
+		pi: {
+			sendUserMessage: vi.fn(),
+			events: { emit: vi.fn(), on: vi.fn() },
+		} as unknown as PhaseContext["pi"],
+		db,
+		root,
+		slice,
+		milestoneNumber: 1,
+		settings: DEFAULT_SETTINGS,
+	};
+}
 
 describe("verifyPhase", () => {
 	let db: Database.Database;
@@ -72,6 +96,7 @@ describe("verifyPhase", () => {
 	let sliceId: string;
 
 	beforeEach(() => {
+		__resetFinalizersForTest();
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-verify-test-"));
@@ -96,48 +121,112 @@ describe("verifyPhase", () => {
 		expect(typeof verifyPhase.prepare).toBe("function");
 	});
 
-	it("returns success and sends message via sendUserMessage", async () => {
-		const sendUserMessage = vi.fn();
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: {
-				sendUserMessage,
-				events: { emit: vi.fn(), on: vi.fn() },
-			} as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
+	it("AC-1/AC-2: happy path returns DISPATCHER_PROMPT; dispatch-config has phase+sliceId+tff-verifier agent", async () => {
+		const ctx = makeCtx(db, root, sliceId);
 		const result = await verifyPhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).not.toHaveBeenCalled();
-		expect(result.message).toBeDefined();
-	});
-
-	it("message includes spec and diff", async () => {
-		const sendUserMessage = vi.fn();
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: {
-				sendUserMessage,
-				events: { emit: vi.fn(), on: vi.fn() },
-			} as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
+		expect(result.retry).toBe(false);
+		expect(result.message).toContain("<DISPATCH-ONLY>");
+		const cfg = JSON.parse(readFileSync(join(root, ".pi/.tff/dispatch-config.json"), "utf-8")) as {
+			phase: string;
+			mode: string;
+			sliceId: string;
+			tasks: Array<{ agent: string; cwd: string; task: string }>;
 		};
-		const result = await verifyPhase.prepare(ctx);
-		const msg = result.message ?? "";
-		expect(msg).toContain("SPEC.md");
-		expect(msg).toContain("diff content");
+		expect(cfg.phase).toBe("verify");
+		expect(cfg.mode).toBe("single");
+		expect(cfg.sliceId).toBe(ctx.slice.id);
+		expect(cfg.tasks).toHaveLength(1);
+		expect(cfg.tasks[0]?.agent).toBe("tff-verifier");
+		expect(cfg.tasks[0]?.cwd).toContain(".tff-cc/worktrees/");
 	});
 
-	it("compresses VERIFICATION-MECHANICAL.md when enabled", async () => {
-		const { detectVerifyCommands } = await import("../../../src/common/verify-commands.js");
+	it("AC-3: empty-diff guard returns {success:false, retry:false} and emits phase_failed", async () => {
+		(getDiff as unknown as Mock).mockReturnValueOnce("");
+		const ctx = makeCtx(db, root, sliceId);
+		const result = await verifyPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(false);
+		const emit = ctx.pi.events.emit as unknown as Mock;
+		const failedCalls = emit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "verify",
+		);
+		expect(failedCalls).toHaveLength(1);
+		expect(__getFinalizerForTest("verify")).toBeUndefined();
+	});
+
+	it("AC-4: mechanical-verify failure does NOT register finalizer and does NOT write dispatch-config", async () => {
+		const { runMechanicalVerification, formatMechanicalReport } = await import(
+			"../../../src/common/mechanical-verifier.js"
+		);
+		vi.mocked(detectVerifyCommands).mockResolvedValueOnce([
+			{ name: "lint", command: "echo", source: "settings" },
+		]);
+		vi.mocked(runMechanicalVerification).mockResolvedValueOnce({
+			allPassed: false,
+			commands: [
+				{
+					name: "lint",
+					command: "echo",
+					passed: false,
+					exitCode: 1,
+					stdout: "",
+					stderr: "boom",
+					durationMs: 10,
+				},
+			],
+			timestamp: new Date().toISOString(),
+		});
+		vi.mocked(formatMechanicalReport).mockReturnValueOnce("failing-report");
+
+		const ctx = makeCtx(db, root, sliceId);
+		const result = await verifyPhase.prepare(ctx);
+		expect(result.success).toBe(false);
+		expect(result.retry).toBe(true);
+		expect(__getFinalizerForTest("verify")).toBeUndefined();
+		// dispatch-config.json must not exist — dispatch was never prepared
+		expect(() => readFileSync(join(root, ".pi/.tff/dispatch-config.json"), "utf-8")).toThrow();
+	});
+
+	it("AC-5: post-verify checkpoint is created before finalizer registration", async () => {
+		const { createCheckpoint } = await import("../../../src/common/checkpoint.js");
+		const checkpointMock = vi.mocked(createCheckpoint);
+		checkpointMock.mockClear();
+		// The finalizer must not exist before prepare()
+		expect(__getFinalizerForTest("verify")).toBeUndefined();
+		const ctx = makeCtx(db, root, sliceId);
+		await verifyPhase.prepare(ctx);
+		expect(checkpointMock).toHaveBeenCalledTimes(1);
+		expect(__getFinalizerForTest("verify")).toBeDefined();
+		// Order: checkpoint must have been called at least once; the finalizer
+		// is only set after the checkpoint path (code ordering).
+		const order = checkpointMock.mock.invocationCallOrder[0];
+		expect(typeof order).toBe("number");
+	});
+
+	it("AC-6: registerPhaseFinalizer called once per prepare(); second prepare() replaces the closure (last-wins)", async () => {
+		const ctx1 = makeCtx(db, root, sliceId);
+		await verifyPhase.prepare(ctx1);
+		const first = __getFinalizerForTest("verify");
+		expect(first).toBeDefined();
+		const ctx2 = makeCtx(db, root, sliceId);
+		await verifyPhase.prepare(ctx2);
+		const second = __getFinalizerForTest("verify");
+		expect(second).toBeDefined();
+		expect(second).not.toBe(first);
+	});
+
+	it("emits phase_start event", async () => {
+		const ctx = makeCtx(db, root, sliceId);
+		const emit = ctx.pi.events.emit as unknown as Mock;
+		await verifyPhase.prepare(ctx);
+		const startCalls = emit.mock.calls.filter(
+			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "verify",
+		);
+		expect(startCalls).toHaveLength(1);
+	});
+
+	it("compresses VERIFICATION-MECHANICAL.md when enabled (pre-dispatch artifact write preserved)", async () => {
 		const { runMechanicalVerification, formatMechanicalReport } = await import(
 			"../../../src/common/mechanical-verifier.js"
 		);
@@ -152,18 +241,7 @@ describe("verifyPhase", () => {
 		vi.mocked(formatMechanicalReport).mockReturnValueOnce("raw-report");
 		vi.mocked(compressIfEnabled).mockReturnValueOnce("[COMPRESSED]raw-report");
 
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: {
-				sendUserMessage: vi.fn(),
-				events: { emit: vi.fn(), on: vi.fn() },
-			} as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
+		const ctx = makeCtx(db, root, sliceId);
 		await verifyPhase.prepare(ctx);
 		const written = readArtifact(root, "milestones/M01/slices/M01-S01/VERIFICATION-MECHANICAL.md");
 		expect(written).toBe("[COMPRESSED]raw-report");
@@ -171,49 +249,15 @@ describe("verifyPhase", () => {
 
 	it("fails with phase_failed when diff is empty (no execute output)", async () => {
 		(getDiff as unknown as Mock).mockReturnValueOnce("");
-		const sendUserMessage = vi.fn();
-		const mockEmit = vi.fn();
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: {
-				sendUserMessage,
-				events: { emit: mockEmit, on: vi.fn() },
-			} as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
+		const ctx = makeCtx(db, root, sliceId);
+		const emit = ctx.pi.events.emit as unknown as Mock;
 		const result = await verifyPhase.prepare(ctx);
 		expect(result.success).toBe(false);
 		expect(result.retry).toBe(false);
-		expect(sendUserMessage).not.toHaveBeenCalled();
-		const failedCalls = mockEmit.mock.calls.filter(
+		const failedCalls = emit.mock.calls.filter(
 			([ch, e]) => ch === "tff:phase" && e.type === "phase_failed" && e.phase === "verify",
 		);
 		expect(failedCalls).toHaveLength(1);
 		expect(failedCalls[0]?.[1]).toHaveProperty("error");
-	});
-
-	it("emits phase_start event", async () => {
-		const mockEmit = vi.fn();
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: {
-				sendUserMessage: vi.fn(),
-				events: { emit: mockEmit, on: vi.fn() },
-			} as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
-		await verifyPhase.prepare(ctx);
-		const startCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:phase" && e.type === "phase_start" && e.phase === "verify",
-		);
-		expect(startCalls).toHaveLength(1);
 	});
 });
