@@ -32,8 +32,8 @@
         "@the-forge-flow/camoufox-pi": "*",
         "@the-forge-flow/fff-pi": "*",
         "@the-forge-flow/gh-pi": "*",
-        "@the-forge-flow/sub-agents-pi": "*",
         "@the-forge-flow/ultra-compress-pi": "*",
+        "pi-subagents": "^0.17.1",
       },
     },
   },
@@ -465,8 +465,6 @@
     "@the-forge-flow/fff-pi": ["@the-forge-flow/fff-pi@0.1.5", "", { "dependencies": { "@ff-labs/fff-node": "^0.5.2" }, "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-lp4hKVrmSdf2zrVWOPrYZ6fqmgPtcIkCjjl5/kA4XH9yazbwrrgNil3u/YRxR79WFKzRIWkHrocqrwLDiwkb9g=="],
 
     "@the-forge-flow/gh-pi": ["@the-forge-flow/gh-pi@0.2.4", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-boY9xXsYx04i8P4k3B7FNDQk0N03jIDgXL24vYXthlFfhs1PfOJelIsUJh+EYDEiw3saSSxgnEkYNJ/zIvYPZg=="],
-
-    "@the-forge-flow/sub-agents-pi": ["@the-forge-flow/sub-agents-pi@0.2.4", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-lRcz+Qy4R0fYnfugGO426RJ/SLawZnUr1ZvdeXtYfO1UDSLlc6cXjRBoVsYIURR4ShqkYs7HqxJKsNnSa15BJw=="],
 
     "@the-forge-flow/ultra-compress-pi": ["@the-forge-flow/ultra-compress-pi@0.1.3", "", { "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "sha512-KBHmP7xsAOjIlerTadDiZttuiS7vmiV6u5RosH4fhFEAmvNuqTsxSGlWcg7jkzWK2A8wJDT70bQhfwr5FWbIsA=="],
 
@@ -975,6 +973,8 @@
     "pathval": ["pathval@2.0.1", "", {}, "sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ=="],
 
     "pend": ["pend@1.2.0", "", {}, "sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg=="],
+
+    "pi-subagents": ["pi-subagents@0.17.1", "", { "peerDependencies": { "@mariozechner/pi-agent-core": "*", "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" }, "bin": { "pi-subagents": "install.mjs" } }, "sha512-HSUFS4RowE+HvKXJhFIdan8Lwc8sWVCAWEeIbJT8aeaBHDhkRKZjXvO0OqAtUSmSQMDBhIE19JgGkhqRJiLxMA=="],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 

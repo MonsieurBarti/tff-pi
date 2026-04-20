@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTffContext } from "../../../src/common/context.js";
+import { TFF_AGENT_NAMES } from "../../../src/common/subagent-agents.js";
 import { registerAllTools } from "../../../src/tools/index.js";
 
 /**
@@ -92,6 +93,12 @@ describe("tool registry consistency", () => {
 	// registered in this repo's index.ts. Exclude them from the assertion.
 	const EXTERNAL_PREFIXES = ["tff-fff_", "tff-search_", "tff-fetch_"];
 
+	// pi-subagents agent names (e.g. tff-executor, tff-code-reviewer) match the
+	// `tff-*` regex but are agent identifiers, not tool names. Exclude them.
+	const AGENT_NAMES: ReadonlySet<string> = new Set<string>(TFF_AGENT_NAMES);
+	const isExcluded = (name: string) =>
+		EXTERNAL_PREFIXES.some((p) => name.startsWith(p)) || AGENT_NAMES.has(name);
+
 	it("registers at least the core writer tools", () => {
 		const expected = [
 			"tff_write_spec",
@@ -117,7 +124,7 @@ describe("tool registry consistency", () => {
 		for (const { path, content } of resources) {
 			const referenced = extractToolNames(content);
 			for (const name of referenced) {
-				if (EXTERNAL_PREFIXES.some((p) => name.startsWith(p))) continue;
+				if (isExcluded(name)) continue;
 				expect(
 					registered.has(name),
 					`${path} references tool '${name}' but it is not registered in index.ts. Either register it or remove the reference.`,
@@ -139,7 +146,7 @@ describe("tool registry consistency", () => {
 		for (const { path, content } of resources) {
 			const referenced = extractToolNames(content);
 			for (const name of referenced) {
-				if (EXTERNAL_PREFIXES.some((p) => name.startsWith(p))) continue;
+				if (isExcluded(name)) continue;
 				expect(
 					registeredRuntime.has(name),
 					`${path} references tool '${name}' but it was not registered by registerAllTools. Either add it to src/tools/index.ts's TOOL_REGISTRARS array, or remove the reference.`,
@@ -152,7 +159,7 @@ describe("tool registry consistency", () => {
 		const phaseTools = extractPhaseTools(ORCH);
 		for (const [phase, tools] of phaseTools) {
 			for (const name of tools) {
-				if (EXTERNAL_PREFIXES.some((p) => name.startsWith(p))) continue;
+				if (isExcluded(name)) continue;
 				expect(
 					registered.has(name),
 					`PHASE_TOOLS.${phase} includes '${name}' but it is not registered in index.ts.`,
