@@ -105,7 +105,6 @@ describe("tool registry consistency", () => {
 			"tff_write_requirements",
 			"tff_write_research",
 			"tff_write_plan",
-			"tff_write_review",
 			"tff_classify",
 			"tff_ask_user",
 			"tff_query_state",
@@ -167,7 +166,7 @@ describe("tool registry consistency", () => {
 		}
 	});
 
-	it("tff_write_verification and tff_write_pr are no longer registered (M01-S03 T07)", () => {
+	it("tff_write_verification, tff_write_pr, tff_write_review are no longer registered (M01-S03 T07, M01-S04 T04)", () => {
 		const registeredRuntime = new Set<string>();
 		const mockPi = {
 			registerTool: (def: { name: string }) => {
@@ -178,10 +177,12 @@ describe("tool registry consistency", () => {
 		registerAllTools(mockPi, ctx);
 		expect(registeredRuntime.has("tff_write_verification")).toBe(false);
 		expect(registeredRuntime.has("tff_write_pr")).toBe(false);
+		expect(registeredRuntime.has("tff_write_review")).toBe(false);
 		// Also assert the static-source extractor agrees — catches accidental
 		// re-addition through import-side-effects.
 		expect(registered.has("tff_write_verification")).toBe(false);
 		expect(registered.has("tff_write_pr")).toBe(false);
+		expect(registered.has("tff_write_review")).toBe(false);
 	});
 });
 
@@ -209,8 +210,6 @@ describe("phase completion path coverage", () => {
 			discuss: "tff_write_spec", // discuss has 3 writers (spec, requirements, classify); any completes
 			research: "tff_write_research",
 			plan: "tff_write_plan",
-			verify: "tff_write_verification",
-			review: "tff_write_review",
 		};
 		for (const phase of PHASES) {
 			const src = PHASE_FILES[phase];

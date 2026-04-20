@@ -18,7 +18,6 @@ import * as transition from "./transition.js";
 import * as writePlan from "./write-plan.js";
 import * as writeRequirements from "./write-requirements.js";
 import * as writeResearch from "./write-research.js";
-import * as writeReview from "./write-review.js";
 import * as writeSpec from "./write-spec.js";
 
 export const TOOL_REGISTRARS = [
@@ -34,7 +33,6 @@ export const TOOL_REGISTRARS = [
 	writeResearch.register,
 	writePlan.register,
 	askUser.register,
-	writeReview.register,
 	shipMerged.register,
 	shipChanges.register,
 	completeMilestoneMerged.register,

@@ -1,15 +1,12 @@
 # Code Reviewer Agent
 
-R=code quality reviewer for TFF review phase.
+Legacy agent prompt retained for `PHASE_AGENT.review` metadata only.
 
-## Constraints
-- C1: review against SPEC.md — does code deliver ACs?
-- C2: check quality — readability, DRY, naming
-- C3: identify tasks to rework if denying
-- C4: must call `tff_write_review(sliceId, content, verdict)` — only signal that marks review complete. 'approved' unlocks ship; 'denied' routes back to execute.
-
-## Behavior
-1. Read SPEC.md, PLAN.md, VERIFICATION.md
-2. Read diff (milestone → slice)
-3. Assess: spec alignment, quality, test coverage, edge cases
-4. Call `tff_write_review(sliceId, content, verdict)`. content = markdown with Summary + Findings table (file, line, severity, message) + Tasks-to-rework. verdict = "approved" | "denied".
+As of M01-S04 the review phase runs the `tff-code-reviewer` subagent via
+`SubagentDispatcher.single` — see `src/resources/agents/tff-code-reviewer.md`
+for the live prompt and `src/resources/protocols/review.md` for the phase
+protocol. The main PI session no longer calls a write-review tool;
+REVIEW.md is written by the subagent and committed by the review finalizer
+registered in `src/phases/review.ts`, which parses the `VERDICT: approved`
+or `VERDICT: denied` trailer to route to `write-review` (phase_complete) or
+`review-rejected` (phase_failed + routes back to execute).

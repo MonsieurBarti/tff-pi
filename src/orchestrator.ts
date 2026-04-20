@@ -91,7 +91,7 @@ export const PHASE_TOOLS: Record<Phase, string[]> = {
 	plan: ["tff_write_plan", "tff_query_state", "tff-fff_find", "tff-fff_grep", "tff_ask_user"],
 	execute: ["tff_query_state", "tff-fff_find", "tff-fff_grep", "tff-fff_search"],
 	verify: [],
-	review: ["tff_write_review", "tff_query_state", "tff-fff_find", "tff-fff_grep"],
+	review: [],
 	ship: ["tff_query_state"],
 	"ship-fix": ["tff_ask_user", "tff_ship_apply_done"],
 };
