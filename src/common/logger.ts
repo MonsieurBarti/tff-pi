@@ -24,7 +24,8 @@ export type LogComponent =
 	| "recover"
 	| "ship"
 	| "command"
-	| "lifecycle";
+	| "lifecycle"
+	| "subagent-dispatcher";
 
 export interface LogContext {
 	fn?: string;

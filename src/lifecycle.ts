@@ -25,6 +25,7 @@ import { type SessionLock, isLockStale, readLock } from "./common/session-lock.j
 import { loadSettings } from "./common/settings.js";
 import { ensureStateBranch } from "./common/state-branch.js";
 import { ensureProjectAgents } from "./common/subagent-agents.js";
+import { registerDispatchHook } from "./common/subagent-dispatcher.js";
 import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
 import { ensureSliceWorktree } from "./common/worktree.js";
 import { detectRenameAlert } from "./lifecycle-rename-detect.js";
@@ -125,6 +126,12 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	};
 	ctx.toolCallLogger = new ToolCallLogger(piAdapter, pi.events);
 	ctx.toolCallLogger.subscribe();
+
+	try {
+		registerDispatchHook(pi);
+	} catch (err) {
+		logException("lifecycle", err, { fn: "register-dispatch-hook" });
+	}
 
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start

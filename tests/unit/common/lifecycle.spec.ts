@@ -55,6 +55,7 @@ vi.mock("../../../src/common/worktree.js", () => ({
 import { getGitRoot } from "../../../src/common/git.js";
 import { scanForStuckSlices } from "../../../src/common/recovery.js";
 import * as subagentAgents from "../../../src/common/subagent-agents.js";
+import * as subagentDispatcher from "../../../src/common/subagent-dispatcher.js";
 import { ensureSliceWorktree } from "../../../src/common/worktree.js";
 import { registerLifecycleHooks } from "../../../src/lifecycle.js";
 
@@ -389,6 +390,34 @@ describe("lifecycle — ensureProjectAgents sync", () => {
 		await trigger("session_start", { reason: "startup" }, uiCtx);
 		expect(spy).toHaveBeenCalled();
 
+		spy.mockRestore();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// registerDispatchHook wiring
+// ---------------------------------------------------------------------------
+
+describe("lifecycle — registerDispatchHook wiring", () => {
+	it("registers the dispatch hook exactly once at extension init", () => {
+		const spy = vi.spyOn(subagentDispatcher, "registerDispatchHook").mockImplementation(() => {});
+		const { pi } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+		expect(spy).toHaveBeenCalledTimes(1);
+		expect(spy).toHaveBeenCalledWith(pi);
+		spy.mockRestore();
+	});
+
+	it("logs and swallows exceptions from registerDispatchHook without breaking init", () => {
+		const spy = vi.spyOn(subagentDispatcher, "registerDispatchHook").mockImplementation(() => {
+			throw new Error("boom");
+		});
+		const { pi } = makePi();
+		const ctx = makeCtx();
+		expect(() => registerLifecycleHooks(pi as never, ctx)).not.toThrow();
+		// session_start subscription must still occur.
+		expect(pi.on).toHaveBeenCalled();
 		spy.mockRestore();
 	});
 });
