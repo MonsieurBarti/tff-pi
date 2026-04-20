@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type AgentResult,
+	type CapturedCall,
 	type DispatchBatch,
 	type DispatchResult,
+	type FinalizeInput,
 	type Finalizer,
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
@@ -389,5 +391,322 @@ describe("registerPhaseFinalizer", () => {
 			void calls;
 		};
 		expect(fn).toBeDefined();
+	});
+});
+
+describe("tool_result hook — capture + finalizer", () => {
+	function makePiWithEvents() {
+		const handlers: Record<string, Handler[]> = {};
+		const listeners: Record<string, Array<(e: unknown) => void>> = {};
+		return {
+			handlers,
+			on: (evt: string, h: Handler) => {
+				const list = handlers[evt] ?? [];
+				list.push(h);
+				handlers[evt] = list;
+			},
+			events: {
+				on: (channel: string, l: (e: unknown) => void) => {
+					const list = listeners[channel] ?? [];
+					list.push(l);
+					listeners[channel] = list;
+				},
+				emit: (channel: string, payload: unknown) => {
+					for (const l of listeners[channel] ?? []) l(payload);
+				},
+			},
+			listeners,
+		};
+	}
+
+	function bashCall(id: string, command: string) {
+		return {
+			role: "assistant",
+			content: [{ type: "toolCall", id, name: "bash", arguments: { command } }],
+		};
+	}
+	function bashResult(id: string, isError: boolean, text: string, ts: number) {
+		return {
+			role: "toolResult",
+			toolCallId: id,
+			toolName: "bash",
+			content: [{ type: "text", text }],
+			isError,
+			timestamp: ts,
+		};
+	}
+	function doneFinalOutput() {
+		return "STATUS: DONE\nEVIDENCE: ok";
+	}
+
+	it("extracts bash tool calls in message order with toolCallId pairing", async () => {
+		const captured: CapturedCall[][] = [];
+		registerPhaseFinalizer("verify", async ({ calls }) => {
+			captured.push(calls);
+		});
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "s1",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const pi = makePiWithEvents();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [
+						{
+							exitCode: 0,
+							finalOutput: doneFinalOutput(),
+							messages: [
+								bashCall("call_1", "bun test"),
+								bashResult("call_1", false, "pass", 1),
+								{
+									role: "assistant",
+									content: [
+										{
+											type: "toolCall",
+											id: "call_2",
+											name: "write",
+											arguments: { path: "x", content: "y" },
+										},
+									],
+								},
+								{
+									role: "toolResult",
+									toolCallId: "call_2",
+									toolName: "write",
+									content: [{ type: "text", text: "ok" }],
+									isError: false,
+									timestamp: 2,
+								},
+								bashCall("call_3", "bun lint"),
+								bashResult("call_3", true, "fail", 3),
+							],
+						},
+					],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(captured).toHaveLength(1);
+		const calls = captured[0] ?? [];
+		expect(calls).toHaveLength(2);
+		expect(calls[0]).toMatchObject({
+			toolName: "bash",
+			toolCallId: "call_1",
+			input: { command: "bun test" },
+			isError: false,
+			outputText: "pass",
+			timestamp: 1,
+		});
+		expect(calls[1]).toMatchObject({
+			toolName: "bash",
+			toolCallId: "call_3",
+			input: { command: "bun lint" },
+			isError: true,
+			outputText: "fail",
+			timestamp: 3,
+		});
+	});
+
+	it("skips finalization when no finalizer is registered; no phase_complete emitted", async () => {
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "s1",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const pi = makePiWithEvents();
+		const emitted: unknown[] = [];
+		pi.events.on("tff:phase", (e) => emitted.push(e));
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: doneFinalOutput(), messages: [] }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		// No finalizer → hook falls through to S02-style behavior: result file
+		// remains for readDispatchResult consume-once, no phase event emitted.
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(true);
+		expect(emitted).toHaveLength(0);
+	});
+
+	it("invokes finalizer exactly once with {root, result, calls}", async () => {
+		const inputs: FinalizeInput[] = [];
+		registerPhaseFinalizer("verify", async (input) => {
+			inputs.push(input);
+		});
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "s1",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const pi = makePiWithEvents();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: doneFinalOutput(), messages: [] }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(inputs).toHaveLength(1);
+		const first = inputs[0];
+		expect(first?.root).toBe(root);
+		expect(first?.result.mode).toBe("single");
+		expect(Array.isArray(first?.calls)).toBe(true);
+	});
+
+	it("finalizer throw → hook emits phase_failed with sliceId from config and err.message", async () => {
+		registerPhaseFinalizer("verify", async () => {
+			throw new Error("boom");
+		});
+		const emitted: unknown[] = [];
+		const pi = makePiWithEvents();
+		pi.events.on("tff:phase", (e: unknown) => emitted.push(e));
+		registerDispatchHook(pi as never);
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "slice-abc",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: doneFinalOutput(), messages: [] }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		const failed = emitted.find(
+			(e) =>
+				typeof e === "object" && e !== null && (e as { type?: unknown }).type === "phase_failed",
+		);
+		expect(failed).toMatchObject({
+			type: "phase_failed",
+			phase: "verify",
+			sliceId: "slice-abc",
+			error: "boom",
+		});
+	});
+
+	it("deletes dispatch-config.json AND dispatch-result.json after finalizer returns", async () => {
+		registerPhaseFinalizer("verify", async () => {});
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "s1",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const pi = makePiWithEvents();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: doneFinalOutput(), messages: [] }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(false);
+	});
+
+	it("deletes dispatch files even when finalizer throws", async () => {
+		registerPhaseFinalizer("verify", async () => {
+			throw new Error("boom");
+		});
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "s1",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const pi = makePiWithEvents();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: doneFinalOutput(), messages: [] }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(false);
+	});
+
+	it("pairs calls with nearest-by-id toolResult and concatenates multiple text parts", async () => {
+		const captured: CapturedCall[][] = [];
+		registerPhaseFinalizer("verify", async ({ calls }) => {
+			captured.push(calls);
+		});
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "s1",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const pi = makePiWithEvents();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [
+						{
+							exitCode: 0,
+							finalOutput: doneFinalOutput(),
+							messages: [
+								bashCall("call_a", "echo hi"),
+								{
+									role: "toolResult",
+									toolCallId: "call_a",
+									toolName: "bash",
+									content: [
+										{ type: "text", text: "part1 " },
+										{ type: "text", text: "part2" },
+									],
+									isError: false,
+									timestamp: 5,
+								},
+							],
+						},
+					],
+				},
+			},
+			{ projectRoot: root },
+		);
+		const capturedCalls = captured[0] ?? [];
+		expect(capturedCalls).toHaveLength(1);
+		expect(capturedCalls[0]?.outputText).toBe("part1 part2");
 	});
 });

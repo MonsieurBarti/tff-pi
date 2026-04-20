@@ -196,11 +196,20 @@ export function prepareDispatch(root: string, batch: DispatchBatch): { message: 
 	return { message: DISPATCHER_PROMPT };
 }
 
+interface MinimalMessage {
+	role?: string;
+	content?: unknown;
+	toolCallId?: string;
+	toolName?: string;
+	isError?: boolean;
+	timestamp?: number;
+}
+
 interface MinimalSingleResult {
 	exitCode: number;
 	error?: string;
 	finalOutput?: string;
-	messages?: { role?: string; content?: unknown }[];
+	messages?: MinimalMessage[];
 }
 
 function extractText(result: MinimalSingleResult): string {
@@ -257,69 +266,204 @@ function parseSingleResult(result: MinimalSingleResult, taskId?: string): AgentR
 	return { status, summary: text, evidence, taskId, exitCode: result.exitCode };
 }
 
+function parseAgentResults(config: DispatchBatch, live: MinimalSingleResult[]): AgentResult[] {
+	const out: AgentResult[] = [];
+	if (config.mode === "single") {
+		const first = live[0];
+		if (!first) {
+			out.push({
+				status: "BLOCKED",
+				summary: "",
+				evidence: "missing single result",
+				taskId: config.tasks[0]?.taskId,
+				exitCode: -1,
+			});
+		} else {
+			out.push(parseSingleResult(first, config.tasks[0]?.taskId));
+		}
+	} else {
+		if (live.length !== config.tasks.length) {
+			for (const t of config.tasks) {
+				out.push({
+					status: "BLOCKED",
+					summary: "",
+					evidence: "missing parallel result",
+					taskId: t.taskId,
+					exitCode: -1,
+				});
+			}
+		} else {
+			for (let i = 0; i < live.length; i++) {
+				const r = live[i];
+				const cfg = config.tasks[i];
+				if (!r || !cfg) continue;
+				out.push(parseSingleResult(r, cfg.taskId));
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * One-pass walk of each result's message stream. For every assistant
+ * `toolCall` whose `name === "bash"`, pair it with the first subsequent
+ * `toolResult` sharing the same `toolCallId`. Output order matches the
+ * chronological order of the `toolCall` entries in the stream.
+ */
+function extractBashCalls(config: DispatchBatch, live: MinimalSingleResult[]): CapturedCall[] {
+	const out: CapturedCall[] = [];
+	for (let i = 0; i < live.length; i++) {
+		const result = live[i];
+		if (!result) continue;
+		const taskId = config.tasks[i]?.taskId;
+		const messages = result.messages ?? [];
+		const pending = new Map<string, { command: string; cwd?: string | undefined; index: number }>();
+		const emitted = new Set<string>();
+		// Preserve insertion order by walking once and building a list; pair on
+		// toolResult arrival.
+		const calls: CapturedCall[] = [];
+		for (const m of messages) {
+			if (m.role === "assistant" && Array.isArray(m.content)) {
+				for (const part of m.content) {
+					if (!part || typeof part !== "object") continue;
+					const p = part as {
+						type?: unknown;
+						name?: unknown;
+						id?: unknown;
+						arguments?: unknown;
+					};
+					if (p.type !== "toolCall") continue;
+					if (p.name !== "bash") continue;
+					if (typeof p.id !== "string") continue;
+					const args = (p.arguments ?? {}) as { command?: unknown; cwd?: unknown };
+					const command = typeof args.command === "string" ? args.command : "";
+					const cwd = typeof args.cwd === "string" ? args.cwd : undefined;
+					pending.set(p.id, { command, cwd, index: calls.length });
+					// placeholder preserves ordering; will be filled when paired
+					calls.push({
+						toolName: "bash",
+						taskId,
+						toolCallId: p.id,
+						input: cwd === undefined ? { command } : { command, cwd },
+						isError: false,
+						outputText: "",
+						timestamp: 0,
+					});
+				}
+			} else if (m.role === "toolResult" && typeof m.toolCallId === "string") {
+				const tcid = m.toolCallId;
+				const slot = pending.get(tcid);
+				if (!slot) continue;
+				if (emitted.has(tcid)) continue;
+				emitted.add(tcid);
+				let outputText = "";
+				if (Array.isArray(m.content)) {
+					for (const part of m.content) {
+						if (
+							part &&
+							typeof part === "object" &&
+							(part as { type?: unknown }).type === "text" &&
+							typeof (part as { text?: unknown }).text === "string"
+						) {
+							outputText += (part as { text: string }).text;
+						}
+					}
+				}
+				const entry = calls[slot.index];
+				if (entry) {
+					entry.isError = m.isError === true;
+					entry.outputText = outputText;
+					entry.timestamp = typeof m.timestamp === "number" ? m.timestamp : 0;
+				}
+			}
+		}
+		// Only include calls that actually paired; unpaired placeholders are
+		// dropped so callers don't see synthetic zero-timestamp entries.
+		for (const c of calls) {
+			if (emitted.has(c.toolCallId)) out.push(c);
+		}
+	}
+	return out;
+}
+
+function safeUnlink(path: string): void {
+	try {
+		unlinkSync(path);
+	} catch {
+		// ENOENT race or permission — best-effort cleanup
+	}
+}
+
 export function registerDispatchHook(pi: ExtensionAPI): void {
 	if (registeredHandles.has(pi)) return;
 	registeredHandles.add(pi);
 	pi.on("tool_result", async (event, ctx) => {
+		let configPath: string | null = null;
+		let resultPath: string | null = null;
+		let finalizerRan = false;
 		try {
 			if ((event as { toolName?: string }).toolName !== "subagent") return;
 			const ctxShape = ctx as { projectRoot?: string; cwd?: string } | undefined;
 			const root = ctxShape?.projectRoot ?? ctxShape?.cwd;
 			if (!root) return;
 			const dir = tffDir(root);
-			const configPath = join(dir, CONFIG_FILE);
+			configPath = join(dir, CONFIG_FILE);
+			resultPath = join(dir, RESULT_FILE);
 			if (!existsSync(configPath)) return;
 			const config = JSON.parse(readFileSync(configPath, "utf-8")) as DispatchBatch;
 			const details = (event as { details?: unknown }).details as
 				| { mode?: string; results?: MinimalSingleResult[] }
 				| undefined;
 			const live = details?.results ?? [];
-			const out: AgentResult[] = [];
 
-			if (config.mode === "single") {
-				const first = live[0];
-				if (!first) {
-					out.push({
-						status: "BLOCKED",
-						summary: "",
-						evidence: "missing single result",
-						taskId: config.tasks[0]?.taskId,
-						exitCode: -1,
+			const agentResults = parseAgentResults(config, live);
+			const capturedAt = new Date().toISOString();
+			writeAtomic(
+				resultPath,
+				JSON.stringify({ mode: config.mode, results: agentResults, capturedAt }, null, 2),
+			);
+
+			const calls = extractBashCalls(config, live);
+
+			const finalize = finalizers.get(config.phase);
+			if (finalize) {
+				finalizerRan = true;
+				try {
+					await finalize({
+						root,
+						result: { mode: config.mode, results: agentResults, capturedAt },
+						calls,
 					});
-				} else {
-					out.push(parseSingleResult(first, config.tasks[0]?.taskId));
-				}
-			} else {
-				if (live.length !== config.tasks.length) {
-					for (const t of config.tasks) {
-						out.push({
-							status: "BLOCKED",
-							summary: "",
-							evidence: "missing parallel result",
-							taskId: t.taskId,
-							exitCode: -1,
+				} catch (err) {
+					logException("subagent-dispatcher", err, {
+						fn: "finalizer",
+						cmd: config.phase,
+					});
+					try {
+						pi.events.emit("tff:phase", {
+							type: "phase_failed",
+							phase: config.phase,
+							sliceId: config.sliceId,
+							error: err instanceof Error ? err.message : String(err),
 						});
-					}
-				} else {
-					for (let i = 0; i < live.length; i++) {
-						const r = live[i];
-						const cfg = config.tasks[i];
-						if (!r || !cfg) continue;
-						out.push(parseSingleResult(r, cfg.taskId));
+					} catch (emitErr) {
+						logException("subagent-dispatcher", emitErr, {
+							fn: "finalizer-emit",
+						});
 					}
 				}
 			}
-
-			writeAtomic(
-				join(dir, RESULT_FILE),
-				JSON.stringify(
-					{ mode: config.mode, results: out, capturedAt: new Date().toISOString() },
-					null,
-					2,
-				),
-			);
 		} catch (err) {
 			logException("subagent-dispatcher", err, { fn: "tool-result-hook" });
+		} finally {
+			// Cleanup only when a finalizer was invoked (successful or threw).
+			// Leaving the result file when no finalizer is registered preserves
+			// S02's readDispatchResult (consume-once) semantics for phases not
+			// yet migrated to the finalizer pattern.
+			if (finalizerRan) {
+				if (configPath) safeUnlink(configPath);
+				if (resultPath) safeUnlink(resultPath);
+			}
 		}
 		return undefined;
 	});
