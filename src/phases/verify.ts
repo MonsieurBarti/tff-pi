@@ -249,10 +249,16 @@ export const verifyPhase: PhaseModule = {
 			`milestones/${mLabel}/slices/${sLabel}/VERIFICATION-MECHANICAL.md`,
 		);
 
+		const backtickRuns = [...diff.matchAll(/`+/g)].map((m) => m[0].length);
+		const maxRun = backtickRuns.length > 0 ? Math.max(3, ...backtickRuns) : 3;
+		const diffFence = "`".repeat(maxRun + 1);
 		const artifacts: { label: string; content: string }[] = [
 			{ label: "SPEC.md", content: specMd },
 			{ label: "PLAN.md", content: planMd },
-			{ label: "Diff from milestone branch", content: `\`\`\`diff\n${diff}\n\`\`\`` },
+			{
+				label: "Diff from milestone branch",
+				content: `${diffFence}diff\n${diff}\n${diffFence}`,
+			},
 		];
 		if (mechanicalReport) {
 			artifacts.push({ label: "Mechanical verification report", content: mechanicalReport });

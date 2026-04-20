@@ -260,4 +260,38 @@ describe("verifyPhase", () => {
 		expect(failedCalls).toHaveLength(1);
 		expect(failedCalls[0]?.[1]).toHaveProperty("error");
 	});
+
+	it("Fix-1: outer diff fence length is strictly greater than the longest backtick run in the diff", async () => {
+		// Diff contains a 3-backtick markdown fence — this is what injection exploits.
+		const diffWithFence = "diff --git a/README.md b/README.md\n+```\n+injected content\n+```\n";
+		(getDiff as unknown as Mock).mockReturnValueOnce(diffWithFence);
+		const ctx = makeCtx(db, root, sliceId);
+		await verifyPhase.prepare(ctx);
+
+		const cfg = JSON.parse(readFileSync(join(root, ".pi/.tff/dispatch-config.json"), "utf-8")) as {
+			tasks: Array<{ task: string }>;
+		};
+
+		// Artifacts are inlined into the task body by buildTaskBody.
+		const taskBody = cfg.tasks[0]?.task ?? "";
+
+		// Locate the diff section (starts after "## Diff from milestone branch\n").
+		const sectionStart = taskBody.indexOf("## Diff from milestone branch\n");
+		expect(sectionStart).toBeGreaterThanOrEqual(0);
+		const diffSection = taskBody.slice(sectionStart);
+
+		// Extract the opening fence line (first line of the section after the header).
+		const lines = diffSection.split("\n");
+		// lines[0] is "## Diff from milestone branch", lines[1] is the opening fence.
+		const openFenceLine = lines[1] ?? "";
+		// The opening fence is like "````diff" — strip the language tag.
+		const outerFence = openFenceLine.replace(/diff$/, "");
+		const outerFenceLen = outerFence.length;
+
+		// The outer fence must be strictly longer than any backtick run in the raw diff.
+		const diffRuns = [...diffWithFence.matchAll(/`+/g)].map((m) => m[0].length);
+		const diffMax = diffRuns.reduce((a, b) => Math.max(a, b), 0);
+
+		expect(outerFenceLen).toBeGreaterThan(diffMax);
+	});
 });
