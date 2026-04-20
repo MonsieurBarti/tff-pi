@@ -42,7 +42,7 @@ describe("subagent-agents: source files", () => {
 		expect(fm.inheritSkills).toBe("false");
 	});
 
-	it.each(["tff-verifier", "tff-code-reviewer", "tff-security-auditor"] as const)(
+	it.each(["tff-code-reviewer", "tff-security-auditor"] as const)(
 		"%s excludes write tools",
 		(name) => {
 			const fm = parseFrontmatter(
@@ -53,6 +53,15 @@ describe("subagent-agents: source files", () => {
 			expect(tools).not.toContain("write");
 		},
 	);
+
+	it("tff-verifier includes write (for VERIFICATION.md / PR.md) but excludes edit", () => {
+		const fm = parseFrontmatter(
+			readFileSync(join(RESOURCES_DIR, "agents", "tff-verifier.md"), "utf-8"),
+		);
+		const tools = (fm.tools ?? "").split(",").map((t) => t.trim());
+		expect(tools).toContain("write");
+		expect(tools).not.toContain("edit");
+	});
 
 	it.each(["tff-code-reviewer", "tff-security-auditor"] as const)(
 		"%s also excludes bash",
