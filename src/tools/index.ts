@@ -16,12 +16,10 @@ import * as shipFix from "./ship-fix.js";
 import * as shipMerged from "./ship-merged.js";
 import * as transition from "./transition.js";
 import * as writePlan from "./write-plan.js";
-import * as writePr from "./write-pr.js";
 import * as writeRequirements from "./write-requirements.js";
 import * as writeResearch from "./write-research.js";
 import * as writeReview from "./write-review.js";
 import * as writeSpec from "./write-spec.js";
-import * as writeVerification from "./write-verification.js";
 
 export const TOOL_REGISTRARS = [
 	queryState.register,
@@ -36,8 +34,6 @@ export const TOOL_REGISTRARS = [
 	writeResearch.register,
 	writePlan.register,
 	askUser.register,
-	writeVerification.register,
-	writePr.register,
 	writeReview.register,
 	shipMerged.register,
 	shipChanges.register,
