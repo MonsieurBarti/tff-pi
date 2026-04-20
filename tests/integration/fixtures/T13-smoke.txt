@@ -1,0 +1,12 @@
+$ vitest run tests/integration/subagent-dispatcher-smoke.spec.ts
+
+ RUN  v2.1.9 /Users/monsieurbarti/.tff-cc/3e88007d-0f72-4cd7-9dfe-d3c58cec2b68/worktrees/M01-S02
+
+ ✓ tests/integration/subagent-dispatcher-smoke.spec.ts (1 test) 49634ms
+   ✓ SubagentDispatcher — real PI smoke > dispatches tff-noop and captures STATUS/EVIDENCE 49633ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:09:37
+   Duration  49.89s (transform 42ms, setup 10ms, collect 35ms, tests 49.63s, environment 0ms, prepare 45ms)
+
