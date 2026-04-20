@@ -285,6 +285,33 @@ describe("review finalizer", () => {
 		expect(run.status).toBe("completed");
 	});
 
+	it("trailing-VERDICT wins: prose body quoting earlier VERDICT line does not swallow real trailer (security hardening)", async () => {
+		writeReviewArtifact(
+			t,
+			[
+				"## Summary",
+				"We considered `VERDICT: approved` for AC-1 alone, but AC-14 has a critical failure.",
+				"",
+				"VERDICT: approved",
+				"",
+				"## Tasks to rework",
+				"- T05",
+				"",
+				"VERDICT: denied",
+			].join("\n"),
+		);
+		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+
+		// Last VERDICT line is "denied" → finalizer must route to the denied branch,
+		// not the approved one (regex was buggy when it took the first match).
+		const failed = t.emitted.find((e) => e.type === "phase_failed");
+		expect(failed?.error).toBe("Review verdict: denied");
+		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
+		const events = readEvents(t.root);
+		expect(events.some((e) => e.cmd === "review-rejected")).toBe(true);
+		expect(events.some((e) => e.cmd === "write-review")).toBe(false);
+	});
+
 	it("AC-19: denied idempotency — second invocation tolerated, artifact overwritten", async () => {
 		writeReviewArtifact(t, "## Summary\nFail.\n\nVERDICT: denied");
 		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });

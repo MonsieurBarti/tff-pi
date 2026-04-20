@@ -16,7 +16,7 @@ import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
 import { loadAgentResource, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
-const VERDICT_RE = /^VERDICT:\s*(approved|denied)\s*$/m;
+const VERDICT_RE = /^VERDICT:\s*(approved|denied)\s*$/gm;
 
 function buildReviewTaskBody(p: {
 	sLabel: string;
@@ -137,8 +137,12 @@ export const reviewPhase: PhaseModule = {
 
 			const reviewMd = readFileSync(reviewSrc, "utf-8");
 
-			// AC-13: VERDICT parse
-			const verdictMatch = VERDICT_RE.exec(reviewMd);
+			// AC-13: VERDICT parse — take the LAST matching line (spec: "a
+			// trailing line: VERDICT: approved OR VERDICT: denied"). Using the
+			// last occurrence prevents earlier prose that happens to contain a
+			// `VERDICT:` line from swallowing the true trailer.
+			const verdictMatches = [...reviewMd.matchAll(VERDICT_RE)];
+			const verdictMatch = verdictMatches.at(-1);
 			if (!verdictMatch) {
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
