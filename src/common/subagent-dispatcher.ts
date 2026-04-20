@@ -9,6 +9,7 @@ import {
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { logException } from "./logger.js";
+import type { Phase } from "./types.js";
 
 export type AgentStatus = "DONE" | "DONE_WITH_CONCERNS" | "NEEDS_CONTEXT" | "BLOCKED";
 
@@ -34,12 +35,70 @@ export interface DispatchBatch {
 	mode: "single" | "parallel";
 	tasks: DispatchConfig[];
 	concurrency?: number | undefined;
+	phase: Phase;
+	sliceId?: string | undefined;
 }
 
 export interface DispatchResult {
 	mode: "single" | "parallel";
 	results: AgentResult[];
 	capturedAt: string;
+}
+
+/**
+ * Captured bash tool-call from a subagent's message stream.
+ *
+ * Typed against pi-ai's `ToolCall` + `ToolResultMessage` shapes. Bash output
+ * does not carry structured exitCode/stdout/stderr — only ToolResultMessage.isError
+ * is reliable. `outputText` is the concatenated TextContent from the tool result.
+ */
+export interface CapturedCall {
+	toolName: "bash";
+	/** Parallel-mode correlation; undefined in single mode. */
+	taskId?: string | undefined;
+	/** ToolCall.id, used for pairing with the matching ToolResultMessage. */
+	toolCallId: string;
+	input: { command: string; cwd?: string | undefined };
+	/** From ToolResultMessage.isError. */
+	isError: boolean;
+	/** Concatenated TextContent items from ToolResultMessage.content. */
+	outputText: string;
+	/** From ToolResultMessage.timestamp. */
+	timestamp: number;
+}
+
+/**
+ * Input to a phase finalizer. Three fields only — phase-specific dependencies
+ * (db/pi/slice/milestoneNumber/worktreePath) live in the closure's captured
+ * scope, not on this argument surface. Keeps the dispatcher phase-agnostic.
+ */
+export interface FinalizeInput {
+	root: string;
+	result: DispatchResult;
+	calls: CapturedCall[];
+}
+
+export type Finalizer = (ctx: FinalizeInput) => Promise<void>;
+
+/**
+ * Per-phase finalizer registry. Last-wins semantics — each phase.prepare()
+ * registers a fresh closure; re-registration replaces silently. Module-level
+ * Map; not persisted (crash recovery re-runs prepare() which re-registers).
+ */
+const finalizers = new Map<Phase, Finalizer>();
+
+export function registerPhaseFinalizer(phase: Phase, fn: Finalizer): void {
+	finalizers.set(phase, fn);
+}
+
+/** Test-only: retrieves the registered finalizer for a phase, if any. */
+export function __getFinalizerForTest(phase: Phase): Finalizer | undefined {
+	return finalizers.get(phase);
+}
+
+/** Test-only: clears all finalizer registrations. Prevents cross-test pollution. */
+export function __resetFinalizersForTest(): void {
+	finalizers.clear();
 }
 
 const TFF_DIR_PARTS = [".pi", ".tff"] as const;
@@ -120,11 +179,19 @@ export function prepareDispatch(root: string, batch: DispatchBatch): { message: 
 		return copy;
 	});
 
-	const persisted = {
+	const persisted: {
+		mode: "single" | "parallel";
+		concurrency: number | undefined;
+		phase: Phase;
+		sliceId?: string;
+		tasks: DispatchConfig[];
+	} = {
 		mode: batch.mode,
 		concurrency: batch.concurrency,
+		phase: batch.phase,
 		tasks: persistedTasks,
 	};
+	if (batch.sliceId !== undefined) persisted.sliceId = batch.sliceId;
 	writeAtomic(join(dir, CONFIG_FILE), JSON.stringify(persisted, null, 2));
 	return { message: DISPATCHER_PROMPT };
 }

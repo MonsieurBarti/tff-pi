@@ -63,6 +63,7 @@ describe.skipIf(process.env.CI)("SubagentDispatcher — real PI smoke", () => {
 		expect(existsSync(EXT_DIST)).toBe(true);
 		const { message } = prepareDispatch(root, {
 			mode: "single",
+			phase: "execute",
 			tasks: [{ agent: "tff-noop", task: "noop", cwd: root }],
 		});
 

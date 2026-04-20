@@ -6,9 +6,13 @@ import {
 	type AgentResult,
 	type DispatchBatch,
 	type DispatchResult,
+	type Finalizer,
+	__getFinalizerForTest,
+	__resetFinalizersForTest,
 	prepareDispatch,
 	readDispatchResult,
 	registerDispatchHook,
+	registerPhaseFinalizer,
 } from "../../../src/common/subagent-dispatcher.js";
 
 type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
@@ -44,6 +48,7 @@ let root: string;
 beforeEach(() => {
 	root = join(tmpdir(), `tff-dispatch-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 	mkdirSync(root, { recursive: true });
+	__resetFinalizersForTest();
 });
 afterEach(() => {
 	try {
@@ -55,6 +60,7 @@ describe("prepareDispatch", () => {
 	it("writes dispatch-config.json and returns a deterministic dispatcher prompt", () => {
 		const batch: DispatchBatch = {
 			mode: "single",
+			phase: "execute",
 			tasks: [{ agent: "tff-executor", task: "T", cwd: root, taskId: "T01" }],
 		};
 		const { message } = prepareDispatch(root, batch);
@@ -73,6 +79,7 @@ describe("prepareDispatch", () => {
 	it("composes task body with artifacts in document order", () => {
 		const batch: DispatchBatch = {
 			mode: "single",
+			phase: "verify",
 			tasks: [
 				{
 					agent: "tff-verifier",
@@ -98,6 +105,7 @@ describe("prepareDispatch", () => {
 		writeFileSync(stalePath, '{"stale":true}', "utf-8");
 		prepareDispatch(root, {
 			mode: "single",
+			phase: "verify",
 			tasks: [{ agent: "tff-verifier", task: "t", cwd: root }],
 		});
 		expect(existsSync(stalePath)).toBe(false);
@@ -124,6 +132,7 @@ describe("registerDispatchHook — single mode", () => {
 	it("writes dispatch-result.json for single-mode happy path", async () => {
 		prepareDispatch(root, {
 			mode: "single",
+			phase: "execute",
 			tasks: [{ agent: "tff-executor", task: "t", cwd: root, taskId: "T01" }],
 		});
 		const pi = makePi();
@@ -164,6 +173,7 @@ describe("registerDispatchHook — parallel mode", () => {
 	it("captures per-task results with positional taskId correspondence", async () => {
 		prepareDispatch(root, {
 			mode: "parallel",
+			phase: "execute",
 			concurrency: 2,
 			tasks: [
 				{ agent: "tff-executor", task: "t1", cwd: root, taskId: "T01" },
@@ -205,6 +215,7 @@ describe("registerDispatchHook — BLOCKED paths", () => {
 	it("missing STATUS line → BLOCKED, evidence 'malformed output'", async () => {
 		prepareDispatch(root, {
 			mode: "single",
+			phase: "verify",
 			tasks: [{ agent: "x", task: "t", cwd: root }],
 		});
 		const parsed = await fire({
@@ -221,6 +232,7 @@ describe("registerDispatchHook — BLOCKED paths", () => {
 	it("non-zero exitCode → BLOCKED with error message", async () => {
 		prepareDispatch(root, {
 			mode: "single",
+			phase: "verify",
 			tasks: [{ agent: "x", task: "t", cwd: root }],
 		});
 		const parsed = await fire({
@@ -236,6 +248,7 @@ describe("registerDispatchHook — BLOCKED paths", () => {
 	it("non-zero exitCode without error → BLOCKED, evidence 'non-zero exit'", async () => {
 		prepareDispatch(root, {
 			mode: "single",
+			phase: "verify",
 			tasks: [{ agent: "x", task: "t", cwd: root }],
 		});
 		const parsed = await fire({
@@ -248,6 +261,7 @@ describe("registerDispatchHook — BLOCKED paths", () => {
 	it("empty single results → BLOCKED, evidence 'missing single result'", async () => {
 		prepareDispatch(root, {
 			mode: "single",
+			phase: "verify",
 			tasks: [{ agent: "x", task: "t", cwd: root }],
 		});
 		const parsed = await fire({
@@ -260,6 +274,7 @@ describe("registerDispatchHook — BLOCKED paths", () => {
 	it("parallel length mismatch → all BLOCKED with 'missing parallel result'", async () => {
 		prepareDispatch(root, {
 			mode: "parallel",
+			phase: "execute",
 			tasks: [
 				{ agent: "x", task: "t1", cwd: root, taskId: "T01" },
 				{ agent: "x", task: "t2", cwd: root, taskId: "T02" },
@@ -297,6 +312,7 @@ describe("readDispatchResult", () => {
 	it("returns parsed result and deletes the file (consume-once)", async () => {
 		prepareDispatch(root, {
 			mode: "single",
+			phase: "verify",
 			tasks: [{ agent: "x", task: "t", cwd: root }],
 		});
 		const pi = makePi();
@@ -316,5 +332,62 @@ describe("readDispatchResult", () => {
 		expect(first?.results[0]?.status).toBe("DONE");
 		expect(existsSync(resultPathFor(root))).toBe(false);
 		expect(readDispatchResult(root)).toBeNull();
+	});
+});
+
+describe("phase + sliceId persistence", () => {
+	it("persists phase and sliceId in dispatch-config.json", () => {
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			sliceId: "slice-abc",
+			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
+		});
+		const cfg = JSON.parse(
+			readFileSync(join(root, ".pi", ".tff", "dispatch-config.json"), "utf-8"),
+		);
+		expect(cfg.phase).toBe("verify");
+		expect(cfg.sliceId).toBe("slice-abc");
+	});
+
+	it("persists phase without sliceId when sliceId omitted", () => {
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "execute",
+			tasks: [{ agent: "tff-executor", task: "x", cwd: "/tmp" }],
+		});
+		const cfg = JSON.parse(
+			readFileSync(join(root, ".pi", ".tff", "dispatch-config.json"), "utf-8"),
+		);
+		expect(cfg.phase).toBe("execute");
+		expect(cfg.sliceId).toBeUndefined();
+	});
+});
+
+describe("registerPhaseFinalizer", () => {
+	it("replaces with last-wins semantics", () => {
+		const first: Finalizer = async () => {};
+		const second: Finalizer = async () => {};
+		registerPhaseFinalizer("verify", first);
+		registerPhaseFinalizer("verify", second);
+		expect(__getFinalizerForTest("verify")).toBe(second);
+	});
+
+	it("__resetFinalizersForTest clears all registrations", () => {
+		const fn: Finalizer = async () => {};
+		registerPhaseFinalizer("verify", fn);
+		expect(__getFinalizerForTest("verify")).toBe(fn);
+		__resetFinalizersForTest();
+		expect(__getFinalizerForTest("verify")).toBeUndefined();
+	});
+
+	it("FinalizeInput type compiles with {root, result, calls} only", () => {
+		// Structural: TS compile is the assertion. Do not list db/pi/slice fields.
+		const fn: Finalizer = async ({ root, result, calls }) => {
+			void root;
+			void result;
+			void calls;
+		};
+		expect(fn).toBeDefined();
 	});
 });
