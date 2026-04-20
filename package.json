@@ -67,8 +67,8 @@
 		"@the-forge-flow/fff-pi": "*",
 		"@the-forge-flow/gh-pi": "*",
 		"@the-forge-flow/camoufox-pi": "*",
-		"@the-forge-flow/sub-agents-pi": "*",
-		"@the-forge-flow/ultra-compress-pi": "*"
+		"@the-forge-flow/ultra-compress-pi": "*",
+		"pi-subagents": "^0.17.1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",

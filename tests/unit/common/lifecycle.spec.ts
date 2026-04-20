@@ -54,6 +54,7 @@ vi.mock("../../../src/common/worktree.js", () => ({
 
 import { getGitRoot } from "../../../src/common/git.js";
 import { scanForStuckSlices } from "../../../src/common/recovery.js";
+import * as subagentAgents from "../../../src/common/subagent-agents.js";
 import { ensureSliceWorktree } from "../../../src/common/worktree.js";
 import { registerLifecycleHooks } from "../../../src/lifecycle.js";
 
@@ -321,5 +322,73 @@ describe("lifecycle — pending-execute-worktree marker", () => {
 		await trigger("session_start", { reason: "new" }, uiCtx);
 
 		expect(ensureSliceWorktree).not.toHaveBeenCalled();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// ensureProjectAgents sync
+// ---------------------------------------------------------------------------
+
+describe("lifecycle — ensureProjectAgents sync", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = join(
+			tmpdir(),
+			`tff-lifecycle-agents-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+		);
+		mkdirSync(root, { recursive: true });
+		vi.mocked(getGitRoot).mockReturnValue(root);
+		vi.mocked(scanForStuckSlices).mockReturnValue([]);
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+		vi.clearAllMocks();
+	});
+
+	it("writes all 5 tff-*.md files into .pi/agents/ on session_start (fresh repo, no .tff)", async () => {
+		const { pi, trigger } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+
+		await trigger("session_start", { reason: "startup" }, uiCtx);
+
+		for (const name of [
+			"tff-executor",
+			"tff-fixer",
+			"tff-verifier",
+			"tff-code-reviewer",
+			"tff-security-auditor",
+		]) {
+			expect(existsSync(join(root, ".pi", "agents", `${name}.md`))).toBe(true);
+		}
+	});
+
+	it("syncs on reason='new' phase transitions too", async () => {
+		const { pi, trigger } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+
+		await trigger("session_start", { reason: "new" }, uiCtx);
+
+		expect(existsSync(join(root, ".pi", "agents", "tff-executor.md"))).toBe(true);
+	});
+
+	it("does not throw when sync fails — session init continues", async () => {
+		const spy = vi.spyOn(subagentAgents, "ensureProjectAgents").mockImplementation(() => {
+			throw new Error("sync failed");
+		});
+
+		const { pi, trigger } = makePi();
+		const ctx = makeCtx();
+		registerLifecycleHooks(pi as never, ctx);
+
+		// If the handler re-threw, this await would reject. A plain await without
+		// a try/catch is the assertion.
+		await trigger("session_start", { reason: "startup" }, uiCtx);
+		expect(spy).toHaveBeenCalled();
+
+		spy.mockRestore();
 	});
 });

@@ -23,7 +23,7 @@ export interface PhasePrompt {
 	label: string;
 }
 
-const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
+export const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
 
 export function findActiveSlice(db: Database.Database): Slice | null {
 	const project = getProject(db);
