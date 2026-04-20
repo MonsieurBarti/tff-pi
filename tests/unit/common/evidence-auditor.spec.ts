@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	auditVerification,
+	auditVerificationAgainstCapture,
 	formatAuditReport,
 	parseVerificationClaims,
 } from "../../../src/common/evidence-auditor.js";
 import { PerSliceLog } from "../../../src/common/per-slice-log.js";
+import type { CapturedCall } from "../../../src/common/subagent-dispatcher.js";
 
 function makeBus() {
 	const handlers: Map<string, Array<(d: unknown) => void>> = new Map();
@@ -227,5 +229,45 @@ describe("auditVerification", () => {
 		expect(formatted).toContain("## Mismatches");
 		expect(formatted).toContain("## Unverifiable");
 		expect(formatted).toContain("## Matches");
+	});
+});
+
+describe("auditVerificationAgainstCapture", () => {
+	it("returns hasMismatches=false when all claimed commands succeeded", () => {
+		const vMd = "Ran `bun test` — all pass.";
+		const calls: CapturedCall[] = [
+			{
+				toolName: "bash",
+				toolCallId: "c1",
+				input: { command: "bun test" },
+				isError: false,
+				outputText: "7 pass, 0 fail",
+				timestamp: 1,
+			},
+		];
+		const report = auditVerificationAgainstCapture(vMd, calls);
+		expect(report.hasMismatches).toBe(false);
+	});
+
+	it("flags a pass-claim against an isError call", () => {
+		const vMd = "Ran `bun test` — all pass.";
+		const calls: CapturedCall[] = [
+			{
+				toolName: "bash",
+				toolCallId: "c1",
+				input: { command: "bun test" },
+				isError: true,
+				outputText: "FAIL",
+				timestamp: 1,
+			},
+		];
+		const report = auditVerificationAgainstCapture(vMd, calls);
+		expect(report.hasMismatches).toBe(true);
+		expect(report.summary.mismatch).toBeGreaterThan(0);
+	});
+
+	it("returns AuditReport shape compatible with formatAuditReport", () => {
+		const report = auditVerificationAgainstCapture("claim", []);
+		expect(() => formatAuditReport(report)).not.toThrow();
 	});
 });
