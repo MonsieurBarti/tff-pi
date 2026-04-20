@@ -150,7 +150,7 @@ function buildPrBody(root: string, mLabel: string, sLabel: string): string {
 	const prMd = readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/PR.md`);
 	if (!prMd || prMd.trim().length === 0) {
 		throw new Error(
-			`PR.md missing for ${sLabel}. Run the verify phase to author it via tff_write_pr before shipping.`,
+			`PR.md missing for ${sLabel}. Run the verify phase; the verifier subagent writes PR.md via \`tff-verifier\`'s write tool before shipping.`,
 		);
 	}
 	return prMd;

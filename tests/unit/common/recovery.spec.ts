@@ -325,7 +325,6 @@ describe("recovery", () => {
 		});
 
 		it("returns artifact label for tff_write_* tools", () => {
-			expect(summarizeInput("tff_write_verification", { content: "..." })).toBe("VERIFICATION.md");
 			expect(summarizeInput("tff_write_spec", { content: "..." })).toBe("SPEC.md");
 			expect(summarizeInput("tff_write_plan", { content: "..." })).toBe("PLAN.md");
 		});

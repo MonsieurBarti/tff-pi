@@ -1,5 +1,6 @@
 import type { ToolCallEvent } from "./events.js";
 import { readPerSliceLog } from "./per-slice-log.js";
+import type { CapturedCall } from "./subagent-dispatcher.js";
 
 export interface ParsedClaim {
 	raw: string;
@@ -234,6 +235,38 @@ export function auditVerification(
 ): AuditReport {
 	const claims = parseVerificationClaims(verificationMd);
 	const events = queryBashEvents(root, sliceLabel);
+	const findings = claims.map((c) => matchClaim(c, events));
+
+	const summary = { match: 0, mismatch: 0, unverifiable: 0 };
+	for (const f of findings) summary[f.verdict] += 1;
+
+	return {
+		findings,
+		summary,
+		hasMismatches: summary.mismatch > 0,
+	};
+}
+
+function capturesToEvents(calls: CapturedCall[]): EventPayload[] {
+	// matchClaim sorts candidates by startedAt.localeCompare (descending) to
+	// pick the most recent event. CapturedCall.timestamp is a numeric epoch/
+	// counter; zero-pad to a 20-char string so lexicographic ordering matches
+	// numeric ordering across the full Number range.
+	return calls.map((c) => ({
+		toolCallId: c.toolCallId,
+		toolName: c.toolName,
+		input: { command: c.input.command },
+		isError: c.isError,
+		startedAt: String(c.timestamp).padStart(20, "0"),
+	}));
+}
+
+export function auditVerificationAgainstCapture(
+	verificationMd: string,
+	calls: CapturedCall[],
+): AuditReport {
+	const claims = parseVerificationClaims(verificationMd);
+	const events = capturesToEvents(calls);
 	const findings = claims.map((c) => matchClaim(c, events));
 
 	const summary = { match: 0, mismatch: 0, unverifiable: 0 };

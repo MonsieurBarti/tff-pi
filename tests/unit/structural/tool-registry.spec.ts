@@ -105,7 +105,6 @@ describe("tool registry consistency", () => {
 			"tff_write_requirements",
 			"tff_write_research",
 			"tff_write_plan",
-			"tff_write_verification",
 			"tff_write_review",
 			"tff_classify",
 			"tff_ask_user",
@@ -166,6 +165,23 @@ describe("tool registry consistency", () => {
 				).toBe(true);
 			}
 		}
+	});
+
+	it("tff_write_verification and tff_write_pr are no longer registered (M01-S03 T07)", () => {
+		const registeredRuntime = new Set<string>();
+		const mockPi = {
+			registerTool: (def: { name: string }) => {
+				registeredRuntime.add(def.name);
+			},
+		} as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI;
+		const ctx = createTffContext();
+		registerAllTools(mockPi, ctx);
+		expect(registeredRuntime.has("tff_write_verification")).toBe(false);
+		expect(registeredRuntime.has("tff_write_pr")).toBe(false);
+		// Also assert the static-source extractor agrees — catches accidental
+		// re-addition through import-side-effects.
+		expect(registered.has("tff_write_verification")).toBe(false);
+		expect(registered.has("tff_write_pr")).toBe(false);
 	});
 });
 
