@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { deleteArtifact, readArtifact, writeArtifact } from "../common/artifacts.js";
 import { milestoneBranchName } from "../common/branch-naming.js";
 import { createCheckpoint } from "../common/checkpoint.js";
@@ -175,6 +175,21 @@ export const verifyPhase: PhaseModule = {
 					error: `missing ${missing}`,
 				});
 				return;
+			}
+
+			// AC-S3: reject symlinks — a symlink in the artifacts dir could be
+			// planted by the subagent to exfiltrate data or point outside the
+			// worktree. Treat it exactly like a missing file.
+			for (const p of [vSrc, prSrc]) {
+				if (lstatSync(p).isSymbolicLink()) {
+					pi.events.emit("tff:phase", {
+						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+						type: "phase_failed",
+						phase: "verify",
+						error: `symlink rejected: ${basename(p)}`,
+					});
+					return;
+				}
 			}
 
 			const vMd = readFileSync(vSrc, "utf-8");

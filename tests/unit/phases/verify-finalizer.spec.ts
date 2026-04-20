@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -336,5 +336,32 @@ describe("verify finalizer", () => {
 		expect(run.status).toBe("completed");
 		const completeEvents = t.emitted.filter((e) => e.type === "phase_complete");
 		expect(completeEvents.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it("Fix-3: symlink for VERIFICATION.md → phase_failed with 'symlink' in reason; no phase_complete; no commit; phase_run stays 'started'", async () => {
+		// Create VERIFICATION.md as a symlink pointing outside the worktree.
+		const artifactsDir = join(t.worktreePath, ".pi", ".tff", "artifacts");
+		const symlinkTarget = join(t.root, "outside-target.txt");
+		writeFileSync(symlinkTarget, "should not be read\n");
+		symlinkSync(symlinkTarget, join(artifactsDir, "VERIFICATION.md"));
+		// PR.md is a regular file — should not matter because we reject on VERIFICATION.md first.
+		writeWorktreeArtifact(t, "PR.md", "pr content");
+
+		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+
+		const failed = t.emitted.find((e) => e.type === "phase_failed");
+		expect(failed).toBeDefined();
+		expect(String(failed?.error)).toContain("symlink");
+		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
+
+		// phase_run must still be 'started' (no commit happened).
+		const run = t.db
+			.prepare("SELECT status FROM phase_run WHERE slice_id = ? AND phase = ?")
+			.get(t.sliceId, "verify") as { status: string } | undefined;
+		expect(run?.status).toBe("started");
+
+		// No events logged (no commit).
+		const { readEvents } = await import("../../../src/common/event-log.js");
+		expect(readEvents(t.root)).toHaveLength(0);
 	});
 });
