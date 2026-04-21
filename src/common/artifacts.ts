@@ -8,13 +8,14 @@ export function tffPath(root: string, ...segments: string[]): string {
 }
 
 /**
- * Test helper — seeds .tff/ subdirs and settings.yaml when .tff/ already
- * exists. No-op when .tff/ is absent. Not called from production code;
- * use ensureProjectHomeDir (project-home.ts) for that.
+ * Test helper — seeds .tff/ subdirs and settings.yaml. Creates .pi/.tff/ if
+ * absent so phase prepare() paths that commitCommand() can append to
+ * event-log.jsonl. Not called from production code; use ensureProjectHomeDir
+ * (project-home.ts) for that.
  */
 export function initTffDirectory(root: string): void {
 	const tffRoot = tffPath(root);
-	if (!existsSync(tffRoot)) return;
+	mkdirSync(tffRoot, { recursive: true });
 	mkdirSync(tffPath(root, "milestones"), { recursive: true });
 	mkdirSync(tffPath(root, "worktrees"), { recursive: true });
 	const settingsPath = tffPath(root, "settings.yaml");

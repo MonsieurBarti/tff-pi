@@ -12,6 +12,7 @@ import { getPrTools } from "../common/gh-client.js";
 import { parsePrUrl } from "../common/gh-helpers.js";
 import { branchExists, gitEnv, remoteBranchExists } from "../common/git.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
+import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import type { Slice } from "../common/types.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
@@ -181,6 +182,9 @@ export const shipPhase: PhaseModule = {
 		const env = gitEnv();
 
 		const startTime = Date.now();
+
+		ensurePhaseTransition(db, root, slice, "ship");
+
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",

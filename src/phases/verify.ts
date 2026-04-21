@@ -14,6 +14,7 @@ import {
 	runMechanicalVerification,
 } from "../common/mechanical-verifier.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
+import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import {
 	type FinalizeInput,
@@ -59,6 +60,9 @@ export const verifyPhase: PhaseModule = {
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+
+		ensurePhaseTransition(db, root, slice, "verify");
+
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",

@@ -13,6 +13,7 @@ import {
 } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
+import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import {
 	type DispatchConfig,
@@ -146,6 +147,9 @@ export const executePhase: PhaseModule = {
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+
+		ensurePhaseTransition(db, root, slice, "execute");
+
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",

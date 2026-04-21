@@ -1,5 +1,6 @@
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
+import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import {
@@ -15,6 +16,9 @@ export const planPhase: PhaseModule = {
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
 		const mLabel = milestoneLabel(milestoneNumber);
+
+		ensurePhaseTransition(db, root, slice, "plan");
+
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",

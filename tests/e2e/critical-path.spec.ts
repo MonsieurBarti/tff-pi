@@ -14,6 +14,7 @@ import {
 	getProject,
 	getSlice,
 	getSlices,
+	getTasks,
 	insertMilestone,
 	insertProject,
 	insertSlice,
@@ -21,6 +22,7 @@ import {
 	openDatabase,
 	updateSlicePrUrl,
 	updateSliceTier,
+	updateTaskStatus,
 } from "../../src/common/db.js";
 import type { PhaseContext } from "../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../src/common/settings.js";
@@ -274,6 +276,10 @@ describe("E2E critical path", () => {
 			expect(executeResult.success).toBe(true);
 			expect(executeResult.message).toBeDefined();
 			expect(executePi.sendUserMessage).not.toHaveBeenCalled();
+
+			// Simulate execute closing tasks — verify's transition precondition
+			// requires all tasks to be closed before entering the verifying state.
+			for (const t of getTasks(db, sliceId)) updateTaskStatus(db, t.id, "closed");
 
 			// Step 8: verifyPhase.prepare → verify sendUserMessage called
 			const verifyPi = makePi();
