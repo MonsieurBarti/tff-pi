@@ -7,6 +7,7 @@ import { getLatestPhaseRun, getMilestone } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { getTrackedDirtyEntries } from "../common/git.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
+import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import {
 	type FinalizeInput,
@@ -72,6 +73,9 @@ export const reviewPhase: PhaseModule = {
 
 		const mLabel = milestoneLabel(milestoneNumber);
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+
+		ensurePhaseTransition(db, root, slice, "review");
+
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",

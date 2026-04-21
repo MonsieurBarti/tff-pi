@@ -1,4 +1,5 @@
 import { makeBaseEvent } from "../common/events.js";
+import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { type PreparationBrief, buildPreparationBrief } from "../common/preparation.js";
 import { sliceLabel } from "../common/types.js";
@@ -9,6 +10,8 @@ export const discussPhase: PhaseModule = {
 		const { pi, db, slice, milestoneNumber } = ctx;
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+
+		ensurePhaseTransition(db, ctx.root, slice, "discuss");
 
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),

@@ -1,5 +1,6 @@
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
+import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import { sliceLabel } from "../common/types.js";
 import {
@@ -14,6 +15,9 @@ export const researchPhase: PhaseModule = {
 		const { pi, db, slice, milestoneNumber, root, settings } = ctx;
 
 		const sLabel = sliceLabel(milestoneNumber, slice.number);
+
+		ensurePhaseTransition(db, root, slice, "research");
+
 		pi.events.emit("tff:phase", {
 			...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 			type: "phase_start",
