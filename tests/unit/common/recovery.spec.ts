@@ -428,7 +428,7 @@ describe("recovery", () => {
 			expect(briefing).not.toContain("Recent tool calls");
 		});
 
-		it("executing status includes git-commit reminder in briefing", () => {
+		it("briefing opens with a RECOVERY-GATE block that forbids non-/tff-recover actions", () => {
 			const mId = insertMilestone(db, {
 				projectId: getProjectId(db),
 				number: 1,
@@ -441,12 +441,20 @@ describe("recovery", () => {
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			const briefing = formatRecoveryBriefing(diag);
 
-			expect(briefing).toMatch(/git discipline/i);
-			expect(briefing).toContain("git commit");
-			expect(briefing).toContain("git diff milestone/M01");
+			// Hard-gate markers must appear at the top.
+			expect(briefing.startsWith("<RECOVERY-GATE>")).toBe(true);
+			expect(briefing).toContain("</RECOVERY-GATE>");
+			// Explicitly whitelist ONLY the two recovery commands.
+			expect(briefing).toContain("/tff recover resume");
+			expect(briefing).toContain("/tff recover dismiss");
+			// Explicitly forbid inline tool use (the prior failure mode that
+			// led to /gh pr create --base main and bypassed task closure).
+			expect(briefing).toMatch(/Do NOT invoke any other tool/);
+			expect(briefing).toMatch(/bash, git, gh/);
+			expect(briefing).toMatch(/tff_\*/);
 		});
 
-		it("shipping status includes git-commit reminder in briefing", () => {
+		it("briefing no longer suggests inline git work (regression for the recovery-bypass bug)", () => {
 			const mId = insertMilestone(db, {
 				projectId: getProjectId(db),
 				number: 1,
@@ -454,32 +462,19 @@ describe("recovery", () => {
 				branch: "milestone/M01",
 			});
 			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("shipping", sId);
+			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
 
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			const briefing = formatRecoveryBriefing(diag);
 
-			expect(briefing).toMatch(/git discipline/i);
-			expect(briefing).toContain("git commit");
+			// The old "Git discipline reminder" positively encouraged inline
+			// git add/commit work outside the orchestrator. That section is gone.
+			expect(briefing).not.toMatch(/Git discipline/i);
+			expect(briefing).not.toContain("git add");
+			expect(briefing).not.toMatch(/can be re-run safely/i);
 		});
 
-		it("discussing status does NOT include git-commit reminder", () => {
-			const mId = insertMilestone(db, {
-				projectId: getProjectId(db),
-				number: 1,
-				name: "M1",
-				branch: "milestone/M01",
-			});
-			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("discussing", sId);
-
-			const diag = diagnoseRecovery(root, db, sId, 1);
-			const briefing = formatRecoveryBriefing(diag);
-
-			expect(briefing).not.toMatch(/git discipline/i);
-		});
-
-		it("planning status does NOT include git-commit reminder", () => {
+		it("final instruction is imperative and terminal (EXACTLY ONE)", () => {
 			const mId = insertMilestone(db, {
 				projectId: getProjectId(db),
 				number: 1,
@@ -492,24 +487,8 @@ describe("recovery", () => {
 			const diag = diagnoseRecovery(root, db, sId, 1);
 			const briefing = formatRecoveryBriefing(diag);
 
-			expect(briefing).not.toMatch(/git discipline/i);
-		});
-
-		it("uses milestone.branch verbatim (not derived label) in git diff hint", () => {
-			const mId = insertMilestone(db, {
-				projectId: getProjectId(db),
-				number: 1,
-				name: "M1",
-				branch: "milestone/deadbeef",
-			});
-			const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S1" });
-			db.prepare("UPDATE slice SET status = ? WHERE id = ?").run("executing", sId);
-
-			const diag = diagnoseRecovery(root, db, sId, 1);
-			const briefing = formatRecoveryBriefing(diag);
-
-			expect(briefing).toContain("git diff milestone/deadbeef...HEAD");
-			expect(briefing).not.toContain("git diff milestone/M01");
+			expect(briefing).toMatch(/EXACTLY ONE of/);
+			expect(briefing).toMatch(/No other command or tool call is permitted/);
 		});
 	});
 });
