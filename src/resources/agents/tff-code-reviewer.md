@@ -42,5 +42,5 @@ Do NOT commit; do NOT modify worktree source; STOP after REVIEW.md exists; end y
 
 When done, end your final response with:
 
-STATUS: <DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED>
+STATUS: <DONE|DONE_WITH_CONCERNS|BLOCKED>
 EVIDENCE: <one-line summary>
