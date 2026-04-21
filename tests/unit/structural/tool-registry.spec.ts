@@ -96,8 +96,18 @@ describe("tool registry consistency", () => {
 	// pi-subagents agent names (e.g. tff-executor, tff-code-reviewer) match the
 	// `tff-*` regex but are agent identifiers, not tool names. Exclude them.
 	const AGENT_NAMES: ReadonlySet<string> = new Set<string>(TFF_AGENT_NAMES);
+	// Tool names that used to be registered but were deliberately deleted.
+	// Protocols / agents may mention them in narrative prose ("do NOT call X;
+	// it no longer exists") to steer subagents away — that is expected and
+	// should not trigger the consistency check.
+	const DELETED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+		"tff_checkpoint",
+		"tff_execute_done",
+	]);
 	const isExcluded = (name: string) =>
-		EXTERNAL_PREFIXES.some((p) => name.startsWith(p)) || AGENT_NAMES.has(name);
+		EXTERNAL_PREFIXES.some((p) => name.startsWith(p)) ||
+		AGENT_NAMES.has(name) ||
+		DELETED_TOOL_NAMES.has(name);
 
 	it("registers at least the core writer tools", () => {
 		const expected = [
