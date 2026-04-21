@@ -7,8 +7,7 @@ import { compressIfEnabled } from "../common/compress.js";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
 import { getMilestone, getSlice } from "../common/db.js";
-import { makeBaseEvent } from "../common/events.js";
-import { computeNextHint } from "../common/phase-completion.js";
+import { buildDiscussCompletionSuffix } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
 import { DEFAULT_SETTINGS, type Settings } from "../common/settings.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
@@ -166,19 +165,19 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
-						const label = sliceLabel(milestone.number, slice.number);
-						pi.events.emit("tff:phase", {
-							...makeBaseEvent(slice.id, label, milestone.number),
-							type: "phase_complete",
-							phase: "discuss",
-						});
-						const hint = computeNextHint(database, slice, milestone.number);
+						const suffix = buildDiscussCompletionSuffix(
+							pi,
+							database,
+							root,
+							slice,
+							milestone.number,
+						);
 						return {
 							...writeResult,
 							content: [
 								{
 									type: "text" as const,
-									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared.${hint ? ` Discuss phase complete. Stop here; the user will advance.\n\n${hint}` : ""}`,
+									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator — the gate has cleared.${suffix.text}`,
 								},
 							],
 						};

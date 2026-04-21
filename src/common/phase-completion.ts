@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
-import { determineNextPhase } from "../orchestrator.js";
+import { determineNextPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone } from "./db.js";
 import { makeBaseEvent } from "./events.js";
 import { logWarning } from "./logger.js";
@@ -92,6 +92,49 @@ export function computeNextHint(
 		return `→ Next: /tff ${nextOpenPhase} ${nextOpenLabel}`;
 	}
 	return "→ Next: /tff complete-milestone";
+}
+
+// After a discuss-phase writer tool (tff_write_spec / tff_write_requirements /
+// tff_classify) succeeds, check whether the full discuss artifact set is now
+// present. If yes, emit phase_complete and return a completion suffix +
+// next-phase hint. If no, return a progress line listing what's still needed.
+//
+// Prior to this helper, tff_write_spec unconditionally told the agent
+// "Discuss phase complete. Stop here" after a successful spec write, even
+// though REQUIREMENTS.md and tier classification were still required. Agents
+// trusted the message, stopped early, and the user tripped the `/tff research`
+// predecessor-artifact check.
+export interface DiscussCompletionSuffix {
+	text: string;
+	isComplete: boolean;
+}
+
+export function buildDiscussCompletionSuffix(
+	pi: ExtensionAPI,
+	db: Database.Database,
+	root: string,
+	slice: Slice,
+	milestoneNumber: number,
+): DiscussCompletionSuffix {
+	const check = verifyPhaseArtifacts(db, root, slice, milestoneNumber, "discuss");
+	if (!check.ok) {
+		return {
+			text: ` Discuss is not yet complete — still needed: ${check.missing.join(", ")}. Continue with the discuss protocol.`,
+			isComplete: false,
+		};
+	}
+
+	const label = sliceLabel(milestoneNumber, slice.number);
+	pi.events.emit("tff:phase", {
+		...makeBaseEvent(slice.id, label, milestoneNumber),
+		type: "phase_complete",
+		phase: "discuss",
+	});
+	const hint = computeNextHint(db, slice, milestoneNumber);
+	return {
+		text: ` Discuss phase complete. Stop here; the user will advance.${hint ? `\n\n${hint}` : ""}`,
+		isComplete: true,
+	};
 }
 
 function logMissingArtifacts(sliceId: string, component: string, missing: string[]): void {

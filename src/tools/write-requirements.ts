@@ -2,6 +2,8 @@ import { type ExtensionAPI, defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type TffContext, getDb } from "../common/context.js";
 import { resolveSlice } from "../common/db-resolvers.js";
+import { getMilestone } from "../common/db.js";
+import { buildDiscussCompletionSuffix } from "../common/phase-completion.js";
 import { requestReview } from "../common/plannotator-review.js";
 import { DEFAULT_SETTINGS } from "../common/settings.js";
 import { handleWriteRequirements } from "./write-spec.js";
@@ -76,12 +78,16 @@ export function register(pi: ExtensionAPI, ctx: TffContext): void {
 								isError: true,
 							};
 						}
+						const milestone = getMilestone(database, slice.milestoneId);
+						const suffix = milestone
+							? buildDiscussCompletionSuffix(pi, database, root, slice, milestone.number)
+							: null;
 						return {
 							...writeResult,
 							content: [
 								{
 									type: "text" as const,
-									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator.`,
+									text: `${writeResult.content[0]?.text ?? ""} Approved by plannotator.${suffix?.text ?? ""}`,
 								},
 							],
 						};
