@@ -8,7 +8,7 @@ import { compressIfEnabled } from "../common/compress.js";
 import { getLatestPhaseRun, getMilestone, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { auditVerificationAgainstCapture, formatAuditReport } from "../common/evidence-auditor.js";
-import { getDiff } from "../common/git.js";
+import { getDiff, getTrackedDirtyEntries } from "../common/git.js";
 import {
 	formatMechanicalReport,
 	runMechanicalVerification,
@@ -158,6 +158,20 @@ export const verifyPhase: PhaseModule = {
 					type: "phase_failed",
 					phase: "verify",
 					error: r?.evidence ?? "BLOCKED",
+				});
+				return;
+			}
+
+			// Post-subagent worktree integrity: reviewer agents have `write` in
+			// their tool allowlist (needed for gitignored artifacts under .pi/)
+			// but are prompt-restricted to that directory. Enforce it here.
+			const dirty = getTrackedDirtyEntries(wtPath);
+			if (dirty && dirty.length > 0) {
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "verify",
+					error: `reviewer modified tracked files: ${dirty.slice(0, 3).join("; ")}`,
 				});
 				return;
 			}

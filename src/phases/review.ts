@@ -5,6 +5,7 @@ import { milestoneBranchName, sliceBranchName } from "../common/branch-naming.js
 import { commitCommand } from "../common/commit.js";
 import { getLatestPhaseRun, getMilestone } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
+import { getTrackedDirtyEntries } from "../common/git.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
 import {
@@ -107,6 +108,20 @@ export const reviewPhase: PhaseModule = {
 					type: "phase_failed",
 					phase: "review",
 					error: r?.evidence ?? "BLOCKED",
+				});
+				return;
+			}
+
+			// Post-subagent worktree integrity: reviewer has `write` in its
+			// tool allowlist for the gitignored artifact dir but must not touch
+			// tracked files. Enforce it here.
+			const dirty = getTrackedDirtyEntries(wtPath);
+			if (dirty && dirty.length > 0) {
+				pi.events.emit("tff:phase", {
+					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+					type: "phase_failed",
+					phase: "review",
+					error: `reviewer modified tracked files: ${dirty.slice(0, 3).join("; ")}`,
 				});
 				return;
 			}

@@ -38,6 +38,7 @@ vi.mock("../../../src/common/git.js", () => ({
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
+	getTrackedDirtyEntries: vi.fn().mockReturnValue([]),
 }));
 
 const SECURITY_LENS_BODY = "Security-lens body: OWASP checks and injection review.";

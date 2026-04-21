@@ -39,6 +39,7 @@ vi.mock("../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn(() => worktreePath),
 }));
 
+const mockedGitDirty = vi.fn<(cwd: string) => string[] | null>().mockReturnValue([]);
 vi.mock("../../src/common/git.js", () => ({
 	getDiff: vi.fn().mockReturnValue("diff content"),
 	gitEnv: vi.fn().mockReturnValue({}),
@@ -47,6 +48,7 @@ vi.mock("../../src/common/git.js", () => ({
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
+	getTrackedDirtyEntries: (cwd: string) => mockedGitDirty(cwd),
 }));
 
 vi.mock("../../src/common/checkpoint.js", () => ({
@@ -342,5 +344,38 @@ describe("verify phase → subagent → finalizer (end-to-end)", () => {
 		const events = readEvents(ctx.root);
 		expect(events.some((e) => e.cmd === "write-pr")).toBe(false);
 		expect(events.some((e) => e.cmd === "write-verification")).toBe(false);
+	});
+
+	it("reviewer modified tracked file → phase_failed before artifact read + no write-pr", async () => {
+		ctx = await createFullCtx();
+
+		writeFileSync(
+			join(ctx.worktreePath, ".pi", ".tff", "artifacts", "VERIFICATION.md"),
+			"AC-1: [x] passed",
+			"utf-8",
+		);
+		writeFileSync(
+			join(ctx.worktreePath, ".pi", ".tff", "artifacts", "PR.md"),
+			"## Summary",
+			"utf-8",
+		);
+
+		mockedGitDirty.mockReturnValueOnce([" M src/app.ts", "?? extra.log"].slice(0, 1));
+
+		await verifyPhase.prepare(ctx.phaseCtx);
+		ctx.emitted.length = 0;
+
+		await fireToolResult(ctx.pi, fixture, ctx.root);
+
+		const failed = ctx.emitted.find((e) => e.type === "phase_failed");
+		expect(failed).toBeDefined();
+		expect(String(failed?.error)).toContain("reviewer modified tracked files");
+		expect(String(failed?.error)).toContain("src/app.ts");
+
+		const events = readEvents(ctx.root);
+		expect(events.some((e) => e.cmd === "write-pr")).toBe(false);
+		expect(events.some((e) => e.cmd === "write-verification")).toBe(false);
+
+		mockedGitDirty.mockReturnValue([]);
 	});
 });

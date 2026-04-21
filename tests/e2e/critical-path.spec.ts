@@ -73,6 +73,7 @@ vi.mock("../../src/common/git.js", () => ({
 	getDiff: vi.fn().mockReturnValue("diff --git a/foo.ts b/foo.ts\n+added line"),
 	gitEnv: vi.fn().mockReturnValue({}),
 	ensureGitignoreEntries: vi.fn(),
+	getTrackedDirtyEntries: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock("../../src/orchestrator.js", async (importOriginal) => {

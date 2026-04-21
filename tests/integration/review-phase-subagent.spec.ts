@@ -36,6 +36,7 @@ vi.mock("../../src/common/worktree.js", () => ({
 	getWorktreePath: vi.fn(() => worktreePath),
 }));
 
+const mockedGitDirty = vi.fn<(cwd: string) => string[] | null>().mockReturnValue([]);
 vi.mock("../../src/common/git.js", () => ({
 	getDiff: vi.fn().mockReturnValue("diff content"),
 	gitEnv: vi.fn().mockReturnValue({}),
@@ -44,6 +45,7 @@ vi.mock("../../src/common/git.js", () => ({
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
+	getTrackedDirtyEntries: (cwd: string) => mockedGitDirty(cwd),
 }));
 
 vi.mock("../../src/orchestrator.js", () => ({
@@ -315,5 +317,31 @@ describe("review phase → subagent → finalizer (end-to-end)", () => {
 		const failed = ctx.emitted.find((e) => e.type === "phase_failed");
 		expect(String(failed?.error)).toContain("missing or malformed VERDICT");
 		expect(ctx.emitted.some((e) => e.type === "phase_complete")).toBe(false);
+	});
+
+	it("reviewer modified tracked file → phase_failed before artifact read + no write-review", async () => {
+		ctx = await createFullCtx();
+		writeFileSync(
+			join(ctx.worktreePath, ".pi", ".tff", "artifacts", "REVIEW.md"),
+			"## Summary\nFine.\n\nVERDICT: approved",
+			"utf-8",
+		);
+
+		mockedGitDirty.mockReturnValueOnce([" M src/phases/review.ts"]);
+
+		await reviewPhase.prepare(ctx.phaseCtx);
+		ctx.emitted.length = 0;
+		await fireToolResult(ctx.pi, fixture, ctx.root);
+
+		const failed = ctx.emitted.find((e) => e.type === "phase_failed");
+		expect(failed).toBeDefined();
+		expect(String(failed?.error)).toContain("reviewer modified tracked files");
+		expect(String(failed?.error)).toContain("src/phases/review.ts");
+
+		const events = readEvents(ctx.root);
+		expect(events.some((e) => e.cmd === "write-review")).toBe(false);
+		expect(artifactExists(ctx.root, REVIEW_REL)).toBe(false);
+
+		mockedGitDirty.mockReturnValue([]);
 	});
 });

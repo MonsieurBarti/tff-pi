@@ -43,6 +43,7 @@ vi.mock("../../src/common/git.js", () => ({
 	branchExists: vi.fn().mockReturnValue(true),
 	createBranch: vi.fn(),
 	getDefaultBranch: vi.fn().mockReturnValue("main"),
+	getTrackedDirtyEntries: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock("../../src/common/checkpoint.js", () => ({
