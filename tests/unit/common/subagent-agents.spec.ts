@@ -42,17 +42,15 @@ describe("subagent-agents: source files", () => {
 		expect(fm.inheritSkills).toBe("false");
 	});
 
-	it.each(["tff-code-reviewer", "tff-security-auditor"] as const)(
-		"%s excludes write tools",
-		(name) => {
-			const fm = parseFrontmatter(
-				readFileSync(join(RESOURCES_DIR, "agents", `${name}.md`), "utf-8"),
-			);
-			const tools = (fm.tools ?? "").split(",").map((t) => t.trim());
-			expect(tools).not.toContain("edit");
-			expect(tools).not.toContain("write");
-		},
-	);
+	it("tff-security-auditor excludes write/edit/bash", () => {
+		const fm = parseFrontmatter(
+			readFileSync(join(RESOURCES_DIR, "agents", "tff-security-auditor.md"), "utf-8"),
+		);
+		const tools = (fm.tools ?? "").split(",").map((t) => t.trim());
+		expect(tools).not.toContain("edit");
+		expect(tools).not.toContain("write");
+		expect(tools).not.toContain("bash");
+	});
 
 	it("tff-verifier includes write (for VERIFICATION.md / PR.md) but excludes edit", () => {
 		const fm = parseFrontmatter(
@@ -63,16 +61,13 @@ describe("subagent-agents: source files", () => {
 		expect(tools).not.toContain("edit");
 	});
 
-	it.each(["tff-code-reviewer", "tff-security-auditor"] as const)(
-		"%s also excludes bash",
-		(name) => {
-			const fm = parseFrontmatter(
-				readFileSync(join(RESOURCES_DIR, "agents", `${name}.md`), "utf-8"),
-			);
-			const tools = (fm.tools ?? "").split(",").map((t) => t.trim());
-			expect(tools).not.toContain("bash");
-		},
-	);
+	it("tff-code-reviewer allowlists read, bash, write, find, grep (M01-S04)", () => {
+		const fm = parseFrontmatter(
+			readFileSync(join(RESOURCES_DIR, "agents", "tff-code-reviewer.md"), "utf-8"),
+		);
+		const tools = (fm.tools ?? "").split(",").map((t) => t.trim());
+		expect(tools).toEqual(["read", "bash", "write", "find", "grep"]);
+	});
 
 	it.each(TFF_AGENT_NAMES)("%s body contains output contract", (name) => {
 		const content = readFileSync(join(RESOURCES_DIR, "agents", `${name}.md`), "utf-8");
