@@ -19,6 +19,24 @@
 ### Removed
 - `updateSliceStatus()` — status is no longer a directly-written column.
 
+## [0.1.7](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.6...tff-pi-v0.1.7) (2026-04-21)
+
+
+### Features
+
+* **M01-S03:** verify phase via subagent dispatch ([#47](https://github.com/MonsieurBarti/tff-pi/issues/47)) ([84e84b0](https://github.com/MonsieurBarti/tff-pi/commit/84e84b08dca9a73bf60620727b79f9c5de652ce0))
+* **M01-S04:** review phase via subagent dispatch ([#48](https://github.com/MonsieurBarti/tff-pi/issues/48)) ([43c204e](https://github.com/MonsieurBarti/tff-pi/commit/43c204edf673d28d303f2cd6e6a08088f5dd07f4))
+* **M01-S05:** execute phase via per-wave subagent dispatch ([#49](https://github.com/MonsieurBarti/tff-pi/issues/49)) ([57f567c](https://github.com/MonsieurBarti/tff-pi/commit/57f567ce669ea491158c55b66a6d4edb777816eb))
+* **M01-S06:** reviewer NEEDS_CONTEXT handled as failure ([#50](https://github.com/MonsieurBarti/tff-pi/issues/50)) ([e1b65c4](https://github.com/MonsieurBarti/tff-pi/commit/e1b65c4de10baf79b349593b38642d895db62d25))
+* **M01:** native pi-subagents integration ([0592ad2](https://github.com/MonsieurBarti/tff-pi/commit/0592ad2d5a7bbe4e62d00dc0946ac84911a86806))
+* **S01:** add pi-subagents agent definition files and lifecycle sync ([#45](https://github.com/MonsieurBarti/tff-pi/issues/45)) ([897db87](https://github.com/MonsieurBarti/tff-pi/commit/897db8792780f4dc8b3774dcf0091be06b6cadcc))
+* **s02:** subagentdispatcher — dispatch config, tool_result hook, consume-once reader ([#46](https://github.com/MonsieurBarti/tff-pi/issues/46)) ([8211980](https://github.com/MonsieurBarti/tff-pi/commit/8211980ae3b95626e008d678c6421474a5c9cf4b))
+
+
+### Bug Fixes
+
+* **M01:** guard verify/review finalizers against reviewer worktree mutation ([7f0c962](https://github.com/MonsieurBarti/tff-pi/commit/7f0c96228cbc19e267047532ec13c851d3863283))
+
 ## [0.1.6](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.5...tff-pi-v0.1.6) (2026-04-19)
 
 
