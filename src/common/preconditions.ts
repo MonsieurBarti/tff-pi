@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { getLatestPhaseRun, getMilestone, getSlice } from "./db.js";
+import { expectedInProgressStatusFor } from "./derived-state.js";
 import { readEvents } from "./event-log.js";
 import { canTransitionSlice } from "./state-machine.js";
 import type { Phase, SliceStatus } from "./types.js";
@@ -134,6 +135,22 @@ const CHECKERS: Record<string, Checker> = {
 		const sLabel = sliceLabel(milestone.number, slice.number);
 		const specPath = join(root, ".pi", ".tff", "milestones", mLabel, "slices", sLabel, "SPEC.md");
 		if (!existsSync(specPath)) return fail("SPEC.md missing for slice");
+		return ok();
+	},
+
+	"phase-start": (db, _root, params) => {
+		const p = params as { sliceId?: string; phase?: Phase };
+		if (!p.sliceId) return fail("params.sliceId missing");
+		if (!p.phase) return fail("params.phase missing");
+		const slice = getSlice(db, p.sliceId);
+		if (!slice) return fail(`Slice not found: ${p.sliceId}`);
+		const target = expectedInProgressStatusFor(p.phase);
+		if (!target) return fail(`Invalid phase for phase-start: ${p.phase}`);
+		if (slice.status !== target) {
+			return fail(
+				`phase-start: slice must be at '${target}' for phase '${p.phase}' (current: '${slice.status}')`,
+			);
+		}
 		return ok();
 	},
 
