@@ -255,17 +255,17 @@ function buildRecommendation(
 ): string {
 	switch (classification) {
 		case "resume":
-			return `The ${status} phase on ${sLabel} can be re-run safely. ${
+			return `Resume the ${status} phase on ${sLabel} via its orchestrator. ${
 				evidence.lastCheckpoint
 					? `Last checkpoint: ${evidence.lastCheckpoint}.`
 					: "No checkpoints found — starting fresh."
 			}`;
 		case "rollback":
-			return `Roll back to ${evidence.lastCheckpoint} and re-run the ${status} phase on ${sLabel}.`;
+			return `Roll back to ${evidence.lastCheckpoint} and re-enter the ${status} phase on ${sLabel} via its orchestrator.`;
 		case "skip":
 			return `The ${status} phase on ${sLabel} appears to have completed. Fast-forwarding DB state.`;
 		case "manual":
-			return `Cannot determine the correct recovery action for ${sLabel} (status: ${status}). Please inspect the state manually.`;
+			return `Cannot determine the correct recovery action for ${sLabel} (status: ${status}). Inspect state via \`/tff doctor\` and \`/tff status\` before running any other command.`;
 	}
 }
 
@@ -278,6 +278,22 @@ export function formatRecoveryBriefing(
 		: "unknown";
 
 	const lines: string[] = [
+		"<RECOVERY-GATE>",
+		"An interrupted TFF session was detected. Only one of these commands is",
+		"permitted as your next action:",
+		"",
+		"  - /tff recover resume   — re-enter the phase via its orchestrator",
+		"  - /tff recover dismiss  — abandon recovery; leave state as-is",
+		"",
+		"Do NOT invoke any other tool. Do NOT run bash, git, gh, editor, or",
+		"subagent tools. Do NOT call any tff_* or third-party tool. The phase",
+		"orchestrator is the ONLY path that correctly updates slice status,",
+		"phase_run rows, event log, and worktree state. Inline work bypasses",
+		"these and corrupts project state (stuck tasks, misrouted PRs, lost",
+		"task closure events). The state you see right now is recoverable via",
+		"the commands above; it is NOT recoverable once you act outside them.",
+		"</RECOVERY-GATE>",
+		"",
 		"## TFF Recovery — Interrupted Session Detected",
 		"",
 		`**What was running:** ${diagnosis.status} phase on ${diagnosis.sliceLabel}`,
@@ -311,28 +327,12 @@ export function formatRecoveryBriefing(
 		}
 	}
 
-	// For commit-requiring phases, remind the agent about git discipline so that
-	// /tff verify can find the diff even when recovery delivers this brief
-	// instead of the full execute/ship prompt.
-	if (diagnosis.status === "executing" || diagnosis.status === "shipping") {
-		// Derive the milestone label from the slice label (e.g. "M01-S02" → "M01").
-		// sliceLabel format is "Mnn-Snn"; split on "-" to grab the first part.
-		const mLabel = diagnosis.sliceLabel.split("-")[0] ?? diagnosis.sliceLabel;
-		const milestoneBranch = diagnosis.milestoneBranch ?? `milestone/${mLabel}`;
-		lines.push("");
-		lines.push("### Git discipline reminder");
-		lines.push("");
-		lines.push(
-			`This phase requires git commits. Before \`/tff verify\` runs \`git diff ${milestoneBranch}...HEAD\`, make sure every code change has been \`git add\`-ed and \`git commit\`-ed in the slice worktree. Untracked files do NOT count as changes.`,
-		);
-	}
-
 	lines.push("");
 	lines.push(`### Recommendation: ${diagnosis.classification}`);
 	lines.push(diagnosis.recommendation);
 	lines.push("");
 	lines.push(
-		`To proceed: run \`/tff recover ${diagnosis.classification}\` or \`/tff recover dismiss\``,
+		`To proceed, run EXACTLY ONE of: \`/tff recover ${diagnosis.classification}\` or \`/tff recover dismiss\`. No other command or tool call is permitted until you run one of these.`,
 	);
 
 	return lines.join("\n");
