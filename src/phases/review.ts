@@ -101,7 +101,7 @@ export const reviewPhase: PhaseModule = {
 			const r = result.results[0];
 
 			// AC-10: BLOCKED / malformed
-			if (!r || r.status === "BLOCKED") {
+			if (!r || r.status === "BLOCKED" || r.status === "NEEDS_CONTEXT") {
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
 					type: "phase_failed",

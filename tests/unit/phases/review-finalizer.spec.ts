@@ -151,6 +151,14 @@ function doneResult(): DispatchResult {
 	};
 }
 
+function needsContextResult(evidence: string): DispatchResult {
+	return {
+		mode: "single",
+		capturedAt: "",
+		results: [{ status: "NEEDS_CONTEXT", summary: "", evidence, exitCode: 0 }],
+	};
+}
+
 function writeReviewArtifact(t: TestCtx, content: string): void {
 	writeFileSync(join(t.worktreePath, ".pi", ".tff", "artifacts", "REVIEW.md"), content, "utf-8");
 }
@@ -189,6 +197,21 @@ describe("review finalizer", () => {
 		expect(artifactExists(t.root, REVIEW_REL)).toBe(false);
 		expect(readEvents(t.root)).toHaveLength(0);
 		// tasks still closed
+		const tasks = getTasks(t.db, t.sliceId);
+		for (const task of tasks) expect(task.status).toBe("closed");
+	});
+
+	it("AC-10b: NEEDS_CONTEXT result → phase_failed with evidence; no copy; no commit; tasks untouched", async () => {
+		await getFinalizer()({
+			root: t.root,
+			result: needsContextResult("need more info about diff"),
+			calls: [],
+		});
+		const failed = t.emitted.find((e) => e.type === "phase_failed");
+		expect(failed?.error).toBe("need more info about diff");
+		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
+		expect(artifactExists(t.root, REVIEW_REL)).toBe(false);
+		expect(readEvents(t.root)).toHaveLength(0);
 		const tasks = getTasks(t.db, t.sliceId);
 		for (const task of tasks) expect(task.status).toBe("closed");
 	});
