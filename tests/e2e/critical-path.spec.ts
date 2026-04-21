@@ -73,6 +73,7 @@ vi.mock("../../src/common/git.js", () => ({
 	getDiff: vi.fn().mockReturnValue("diff --git a/foo.ts b/foo.ts\n+added line"),
 	gitEnv: vi.fn().mockReturnValue({}),
 	ensureGitignoreEntries: vi.fn(),
+	getTrackedDirtyEntries: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock("../../src/orchestrator.js", async (importOriginal) => {
@@ -310,7 +311,9 @@ describe("E2E critical path", () => {
 			expect(reviewResult.message).toBeDefined();
 			expect(reviewPi.sendUserMessage).not.toHaveBeenCalled();
 			const reviewMsg = reviewResult.message ?? "";
-			expect(reviewMsg).toContain("Security Review");
+			// M01-S04: review runs as subagent dispatch; message is the DISPATCHER_PROMPT,
+			// and the security-lens body is persisted into dispatch-config.json's task body.
+			expect(reviewMsg).toMatch(/subagent/i);
 
 			// Step 10: Simulate REVIEW.md and PR.md, set status to "reviewing"
 			writeArtifact(

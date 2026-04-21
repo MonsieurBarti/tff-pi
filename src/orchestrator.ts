@@ -23,7 +23,7 @@ export interface PhasePrompt {
 	label: string;
 }
 
-const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
+export const RESOURCES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "resources");
 
 export function findActiveSlice(db: Database.Database): Slice | null {
 	const project = getProject(db);
@@ -73,7 +73,7 @@ const PHASE_AGENT: Record<Phase, string> = {
 	"ship-fix": "inline-fixer",
 };
 
-const PHASE_TOOLS: Record<Phase, string[]> = {
+export const PHASE_TOOLS: Record<Phase, string[]> = {
 	discuss: [
 		"tff_classify",
 		"tff_write_spec",
@@ -89,15 +89,9 @@ const PHASE_TOOLS: Record<Phase, string[]> = {
 		"tff-fff_search",
 	],
 	plan: ["tff_write_plan", "tff_query_state", "tff-fff_find", "tff-fff_grep", "tff_ask_user"],
-	execute: ["tff_query_state", "tff-fff_find", "tff-fff_grep", "tff-fff_search"],
-	verify: [
-		"tff_write_verification",
-		"tff_write_pr",
-		"tff_query_state",
-		"tff-fff_find",
-		"tff-fff_grep",
-	],
-	review: ["tff_write_review", "tff_query_state", "tff-fff_find", "tff-fff_grep"],
+	execute: [],
+	verify: [],
+	review: [],
 	ship: ["tff_query_state"],
 	"ship-fix": ["tff_ask_user", "tff_ship_apply_done"],
 };
@@ -258,12 +252,12 @@ export function verifyPhaseArtifacts(
 		if (!readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/VERIFICATION.md`)) {
 			missing.push("VERIFICATION.md");
 		}
-		// Audit block marker — written by tff_write_verification when the
+		// Audit block marker — written by the verify finalizer when the
 		// evidence auditor finds claim/tool-call mismatches. Its presence
 		// means the phase is incomplete even if VERIFICATION.md exists.
 		if (readArtifact(root, `milestones/${mLabel}/slices/${sLabel}/.audit-blocked`)) {
 			missing.push(
-				"audit mismatches must be resolved (delete .audit-blocked via a clean tff_write_verification)",
+				"audit mismatches must be resolved (re-run the verify phase so the subagent produces a clean VERIFICATION.md)",
 			);
 		}
 	} else if (phase === "review") {

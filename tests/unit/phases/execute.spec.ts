@@ -3,14 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { initTffDirectory } from "../../../src/common/artifacts.js";
+import { initTffDirectory, writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
 	getMilestones,
 	getProject,
 	getSlice,
 	getSlices,
+	getTasks,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	insertTask,
@@ -19,11 +21,13 @@ import {
 } from "../../../src/common/db.js";
 import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
+import {
+	type DispatchBatch,
+	__getFinalizerForTest,
+	__resetFinalizersForTest,
+} from "../../../src/common/subagent-dispatcher.js";
 import { must } from "../../helpers.js";
 
-// execute.prepare() no longer calls createWorktree/createCheckpoint directly —
-// those are deferred to session_start via the marker file. We still mock the
-// module so any accidental call is caught, and to provide getWorktreePath.
 vi.mock("../../../src/common/worktree.js", () => ({
 	createWorktree: vi.fn().mockReturnValue("/tmp/fake-worktree"),
 	worktreeExists: vi.fn().mockReturnValue(false),
@@ -39,12 +43,7 @@ vi.mock("../../../src/common/checkpoint.js", () => ({
 }));
 
 vi.mock("../../../src/orchestrator.js", () => ({
-	loadPhaseResources: vi
-		.fn()
-		.mockReturnValue({ agentPrompt: "# Executor", protocol: "# Protocol" }),
-	determineNextPhase: vi.fn(),
-	findActiveSlice: vi.fn(),
-	collectPhaseContext: vi.fn().mockReturnValue({}),
+	enrichContextWithFff: vi.fn(),
 	predecessorPhase: vi.fn().mockReturnValue(null),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
 }));
@@ -57,12 +56,18 @@ import {
 	pendingWorktreeMarkerPath,
 } from "../../../src/phases/execute.js";
 
+function readDispatchConfig(root: string): DispatchBatch {
+	const configPath = join(root, ".pi", ".tff", "dispatch-config.json");
+	return JSON.parse(readFileSync(configPath, "utf-8")) as DispatchBatch;
+}
+
 describe("executePhase", () => {
 	let db: Database.Database;
 	let root: string;
 	let sliceId: string;
 
 	beforeEach(() => {
+		__resetFinalizersForTest();
 		db = openDatabase(":memory:");
 		applyMigrations(db);
 		root = mkdtempSync(join(tmpdir(), "tff-exec-test-"));
@@ -85,11 +90,8 @@ describe("executePhase", () => {
 		expect(typeof executePhase.prepare).toBe("function");
 	});
 
-	it("sends message with task list via sendUserMessage", async () => {
+	it("AC-1: happy path returns { success: true, retry: false, message: <DISPATCHER_PROMPT> }", async () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
-		insertTask(db, { sliceId, number: 3, title: "API", wave: 2 });
-
 		const sendUserMessage = vi.fn();
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
@@ -105,19 +107,21 @@ describe("executePhase", () => {
 		};
 		const result = await executePhase.prepare(ctx);
 		expect(result.success).toBe(true);
-		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(result.retry).toBe(false);
 		expect(result.message).toBeDefined();
-		expect(result.message).toContain("Wave 1");
-		expect(result.message).toContain("Wave 2");
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		// The message is the DISPATCHER_PROMPT, which references the subagent tool.
+		expect(result.message).toMatch(/subagent/i);
 	});
 
-	it("message contains a HARD-GATE block binding the agent to the worktree path", async () => {
+	it("AC-2: dispatch-config.json is parallel mode with one task per open wave-1 task", async () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		const sendUserMessage = vi.fn();
+		insertTask(db, { sliceId, number: 2, title: "DB", wave: 1 });
+		insertTask(db, { sliceId, number: 3, title: "API", wave: 2 });
 		const slice = must(getSlice(db, sliceId));
 		const ctx: PhaseContext = {
 			pi: {
-				sendUserMessage,
+				sendUserMessage: vi.fn(),
 				events: { emit: vi.fn(), on: vi.fn() },
 			} as unknown as PhaseContext["pi"],
 			db,
@@ -126,17 +130,135 @@ describe("executePhase", () => {
 			milestoneNumber: 1,
 			settings: DEFAULT_SETTINGS,
 		};
-		const result = await executePhase.prepare(ctx);
-		expect(sendUserMessage).not.toHaveBeenCalled();
-		const msg = result.message ?? "";
-		// The worktree gate is a critical invariant — regressing it causes
-		// agents to write to the project root and the verify phase sees an
-		// empty diff. Guard it structurally.
-		expect(msg).toContain("<HARD-GATE>");
-		expect(msg).toContain("WORKTREE:");
-		expect(msg).toContain("/tmp/fake-worktree"); // the mocked createWorktree path
-		expect(msg).toMatch(/cd\s+\/tmp\/fake-worktree/);
-		expect(msg).toMatch(/Do NOT write to the project root/i);
+		await executePhase.prepare(ctx);
+		const cfg = readDispatchConfig(root);
+		expect(cfg.phase).toBe("execute");
+		expect(cfg.mode).toBe("parallel");
+		expect(cfg.sliceId).toBe(slice.id);
+		expect(cfg.tasks).toHaveLength(2);
+		for (const t of cfg.tasks) {
+			expect(t.agent).toBe("tff-executor");
+			expect(t.cwd).toBe("/tmp/fake-worktree");
+			expect(typeof t.taskId).toBe("string");
+		}
+	});
+
+	it("AC-2: single-task wave is also dispatched as parallel (keeps finalizer uniform)", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Only", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.prepare(ctx);
+		const cfg = readDispatchConfig(root);
+		expect(cfg.mode).toBe("parallel");
+		expect(cfg.tasks).toHaveLength(1);
+	});
+
+	it("AC-3: each task's artifacts include SPEC.md, PLAN.md, Worktree gate (in that order)", async () => {
+		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# Spec body");
+		writeArtifact(root, "milestones/M01/slices/M01-S01/PLAN.md", "# Plan body");
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.prepare(ctx);
+		const cfg = readDispatchConfig(root);
+		// After prepareDispatch persists, artifacts are stripped and folded into `task` body.
+		// We still verify the task body mentions the fundamental blocks.
+		const body = cfg.tasks[0]?.task ?? "";
+		expect(body).toContain("SPEC.md");
+		expect(body).toContain("PLAN.md");
+		expect(body).toContain("<HARD-GATE>");
+		expect(body).toContain("WORKTREE:");
+	});
+
+	it("AC-4: task body contains label, wave, UUID, worktree path, and the 7-point Rules block", async () => {
+		insertTask(db, { sliceId, number: 2, title: "DB schema", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.prepare(ctx);
+		const cfg = readDispatchConfig(root);
+		const body = cfg.tasks[0]?.task ?? "";
+		const [task] = getTasks(db, slice.id);
+		expect(body).toContain("T02");
+		expect(body).toContain("Wave: 1 of");
+		expect(body).toContain(must(task).id);
+		expect(body).toContain("/tmp/fake-worktree");
+		// 7-point Rules
+		for (const marker of ["1.", "2.", "3.", "4.", "5.", "6.", "7."]) {
+			expect(body).toContain(marker);
+		}
+		expect(body).toContain("STATUS: <DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED>");
+	});
+
+	it("AC-5: registerPhaseFinalizer('execute', …) is called exactly once per prepare()", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		expect(__getFinalizerForTest("execute")).toBeUndefined();
+		await executePhase.prepare(ctx);
+		expect(__getFinalizerForTest("execute")).toBeDefined();
+	});
+
+	it("AC-7: phase_start is emitted before registerPhaseFinalizer", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const events: string[] = [];
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: {
+					emit: (_ch: string, ev: { type: string }) => events.push(ev.type),
+					on: vi.fn(),
+				},
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.prepare(ctx);
+		expect(events[0]).toBe("phase_start");
+		expect(__getFinalizerForTest("execute")).toBeDefined();
 	});
 
 	it("prepare() does NOT call createWorktree or createCheckpoint synchronously", async () => {
@@ -180,7 +302,115 @@ describe("executePhase", () => {
 		expect(marker.milestoneBranch).toMatch(/^milestone\/[0-9a-f]{8}$/);
 	});
 
-	it("fails with phase_failed when no tasks exist in DB", async () => {
+	it("AC-8: feedback stash — REVIEW_FEEDBACK.md is folded into artifacts, tasks reset, file unlinked", async () => {
+		// Seed a task in "closed" status (simulating post-execute state) so we can
+		// assert resetTasksToOpen was called.
+		const taskId = insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		db.prepare("UPDATE task SET status = 'closed' WHERE id = ?").run(taskId);
+		// Stash a REVIEW_FEEDBACK.md artifact.
+		const feedbackRel = "milestones/M01/slices/M01-S01/REVIEW_FEEDBACK.md";
+		writeArtifact(root, feedbackRel, "## Issues\n- fix auth guard");
+		const feedbackPath = join(root, ".pi", ".tff", feedbackRel);
+		expect(existsSync(feedbackPath)).toBe(true);
+
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await executePhase.prepare(ctx);
+		expect(result.success).toBe(true);
+		// File was unlinked.
+		expect(existsSync(feedbackPath)).toBe(false);
+		// Task was reset to open (otherwise there would be no wave-1 task to dispatch).
+		const tasks = getTasks(db, sliceId);
+		expect(tasks[0]?.status).toBe("open");
+		// Dispatch config embeds the feedback body somewhere in the task body
+		// (the feedback artifact is attached via labelled block which prepareDispatch folds into `task`).
+		const cfg = readDispatchConfig(root);
+		const body = cfg.tasks[0]?.task ?? "";
+		expect(body).toContain("fix auth guard");
+	});
+
+	it("AC-9: short-circuit — no open tasks → commitCommand('execute-done') + phase_complete, no dispatch", async () => {
+		const taskId = insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		db.prepare("UPDATE task SET status = 'closed' WHERE id = ?").run(taskId);
+		// Move slice into 'executing' status so commitCommand's preconditions pass.
+		db.prepare("UPDATE slice SET status = 'executing' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "started",
+			startedAt: new Date().toISOString(),
+		});
+		const emitted: string[] = [];
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: {
+					emit: (_ch: string, ev: { type: string }) => emitted.push(ev.type),
+					on: vi.fn(),
+				},
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await executePhase.prepare(ctx);
+		expect(result.success).toBe(true);
+		expect(result.message).toBeUndefined();
+		expect(__getFinalizerForTest("execute")).toBeUndefined();
+		expect(emitted).toContain("phase_complete");
+		// No dispatch config was written.
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+	});
+
+	it("AC-9: short-circuit — idempotent when phase_run already 'completed'", async () => {
+		const taskId = insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		db.prepare("UPDATE task SET status = 'closed' WHERE id = ?").run(taskId);
+		db.prepare("UPDATE slice SET status = 'executing' WHERE id = ?").run(sliceId);
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "execute",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+		db.prepare("UPDATE phase_run SET finished_at = ? WHERE slice_id = ? AND phase = 'execute'").run(
+			new Date().toISOString(),
+			sliceId,
+		);
+		const emitted: string[] = [];
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: {
+					emit: (_ch: string, ev: { type: string }) => emitted.push(ev.type),
+					on: vi.fn(),
+				},
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		// Should not throw from commitCommand since already completed → skip
+		await expect(executePhase.prepare(ctx)).resolves.toMatchObject({ success: true });
+		expect(emitted).toContain("phase_complete");
+	});
+
+	it("AC-10: no-tasks error when slice has zero tasks in DB", async () => {
 		const slice = must(getSlice(db, sliceId));
 		const mockEmit = vi.fn();
 		const sendUserMessage = vi.fn();
@@ -205,9 +435,29 @@ describe("executePhase", () => {
 		expect(failedCalls).toHaveLength(1);
 		const failedEvent = failedCalls[0]?.[1] as { error?: string };
 		expect(failedEvent.error).toMatch(/no tasks/i);
-		const completeCalls = mockEmit.mock.calls.filter(
-			([ch, e]) => ch === "tff:phase" && e.type === "phase_complete",
-		);
-		expect(completeCalls).toHaveLength(0);
+		expect(__getFinalizerForTest("execute")).toBeUndefined();
+	});
+
+	it("message contains HARD-GATE — regression guard for worktree binding", async () => {
+		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		await executePhase.prepare(ctx);
+		const cfg = readDispatchConfig(root);
+		const body = cfg.tasks[0]?.task ?? "";
+		expect(body).toContain("<HARD-GATE>");
+		expect(body).toContain("WORKTREE:");
+		expect(body).toMatch(/cd\s+\/tmp\/fake-worktree/);
+		expect(body).toMatch(/Do NOT write to the project root/i);
 	});
 });

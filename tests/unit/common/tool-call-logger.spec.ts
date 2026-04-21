@@ -168,18 +168,18 @@ describe("ToolCallLogger", () => {
 
 		fire("tool_call", {
 			toolCallId: "c5",
-			toolName: "tff_write_verification",
+			toolName: "tff_write_plan",
 			input: { content: "..." },
 		});
 		fire("tool_execution_end", {
 			toolCallId: "c5",
-			toolName: "tff_write_verification",
+			toolName: "tff_write_plan",
 			result: "written",
 			isError: false,
 		});
 
 		expect(emissions).toHaveLength(1);
-		expect(emissions[0]?.data).toMatchObject({ toolName: "tff_write_verification" });
+		expect(emissions[0]?.data).toMatchObject({ toolName: "tff_write_plan" });
 	});
 
 	it("dispose unsubscribes and clears pending", () => {

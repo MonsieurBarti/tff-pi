@@ -1,33 +1,20 @@
 # Review Protocol
 
-<HARD-GATE>
-The review phase is NOT COMPLETE until `tff_write_review` returns
-successfully. This is the only tool that emits phase_complete for review.
-- verdict='approved' → unlocks ship
-- verdict='denied'  → resets tasks to open, routes slice back to execute
-</HARD-GATE>
+The review phase runs as a single subagent dispatch. You do NOT author `phase_complete`; the dispatcher's `tool_result` hook runs the review finalizer, which ingests REVIEW.md, parses your VERDICT line, and emits `phase_complete` (approved) or `phase_failed` (denied, missing artifact, or malformed verdict).
 
-## Input
-- SPEC.md, PLAN.md, VERIFICATION.md (inlined)
-- Diff: NOT inlined. Run `git diff <milestoneBranch>...<sliceBranch>` yourself in the worktree. The phase message gives you the exact commands.
-- Review type: "code" or "security"
+## Input (provided as labeled artifact blocks)
+- SPEC.md (ACs), PLAN.md, VERIFICATION.md, security-lens reference
+- Diff: inspect yourself in `<cwd>` using `git diff <milestoneBranch>...<sliceBranch>`. Use `--stat` first, then scope by file.
 
-## Recommended workflow
-1. `git diff --stat` to see file footprint
-2. Read SPEC/PLAN/VERIFICATION to form a review lens
-3. Diff files in priority order (largest/riskiest first); use `-- <path>` to scope
-4. Record findings with file:line references
+## Steps
+1. Code review lens: read SPEC.md + PLAN.md; for each changed file, decide Critical / Important / Suggestion per finding, citing `file:line`.
+2. Security review lens: same diff, audit per security-lens guidance (injection, auth/authz, secrets, crypto, input validation). Cite `file:line` + severity.
+3. Decide VERDICT: `approved` if no Critical findings; `denied` otherwise.
+4. Write `<cwd>/.pi/.tff/artifacts/REVIEW.md` — combined code + security findings, tasks to rework (if denied), and a trailing line: `VERDICT: approved` or `VERDICT: denied`.
+5. End with `STATUS: <...>` and `EVIDENCE: <...>`.
 
-## Output
-Call `tff_write_review(sliceId, content, verdict)`:
-- content = markdown with: Summary, Findings table (file, line, severity, message), Tasks to rework
-- verdict = "approved" | "denied"
-
-## Rules
-- approved=no blocking issues | denied=changes required
-- findings: specific files+lines, not vague
-- tasksToRework: which PLAN tasks need re-execution
-
-## Phase end
-
-When `tff_write_review` returns successfully (verdict=approved), the review phase is complete. STOP. Do not call any further tools. The user will advance to ship when ready. (If verdict=denied, the tool itself routes back to execute — stop, then the user re-runs execute.)
+## Output contract
+- REVIEW.md MUST contain exactly one line matching `^VERDICT: (approved|denied)$`.
+- The VERDICT line MUST be uncompressed — exact wording, lowercase verdict value, no R1-R10 substitutions — even when `compress.user_artifacts` is enabled. Only this line is exempt from compression; the rest of REVIEW.md follows the artifact compression setting.
+- If VERDICT is missing or malformed, the finalizer stamps phase_failed — the phase does NOT complete.
+- `denied` routes the slice back to execute with tasks reset to open.

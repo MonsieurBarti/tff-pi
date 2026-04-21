@@ -1,29 +1,17 @@
 # Verify Protocol
 
-<HARD-GATE>
-The verify phase is NOT COMPLETE until `tff_write_verification` returns
-successfully. Writing VERIFICATION.md via Write/Edit does NOT mark the
-phase complete — only this tool emits phase_complete.
-</HARD-GATE>
+The verify phase runs as a single subagent dispatch. You do NOT author `phase_complete`; the dispatcher's `tool_result` hook runs the verify finalizer, which ingests the artifacts you write and emits `phase_complete` on success.
 
-## Input
-- SPEC.md (ACs), PLAN.md, diff from milestone branch
-- test_command setting (optional)
+## Input (provided as labeled artifact blocks)
+- SPEC.md (ACs), PLAN.md, diff from milestone branch, mechanical verification report (if present), PR body template (if present)
 
 ## Steps
-1. AC check: for each AC-N → inspect code → PASS/FAIL + explanation
-2. Test discovery:
-   - "disabled" → skip | set → use it | absent → auto-discover (package.json, Makefile)
-3. Scoped test run: match changed files → test files. Fallback: full suite
-4. Call `tff_write_verification(sliceId, content)` with a markdown report containing:
-   - AC checklist with `- [x]` / `- [ ]` per AC-N (ship pre-flight scans this)
-   - Test command run and pass/fail counts
-   - On failures: which task(s) need rework
+1. AC check: for each AC-N → inspect code → PASS/FAIL + evidence.
+2. Test discovery: disabled → skip; set → use it; auto → discover.
+3. Scoped test run (match changed files → test files; fallback full suite).
+4. Write `<cwd>/.pi/.tff/artifacts/VERIFICATION.md`: AC checklist with `- [x]` / `- [ ]`, test command + counts, on fail the task(s) to rework.
+5. Write `<cwd>/.pi/.tff/artifacts/PR.md`: concise reviewer-facing description (≤20 lines), uncompressed.
+6. End with `STATUS: <...>` and `EVIDENCE: <...>`.
 
-## Honesty — audit of bash claims
-
-Any shell command you cite in VERIFICATION.md (e.g., ``ran `bun run test` — all pass``) is audited against the actual tool-call records captured during this phase. If the captured command's exit doesn't match your claim, `tff_write_verification` returns an audit error and DOES NOT mark the phase complete. Fix the claim to match reality, then call the tool again. Do NOT retry with the same content.
-
-## Phase end
-
-When `tff_write_verification` returns successfully, the verify phase is complete. STOP. Do not call any further tools. The user will advance to review when ready.
+## Honesty
+Every `bash` command you ran during this phase is captured from your message stream and audited against VERIFICATION.md claims by the finalizer. If a cited command's `isError` doesn't match the claim, the finalizer stamps `.audit-blocked` and emits `phase_failed` — the phase does NOT complete. Don't claim what you didn't run.

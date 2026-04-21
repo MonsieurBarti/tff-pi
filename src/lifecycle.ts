@@ -24,9 +24,12 @@ import { tailReplay } from "./common/replay.js";
 import { type SessionLock, isLockStale, readLock } from "./common/session-lock.js";
 import { loadSettings } from "./common/settings.js";
 import { ensureStateBranch } from "./common/state-branch.js";
+import { ensureProjectAgents } from "./common/subagent-agents.js";
+import { registerDispatchHook } from "./common/subagent-dispatcher.js";
 import { ToolCallLogger, type ToolCallLoggerPi } from "./common/tool-call-logger.js";
 import { ensureSliceWorktree } from "./common/worktree.js";
 import { detectRenameAlert } from "./lifecycle-rename-detect.js";
+import { RESOURCES_DIR } from "./orchestrator.js";
 import { type PendingWorktreeMarker, pendingWorktreeMarkerPath } from "./phases/execute.js";
 import { checkForUpdates } from "./update-check.js";
 
@@ -124,6 +127,12 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	ctx.toolCallLogger = new ToolCallLogger(piAdapter, pi.events);
 	ctx.toolCallLogger.subscribe();
 
+	try {
+		registerDispatchHook(pi);
+	} catch (err) {
+		logException("lifecycle", err, { fn: "register-dispatch-hook" });
+	}
+
 	// -------------------------------------------------------------------------
 	// Lifecycle: session_start
 	// -------------------------------------------------------------------------
@@ -198,6 +207,12 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 		}
 		ctx.projectRoot = root;
 		setLogBasePath(root);
+
+		try {
+			ensureProjectAgents(root, RESOURCES_DIR);
+		} catch (err) {
+			logException("lifecycle", err, { fn: "ensure-project-agents", id: root });
+		}
 
 		// Refresh ultra-compress active level from user's state store
 		await refreshCompressionLevel(root);

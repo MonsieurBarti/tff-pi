@@ -254,7 +254,7 @@ function projectStateRename(_db: Database.Database, _root: string, _params: unkn
 	// FS-side operation; no DB projection in S02.
 }
 
-const HANDLERS: Record<string, ProjectionHandler> = {
+export const HANDLERS: Record<string, ProjectionHandler> = {
 	"create-project": projectCreateProject,
 	"create-milestone": projectCreateMilestone,
 	"create-slice": projectCreateSlice,

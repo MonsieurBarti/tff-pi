@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTffContext } from "../../../src/common/context.js";
+import { TFF_AGENT_NAMES } from "../../../src/common/subagent-agents.js";
 import { registerAllTools } from "../../../src/tools/index.js";
 
 /**
@@ -92,14 +93,28 @@ describe("tool registry consistency", () => {
 	// registered in this repo's index.ts. Exclude them from the assertion.
 	const EXTERNAL_PREFIXES = ["tff-fff_", "tff-search_", "tff-fetch_"];
 
+	// pi-subagents agent names (e.g. tff-executor, tff-code-reviewer) match the
+	// `tff-*` regex but are agent identifiers, not tool names. Exclude them.
+	const AGENT_NAMES: ReadonlySet<string> = new Set<string>(TFF_AGENT_NAMES);
+	// Tool names that used to be registered but were deliberately deleted.
+	// Protocols / agents may mention them in narrative prose ("do NOT call X;
+	// it no longer exists") to steer subagents away — that is expected and
+	// should not trigger the consistency check.
+	const DELETED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+		"tff_checkpoint",
+		"tff_execute_done",
+	]);
+	const isExcluded = (name: string) =>
+		EXTERNAL_PREFIXES.some((p) => name.startsWith(p)) ||
+		AGENT_NAMES.has(name) ||
+		DELETED_TOOL_NAMES.has(name);
+
 	it("registers at least the core writer tools", () => {
 		const expected = [
 			"tff_write_spec",
 			"tff_write_requirements",
 			"tff_write_research",
 			"tff_write_plan",
-			"tff_write_verification",
-			"tff_write_review",
 			"tff_classify",
 			"tff_ask_user",
 			"tff_query_state",
@@ -117,7 +132,7 @@ describe("tool registry consistency", () => {
 		for (const { path, content } of resources) {
 			const referenced = extractToolNames(content);
 			for (const name of referenced) {
-				if (EXTERNAL_PREFIXES.some((p) => name.startsWith(p))) continue;
+				if (isExcluded(name)) continue;
 				expect(
 					registered.has(name),
 					`${path} references tool '${name}' but it is not registered in index.ts. Either register it or remove the reference.`,
@@ -139,7 +154,7 @@ describe("tool registry consistency", () => {
 		for (const { path, content } of resources) {
 			const referenced = extractToolNames(content);
 			for (const name of referenced) {
-				if (EXTERNAL_PREFIXES.some((p) => name.startsWith(p))) continue;
+				if (isExcluded(name)) continue;
 				expect(
 					registeredRuntime.has(name),
 					`${path} references tool '${name}' but it was not registered by registerAllTools. Either add it to src/tools/index.ts's TOOL_REGISTRARS array, or remove the reference.`,
@@ -152,13 +167,32 @@ describe("tool registry consistency", () => {
 		const phaseTools = extractPhaseTools(ORCH);
 		for (const [phase, tools] of phaseTools) {
 			for (const name of tools) {
-				if (EXTERNAL_PREFIXES.some((p) => name.startsWith(p))) continue;
+				if (isExcluded(name)) continue;
 				expect(
 					registered.has(name),
 					`PHASE_TOOLS.${phase} includes '${name}' but it is not registered in index.ts.`,
 				).toBe(true);
 			}
 		}
+	});
+
+	it("tff_write_verification, tff_write_pr, tff_write_review are no longer registered (M01-S03 T07, M01-S04 T04)", () => {
+		const registeredRuntime = new Set<string>();
+		const mockPi = {
+			registerTool: (def: { name: string }) => {
+				registeredRuntime.add(def.name);
+			},
+		} as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI;
+		const ctx = createTffContext();
+		registerAllTools(mockPi, ctx);
+		expect(registeredRuntime.has("tff_write_verification")).toBe(false);
+		expect(registeredRuntime.has("tff_write_pr")).toBe(false);
+		expect(registeredRuntime.has("tff_write_review")).toBe(false);
+		// Also assert the static-source extractor agrees — catches accidental
+		// re-addition through import-side-effects.
+		expect(registered.has("tff_write_verification")).toBe(false);
+		expect(registered.has("tff_write_pr")).toBe(false);
+		expect(registered.has("tff_write_review")).toBe(false);
 	});
 });
 
@@ -186,8 +220,6 @@ describe("phase completion path coverage", () => {
 			discuss: "tff_write_spec", // discuss has 3 writers (spec, requirements, classify); any completes
 			research: "tff_write_research",
 			plan: "tff_write_plan",
-			verify: "tff_write_verification",
-			review: "tff_write_review",
 		};
 		for (const phase of PHASES) {
 			const src = PHASE_FILES[phase];

@@ -53,6 +53,26 @@ export function getCurrentBranch(cwd?: string): string | null {
 	}
 }
 
+// Returns porcelain entries for tracked-file modifications in the worktree,
+// excluding untracked files (leading `??`). Used by verify/review finalizers
+// as defense-in-depth: reviewer subagents have `write` in their tool allowlist
+// (needed for artifacts under the gitignored `.pi/` tree), but must not mutate
+// any tracked file. A non-empty return from this helper means the reviewer
+// violated its prompt-level contract; the phase fails with evidence.
+export function getTrackedDirtyEntries(cwd: string): string[] | null {
+	try {
+		const out = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=no"], {
+			cwd,
+			encoding: "utf-8",
+			stdio: "pipe",
+			env: gitEnv(),
+		});
+		return out.split("\n").filter((line) => line.trim().length > 0);
+	} catch {
+		return null;
+	}
+}
+
 export function getDiff(baseBranch: string, cwd?: string): string | null {
 	try {
 		return execFileSync("git", ["diff", `${baseBranch}...HEAD`], {

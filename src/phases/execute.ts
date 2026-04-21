@@ -2,10 +2,25 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readArtifact } from "../common/artifacts.js";
 import { milestoneBranchName } from "../common/branch-naming.js";
-import { getMilestone, getTasksByWave, resetTasksToOpen } from "../common/db.js";
+import { createCheckpoint } from "../common/checkpoint.js";
+import { commitCommand } from "../common/commit.js";
+import {
+	getLatestPhaseRun,
+	getMilestone,
+	getTasksByWave,
+	resetTasksToOpen,
+	updateTaskStatus,
+} from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
+import {
+	type DispatchConfig,
+	type FinalizeInput,
+	type FinalizeOutcome,
+	prepareDispatch,
+	registerPhaseFinalizer,
+} from "../common/subagent-dispatcher.js";
 import {
 	type Task,
 	milestoneLabel,
@@ -14,12 +29,7 @@ import {
 	taskLabel,
 } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
-import {
-	enrichContextWithFff,
-	loadPhaseResources,
-	predecessorPhase,
-	verifyPhaseArtifacts,
-} from "../orchestrator.js";
+import { enrichContextWithFff, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
 
 export const PENDING_WORKTREE_MARKER = "pending-execute-worktree.json";
 
@@ -41,6 +51,95 @@ export function writePendingWorktreeMarker(root: string, marker: PendingWorktree
 	writeFileSync(pendingWorktreeMarkerPath(root), JSON.stringify(marker), "utf-8");
 }
 
+interface ExecutorCtxBundle {
+	specMd: string;
+	planMd: string;
+	wtPath: string;
+	sLabel: string;
+	totalWaves: number;
+	reviewFeedback: string;
+	extrasContextByTaskId: Map<string, string>;
+	testInstruction: string;
+	compressHint: string;
+}
+
+function buildWorktreeGate(wtPath: string): string {
+	return [
+		"<HARD-GATE>",
+		"All file writes and git operations MUST target the worktree path below.",
+		"Do NOT write to the project root. The worktree is a separate git branch.",
+		"",
+		`  WORKTREE: ${wtPath}`,
+		"",
+		"Required discipline:",
+		`  - Before any bash command: \`cd ${wtPath}\` (or pass cwd to the tool).`,
+		`  - For Write/Edit: use ABSOLUTE paths under ${wtPath}/...`,
+		"  - `git commit` must run inside the worktree so commits land on the slice branch.",
+		"  - Never modify files outside this directory (including the TFF parent repo).",
+		"",
+		"If you write to the wrong directory, the verify phase will see an empty",
+		"diff and refuse to advance — you will have to redo everything.",
+		"</HARD-GATE>",
+	].join("\n");
+}
+
+function buildExecutorTaskBody(task: Task, ctxBundle: ExecutorCtxBundle): string {
+	const filesBlock = "None declared; infer from scope";
+	return [
+		`Task: ${taskLabel(task.number)} — "${sanitizeForPrompt(task.title)}"`,
+		`Wave: ${task.wave ?? 0} of ${ctxBundle.totalWaves}`,
+		`Task ID: ${task.id}`,
+		"",
+		`Working directory: ${ctxBundle.wtPath}`,
+		`Slice: ${ctxBundle.sLabel}`,
+		"",
+		"## Scope",
+		sanitizeForPrompt(task.title),
+		"",
+		"## Files (from PLAN.md)",
+		filesBlock,
+		"",
+		"## Rules",
+		`1. Work exclusively under ${ctxBundle.wtPath}. All writes, all git commands.`,
+		"2. TDD per behavior: failing test → minimal implementation → commit.",
+		`   Commit message: \`feat(${ctxBundle.sLabel}): ${taskLabel(task.number)} — <short desc>\`.`,
+		"3. Only modify files listed in `## Files` (or strictly within the scope if the",
+		"   list is empty). Other executors in this wave are working on disjoint files",
+		"   in parallel.",
+		"4. If you hit `fatal: Unable to create '.../index.lock'`, retry the git",
+		"   command once. If it still fails, surface BLOCKED.",
+		"5. Do NOT call `tff_checkpoint` or `tff_execute_done` — they no longer exist.",
+		"   The wave checkpoint and phase completion are stamped automatically after",
+		"   every subagent in this wave returns.",
+		`6. Run scoped tests for your changes before returning: ${ctxBundle.testInstruction}`,
+		"7. End your final response with:",
+		"   STATUS: <DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED>",
+		"   EVIDENCE: <one-line summary>",
+	].join("\n");
+}
+
+function buildExecutorDispatchConfig(task: Task, ctxBundle: ExecutorCtxBundle): DispatchConfig {
+	const artifacts: { label: string; content: string }[] = [
+		{ label: "SPEC.md", content: ctxBundle.specMd },
+		{ label: "PLAN.md", content: ctxBundle.planMd },
+		{ label: "Worktree gate", content: buildWorktreeGate(ctxBundle.wtPath) },
+	];
+	if (ctxBundle.reviewFeedback.length > 0) {
+		artifacts.push({ label: "Previous review feedback", content: ctxBundle.reviewFeedback });
+	}
+	const related = ctxBundle.extrasContextByTaskId.get(task.id);
+	if (related && related.length > 0) {
+		artifacts.push({ label: "Related files", content: related });
+	}
+	return {
+		agent: "tff-executor",
+		task: buildExecutorTaskBody(task, ctxBundle),
+		cwd: ctxBundle.wtPath,
+		artifacts,
+		taskId: task.id,
+	};
+}
+
 export const executePhase: PhaseModule = {
 	async prepare(ctx: PhaseContext): Promise<PhasePrepareResult> {
 		const { pi, db, root, slice, milestoneNumber, settings } = ctx;
@@ -60,10 +159,6 @@ export const executePhase: PhaseModule = {
 			return { success: false, retry: false, error: `Milestone not found: ${slice.milestoneId}` };
 		}
 		const milestoneBranch = milestoneBranchName(milestoneRow);
-		// Worktree creation is deferred to the new session's session_start handler
-		// (via ensureSliceWorktree) so synchronous git work does not block the
-		// prepare() → newSession() transition. The path is deterministic and can
-		// be embedded in the message before the worktree materialises.
 		const wtPath = getWorktreePath(root, sLabel);
 		writePendingWorktreeMarker(root, { sliceLabel: sLabel, sliceId: slice.id, milestoneBranch });
 
@@ -73,9 +168,9 @@ export const executePhase: PhaseModule = {
 			? "\n\nWrite comments and docs in compressed R1-R10 notation. Preserve: code blocks, file paths, AC checkboxes."
 			: "";
 
-		// Pick up stashed review feedback from ship-changes / ship re-entry.
-		// Fold it into ctx.feedback, reset tasks, then delete the artifact so
-		// subsequent runs don't re-apply it.
+		// Stash REVIEW_FEEDBACK.md (from ship-changes / review re-entry) into
+		// ctx.feedback, reset tasks, then unlink the artifact so subsequent runs
+		// don't re-apply it. Wave partition below runs against the post-reset DB state.
 		const feedbackRel = `milestones/${mLabel}/slices/${sLabel}/REVIEW_FEEDBACK.md`;
 		const feedbackPath = join(root, ".pi", ".tff", feedbackRel);
 		let combinedFeedback = ctx.feedback ?? "";
@@ -89,12 +184,8 @@ export const executePhase: PhaseModule = {
 				// Non-fatal: artifact will be overwritten on next ship-changes.
 			}
 		}
-		const retryContext = combinedFeedback
-			? `\n\n## Previous Failure Context\n${combinedFeedback}`
-			: "";
 
-		const { agentPrompt, protocol } = loadPhaseResources("execute");
-
+		// No-tasks error: plan phase never populated DB.
 		const waveMap = getTasksByWave(db, slice.id);
 		if (waveMap.size === 0) {
 			const error =
@@ -108,80 +199,140 @@ export const executePhase: PhaseModule = {
 			return { success: false, retry: false };
 		}
 
-		// Build task list for the message
-		const taskLines: string[] = [];
+		// Compute wave plan from still-open tasks.
 		const waveNumbers = [...waveMap.keys()].sort((a, b) => a - b);
-		for (const waveNum of waveNumbers) {
-			const tasks = waveMap.get(waveNum);
-			if (!tasks || tasks.length === 0) continue;
-			taskLines.push(`### Wave ${waveNum}`);
-			for (const task of tasks) {
-				taskLines.push(`- ${taskLabel(task.number)}: ${sanitizeForPrompt(task.title)}`);
-			}
-			taskLines.push("");
+		const waves: Task[][] = [];
+		for (const n of waveNumbers) {
+			const openTasks = (waveMap.get(n) ?? []).filter((t) => t.status !== "closed");
+			if (openTasks.length > 0) waves.push(openTasks);
 		}
 
-		// Best-effort: enrich with related files discovered via fff bridge.
-		const extrasContext: Record<string, string> = {};
+		// Short-circuit: all tasks already closed → commit execute-done (if not
+		// already) + emit phase_complete. Do NOT register finalizer or dispatch.
+		if (waves.length === 0) {
+			const latestRun = getLatestPhaseRun(db, slice.id, "execute");
+			if (latestRun?.status !== "completed") {
+				commitCommand(db, root, "execute-done", { sliceId: slice.id });
+			}
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+				type: "phase_complete",
+				phase: "execute",
+			});
+			return { success: true, retry: false };
+		}
+
+		// Resolve test command instruction (mirrors verify.ts logic).
+		let testInstruction: string;
+		if (settings.test_command === "disabled") {
+			testInstruction = "Test execution is disabled. Skip the test stage.";
+		} else if (settings.test_command) {
+			testInstruction = `Run tests with: ${settings.test_command}`;
+		} else {
+			testInstruction =
+				"Auto-discover the test command from project files (package.json, Makefile, etc.). Run scoped tests for changed files where possible.";
+		}
+
+		// Best-effort: enrich per-task context via fff bridge.
+		const extrasContextByTaskId = new Map<string, string>();
 		if (ctx.fffBridge) {
-			const allTasks: Task[] = [];
-			for (const waveTasks of waveMap.values()) {
-				allTasks.push(...waveTasks);
+			const allOpenTasks: Task[] = waves.flat();
+			const extras: Record<string, string> = {};
+			await enrichContextWithFff(extras, allOpenTasks, ctx.fffBridge);
+			// enrichContextWithFff returns a single RELATED_FILES blob; forward
+			// the blob to every task rather than per-task (current fffBridge
+			// shape does not partition by task). Partitioning is a future
+			// refinement (SPEC risk note).
+			if (extras.RELATED_FILES) {
+				for (const t of allOpenTasks) extrasContextByTaskId.set(t.id, extras.RELATED_FILES);
 			}
-			await enrichContextWithFff(extrasContext, allTasks, ctx.fffBridge);
 		}
 
-		const worktreeGate = [
-			"<HARD-GATE>",
-			"All file writes and git operations MUST target the worktree path below.",
-			"Do NOT write to the project root. The worktree is a separate git branch.",
-			"",
-			`  WORKTREE: ${wtPath}`,
-			"",
-			"Required discipline:",
-			`  - Before any bash command: \`cd ${wtPath}\` (or pass cwd to the tool).`,
-			`  - For Write/Edit: use ABSOLUTE paths under ${wtPath}/...`,
-			"  - `git commit` must run inside the worktree so commits land on the slice branch.",
-			"  - Never modify files outside this directory (including the TFF parent repo).",
-			"",
-			"If you write to the wrong directory, the verify phase will see an empty",
-			"diff and refuse to advance — you will have to redo everything.",
-			"</HARD-GATE>",
-		].join("\n");
-
-		const messageParts = [
-			agentPrompt,
-			protocol,
-			"",
-			"---",
-			"",
-			worktreeGate,
-			"",
-			`## Slice: ${sLabel} — "${slice.title}"`,
-			"",
-			"## SPEC.md (Acceptance Criteria)",
+		const ctxBundle: ExecutorCtxBundle = {
 			specMd,
-			"",
-			"## PLAN.md",
 			planMd,
-			"",
-			"## Tasks",
-			taskLines.join("\n"),
-			"",
-			"## Wave progression",
-			"Process every wave above in order within this same session. After all",
-			"tasks in a wave are committed, call `tff_checkpoint` with `wave-{N}`",
-			"and move straight to the next wave — do NOT stop or ask the user to",
-			"resume between waves. The phase is only done when the final wave's",
-			"tasks are all committed.",
-		];
+			wtPath,
+			sLabel,
+			totalWaves: waves.length,
+			reviewFeedback: combinedFeedback,
+			extrasContextByTaskId,
+			testInstruction,
+			compressHint,
+		};
 
-		if (extrasContext.RELATED_FILES) {
-			messageParts.push("", "## Related Files", "", extrasContext.RELATED_FILES);
-		}
+		let waveIndex = 0;
 
-		messageParts.push(compressHint, retryContext);
-		const message = messageParts.join("\n");
+		registerPhaseFinalizer(
+			"execute",
+			async ({ result }: FinalizeInput): Promise<FinalizeOutcome> => {
+				const wave = waves[waveIndex];
+				if (!wave) {
+					// Finalizer invoked after we've exhausted the wave list. This
+					// should not happen because continue:false ends the loop, but
+					// be defensive: emit nothing and stop.
+					return { continue: false };
+				}
+				const waveNum = wave[0]?.wave ?? waveIndex + 1;
+
+				const done = result.results.filter(
+					(r) => r.status === "DONE" || r.status === "DONE_WITH_CONCERNS",
+				);
+				const blocked = result.results.filter(
+					(r) => r.status === "BLOCKED" || r.status === "NEEDS_CONTEXT",
+				);
+
+				for (const r of done) {
+					if (r.taskId) updateTaskStatus(db, r.taskId, "closed");
+				}
+
+				if (blocked.length > 0) {
+					createCheckpoint(wtPath, sLabel, `wave-${waveNum}-partial`);
+					const summary = blocked.map((b) => `${b.taskId ?? "?"}: ${b.evidence}`).join("; ");
+					pi.events.emit("tff:phase", {
+						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+						type: "phase_failed",
+						phase: "execute",
+						error: `BLOCKED: ${summary}`,
+					});
+					return { continue: false };
+				}
+
+				createCheckpoint(wtPath, sLabel, `wave-${waveNum}`);
+				waveIndex += 1;
+
+				if (waveIndex === waves.length) {
+					const latestRun = getLatestPhaseRun(db, slice.id, "execute");
+					if (latestRun?.status !== "completed") {
+						commitCommand(db, root, "execute-done", { sliceId: slice.id });
+					}
+					pi.events.emit("tff:phase", {
+						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
+						type: "phase_complete",
+						phase: "execute",
+					});
+					return { continue: false };
+				}
+
+				// Non-final wave: write next wave's config and signal the hook
+				// to skip cleanup so the dispatcher picks it up.
+				const nextWave = waves[waveIndex] ?? [];
+				prepareDispatch(root, {
+					mode: "parallel",
+					phase: "execute",
+					sliceId: slice.id,
+					tasks: nextWave.map((t) => buildExecutorDispatchConfig(t, ctxBundle)),
+				});
+				return { continue: true };
+			},
+		);
+
+		const firstWave = waves[0] ?? [];
+		const { message } = prepareDispatch(root, {
+			mode: "parallel",
+			phase: "execute",
+			sliceId: slice.id,
+			tasks: firstWave.map((t) => buildExecutorDispatchConfig(t, ctxBundle)),
+		});
 
 		return { success: true, retry: false, message };
 	},

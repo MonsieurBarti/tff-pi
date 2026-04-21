@@ -1,0 +1,43 @@
+{
+	"_meta": {
+		"source": "hand-authored",
+		"piAiVersion": "0.66.1",
+		"piSubagentsVersion": "0.17.1",
+		"note": "Hand-authored reference for execute-phase wave 2 (1 task, DONE). Single-task wave is dispatched as parallel mode per SPEC AC-2 to keep the finalizer's result-partitioning branch uniform."
+	},
+	"toolName": "subagent",
+	"details": {
+		"mode": "parallel",
+		"results": [
+			{
+				"exitCode": 0,
+				"finalOutput": "STATUS: DONE\nEVIDENCE: T03 complete; bun test green",
+				"messages": [
+					{ "role": "user", "content": "task", "timestamp": 1 },
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "STATUS: DONE\nEVIDENCE: T03 complete; bun test green"
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-opus-4-7",
+						"usage": {
+							"input": 0,
+							"output": 0,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 0,
+							"cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+						},
+						"stopReason": "end",
+						"timestamp": 2
+					}
+				]
+			}
+		]
+	}
+}
