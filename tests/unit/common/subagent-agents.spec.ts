@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TFF_AGENT_NAMES, ensureProjectAgents } from "../../../src/common/subagent-agents.js";
 
 const RESOURCES_DIR = join(process.cwd(), "src", "resources");
-const OUTPUT_CONTRACT_RE =
-	/^STATUS: <DONE\|DONE_WITH_CONCERNS\|NEEDS_CONTEXT\|BLOCKED>\s*$\n^EVIDENCE: <one-line summary>\s*$/m;
 
 function parseFrontmatter(content: string): Record<string, string> {
 	const m = content.match(/^---\n([\s\S]*?)\n---/);
@@ -69,10 +67,34 @@ describe("subagent-agents: source files", () => {
 		expect(tools).toEqual(["read", "bash", "write", "find", "grep"]);
 	});
 
-	it.each(TFF_AGENT_NAMES)("%s body contains output contract", (name) => {
-		const content = readFileSync(join(RESOURCES_DIR, "agents", `${name}.md`), "utf-8");
-		expect(content).toMatch(OUTPUT_CONTRACT_RE);
-	});
+	const FOUR_STATUS_RE =
+		/^STATUS: <DONE\|DONE_WITH_CONCERNS\|NEEDS_CONTEXT\|BLOCKED>\s*$\n^EVIDENCE: <one-line summary>\s*$/m;
+	const THREE_STATUS_RE =
+		/^STATUS: <DONE\|DONE_WITH_CONCERNS\|BLOCKED>\s*$\n^EVIDENCE: <one-line summary>\s*$/m;
+	const FOUR_STATUS_AGENTS = ["tff-executor", "tff-fixer"] as const;
+	const THREE_STATUS_AGENTS = [
+		"tff-verifier",
+		"tff-code-reviewer",
+		"tff-security-auditor",
+	] as const;
+
+	it.each(FOUR_STATUS_AGENTS)(
+		"%s body contains four-status output contract (includes NEEDS_CONTEXT)",
+		(name) => {
+			const content = readFileSync(join(RESOURCES_DIR, "agents", `${name}.md`), "utf-8");
+			expect(content).toMatch(FOUR_STATUS_RE);
+			expect(content).not.toMatch(THREE_STATUS_RE);
+		},
+	);
+
+	it.each(THREE_STATUS_AGENTS)(
+		"%s body contains three-status output contract (excludes NEEDS_CONTEXT)",
+		(name) => {
+			const content = readFileSync(join(RESOURCES_DIR, "agents", `${name}.md`), "utf-8");
+			expect(content).toMatch(THREE_STATUS_RE);
+			expect(content).not.toMatch(FOUR_STATUS_RE);
+		},
+	);
 });
 
 describe("subagent-agents: ensureProjectAgents", () => {

@@ -167,6 +167,21 @@ function blockedResult(evidence: string): DispatchResult {
 	};
 }
 
+function needsContextResult(evidence: string): DispatchResult {
+	return {
+		mode: "single",
+		capturedAt: "",
+		results: [
+			{
+				status: "NEEDS_CONTEXT",
+				summary: "",
+				evidence,
+				exitCode: 0,
+			},
+		],
+	};
+}
+
 function doneResult(): DispatchResult {
 	return {
 		mode: "single",
@@ -226,6 +241,24 @@ describe("verify finalizer", () => {
 			.get(t.sliceId, "verify") as { status: string } | undefined;
 		expect(run?.status).toBe("started");
 		// No events logged
+		expect(readEvents(t.root)).toHaveLength(0);
+	});
+
+	it("AC-17b: NEEDS_CONTEXT result → resetTasksToOpen + phase_failed with evidence; no commit; no phase_complete", async () => {
+		await getFinalizer()({
+			root: t.root,
+			result: needsContextResult("need more info about failing test"),
+			calls: [],
+		});
+		const failed = t.emitted.find((e) => e.type === "phase_failed");
+		expect(failed).toBeDefined();
+		expect(failed?.phase).toBe("verify");
+		expect(failed?.error).toBe("need more info about failing test");
+		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
+		const run = t.db
+			.prepare("SELECT status FROM phase_run WHERE slice_id = ? AND phase = ?")
+			.get(t.sliceId, "verify") as { status: string } | undefined;
+		expect(run?.status).toBe("started");
 		expect(readEvents(t.root)).toHaveLength(0);
 	});
 

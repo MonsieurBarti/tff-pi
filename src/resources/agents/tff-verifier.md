@@ -25,5 +25,5 @@ You are a TFF verifier. You run the test suite, type checks, and linters in the 
 
 When done, end your final response with:
 
-STATUS: <DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED>
+STATUS: <DONE|DONE_WITH_CONCERNS|BLOCKED>
 EVIDENCE: <one-line summary>

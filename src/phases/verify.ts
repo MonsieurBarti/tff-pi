@@ -151,7 +151,7 @@ export const verifyPhase: PhaseModule = {
 			const r = result.results[0];
 
 			// AC-17: BLOCKED / malformed
-			if (!r || r.status === "BLOCKED") {
+			if (!r || r.status === "BLOCKED" || r.status === "NEEDS_CONTEXT") {
 				resetTasksToOpen(db, slice.id);
 				pi.events.emit("tff:phase", {
 					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
