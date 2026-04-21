@@ -81,7 +81,18 @@ export interface FinalizeInput {
 	calls: CapturedCall[];
 }
 
-export type Finalizer = (ctx: FinalizeInput) => Promise<void>;
+/**
+ * Finalizer outcome signal. When `continue === true`, the tool_result hook
+ * preserves `dispatch-config.json` so the dispatcher's next wave can re-read
+ * the newly-written config (multi-wave dispatch; e.g. execute phase waves 1->N).
+ * Undefined / false / missing => normal cleanup (delete both files).
+ */
+export interface FinalizeOutcome {
+	continue?: boolean;
+}
+
+// biome-ignore lint/suspicious/noConfusingVoidType: back-compat with S03/S04 Promise<void> finalizers requires `void` in the union here.
+export type Finalizer = (ctx: FinalizeInput) => Promise<FinalizeOutcome | void>;
 
 /**
  * Per-phase finalizer registry. Last-wins semantics — each phase.prepare()
@@ -132,8 +143,12 @@ part of pi-subagents' SubagentParams schema).
       concurrency: <concurrency>       // omit if absent
     })
 
-After the tool returns, do NOT respond, do NOT call any other tool.
-Output the literal text "DISPATCH_COMPLETE" and end your turn.
+After the \`subagent\` tool returns:
+  1. Re-read .pi/.tff/dispatch-config.json.
+  2. If the file exists, make ANOTHER subagent call per the rules above
+     (do NOT respond, do NOT call any other tool in between).
+  3. If the file is absent, output the literal text "DISPATCH_COMPLETE"
+     and end your turn.
 </DISPATCH-ONLY>`;
 
 const STATUS_RE = /^STATUS:\s*(DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED)\s*$/m;
@@ -413,6 +428,11 @@ export function registerDispatchHook(pi: ExtensionAPI): void {
 		let configPath: string | null = null;
 		let resultPath: string | null = null;
 		let finalizerRan = false;
+		// Captured only from the success arm of the inner finalize try. A throw
+		// leaves `outcome` as undefined, so the cleanup gate in `finally` never
+		// observes {continue:true} on the error path (AC-15).
+		// biome-ignore lint/suspicious/noConfusingVoidType: mirrors Finalizer return type.
+		let outcome: FinalizeOutcome | void = undefined;
 		try {
 			if ((event as { toolName?: string }).toolName !== "subagent") return;
 			const ctxShape = ctx as { projectRoot?: string; cwd?: string } | undefined;
@@ -441,12 +461,14 @@ export function registerDispatchHook(pi: ExtensionAPI): void {
 			if (finalize) {
 				finalizerRan = true;
 				try {
-					await finalize({
+					outcome = await finalize({
 						root,
 						result: { mode: config.mode, results: agentResults, capturedAt },
 						calls,
 					});
 				} catch (err) {
+					// Do NOT touch `outcome`. It remains undefined so the cleanup
+					// gate deletes both files (AC-15).
 					logException("subagent-dispatcher", err, {
 						fn: "finalizer",
 						cmd: config.phase,
@@ -468,14 +490,20 @@ export function registerDispatchHook(pi: ExtensionAPI): void {
 		} catch (err) {
 			logException("subagent-dispatcher", err, { fn: "tool-result-hook" });
 		} finally {
-			// Cleanup only when a finalizer was invoked (successful or threw).
-			// Leaving the result file when no finalizer is registered preserves
-			// S02's readDispatchResult (consume-once) semantics for phases not
-			// yet migrated to the finalizer pattern.
-			if (finalizerRan) {
-				if (configPath) safeUnlink(configPath);
-				if (resultPath) safeUnlink(resultPath);
+			// Always delete the config file after processing so the multi-wave
+			// DISPATCHER_PROMPT loop terminates; the only exception is when the
+			// finalizer explicitly asks to keep it (outcome.continue === true).
+			// The result file is preserved when no finalizer ran so non-migrated
+			// phases keep S02's readDispatchResult (consume-once) semantics.
+			if (configPath) {
+				const keepConfig =
+					finalizerRan &&
+					outcome !== undefined &&
+					outcome !== null &&
+					(outcome as FinalizeOutcome).continue === true;
+				if (!keepConfig) safeUnlink(configPath);
 			}
+			if (finalizerRan && resultPath) safeUnlink(resultPath);
 		}
 		return undefined;
 	});

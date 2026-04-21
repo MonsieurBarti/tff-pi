@@ -1,0 +1,72 @@
+{
+	"_meta": {
+		"source": "hand-authored",
+		"piAiVersion": "0.66.1",
+		"piSubagentsVersion": "0.17.1",
+		"note": "Hand-authored reference matching the pi-ai AssistantMessage/ToolResultMessage shape and pi-subagents SubagentDetails envelope for execute-phase wave 1 (2 parallel tasks, both DONE). Regenerate from a live pi-subagents run per tests/fixtures/README.md when either dependency is bumped."
+	},
+	"toolName": "subagent",
+	"details": {
+		"mode": "parallel",
+		"results": [
+			{
+				"exitCode": 0,
+				"finalOutput": "STATUS: DONE\nEVIDENCE: T01 complete; bun test green",
+				"messages": [
+					{ "role": "user", "content": "task", "timestamp": 1 },
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "STATUS: DONE\nEVIDENCE: T01 complete; bun test green"
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-opus-4-7",
+						"usage": {
+							"input": 0,
+							"output": 0,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 0,
+							"cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+						},
+						"stopReason": "end",
+						"timestamp": 2
+					}
+				]
+			},
+			{
+				"exitCode": 0,
+				"finalOutput": "STATUS: DONE\nEVIDENCE: T02 complete; bun test green",
+				"messages": [
+					{ "role": "user", "content": "task", "timestamp": 1 },
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "STATUS: DONE\nEVIDENCE: T02 complete; bun test green"
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-opus-4-7",
+						"usage": {
+							"input": 0,
+							"output": 0,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 0,
+							"cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+						},
+						"stopReason": "end",
+						"timestamp": 2
+					}
+				]
+			}
+		]
+	}
+}

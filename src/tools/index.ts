@@ -2,13 +2,11 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { TffContext } from "../common/context.js";
 import * as addRemote from "./add-remote.js";
 import * as askUser from "./ask-user.js";
-import * as checkpoint from "./checkpoint.js";
 import * as classify from "./classify.js";
 import * as completeMilestoneChanges from "./complete-milestone-changes.js";
 import * as completeMilestoneMerged from "./complete-milestone-merged.js";
 import * as createProject from "./create-project.js";
 import * as createSlice from "./create-slice.js";
-import * as executeDone from "./execute-done.js";
 import * as queryState from "./query-state.js";
 import * as shipApplyDone from "./ship-apply-done.js";
 import * as shipChanges from "./ship-changes.js";
@@ -27,7 +25,6 @@ export const TOOL_REGISTRARS = [
 	createProject.register,
 	addRemote.register,
 	createSlice.register,
-	executeDone.register,
 	writeSpec.register,
 	writeRequirements.register,
 	writeResearch.register,
@@ -39,7 +36,6 @@ export const TOOL_REGISTRARS = [
 	completeMilestoneChanges.register,
 	shipFix.register,
 	shipApplyDone.register,
-	checkpoint.register,
 ] as const;
 
 export function registerAllTools(pi: ExtensionAPI, ctx: TffContext): void {

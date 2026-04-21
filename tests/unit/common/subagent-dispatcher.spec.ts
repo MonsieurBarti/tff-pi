@@ -776,3 +776,220 @@ describe("tool_result hook — capture + finalizer", () => {
 		expect(MAX_OUTPUT_BYTES).toBe(65536);
 	});
 });
+
+function makePiWithEventsT01() {
+	const handlers: Record<string, Handler[]> = {};
+	const listeners: Record<string, Array<(e: unknown) => void>> = {};
+	const emittedPhase: Array<{ type: string; error?: string; [k: string]: unknown }> = [];
+	const api = {
+		handlers,
+		on: (evt: string, h: Handler) => {
+			const list = handlers[evt] ?? [];
+			list.push(h);
+			handlers[evt] = list;
+		},
+		events: {
+			on: (channel: string, l: (e: unknown) => void) => {
+				const list = listeners[channel] ?? [];
+				list.push(l);
+				listeners[channel] = list;
+			},
+			emit: (channel: string, payload: unknown) => {
+				if (channel === "tff:phase" && payload && typeof payload === "object") {
+					emittedPhase.push(payload as { type: string });
+				}
+				for (const l of listeners[channel] ?? []) l(payload);
+			},
+		},
+		listeners,
+		emittedPhase,
+	};
+	return api;
+}
+
+describe("DISPATCHER_PROMPT — multi-wave loop clause (AC-11)", () => {
+	it("instructs the dispatcher to re-read dispatch-config.json after each subagent call", () => {
+		const { message } = prepareDispatch(root, {
+			mode: "parallel",
+			phase: "execute",
+			tasks: [{ agent: "tff-executor", task: "t", cwd: root }],
+		});
+		expect(message).toMatch(/re-read .*dispatch-config\.json/i);
+		expect(message).toMatch(/DISPATCH_COMPLETE/);
+		expect(message).toMatch(/make ANOTHER subagent call|if the file exists/i);
+	});
+});
+
+describe("Finalizer return type compatibility (AC-12)", () => {
+	it("accepts Promise<void> return (S03/S04 finalizers remain valid)", () => {
+		const fn: Finalizer = async () => {};
+		registerPhaseFinalizer("verify", fn);
+		expect(__getFinalizerForTest("verify")).toBe(fn);
+	});
+	it("accepts Promise<FinalizeOutcome> return (S05 finalizers)", () => {
+		const fn: Finalizer = async () => ({ continue: true });
+		registerPhaseFinalizer("execute", fn);
+		expect(__getFinalizerForTest("execute")).toBe(fn);
+	});
+});
+
+describe("tool_result hook — cleanup signalling (AC-13, AC-14, AC-15)", () => {
+	it("AC-13: when finalizer returns {continue:true}, dispatch-config.json is preserved, dispatch-result.json is deleted", async () => {
+		prepareDispatch(root, {
+			mode: "parallel",
+			phase: "execute",
+			tasks: [{ agent: "tff-executor", task: "t", cwd: root, taskId: "T01" }],
+		});
+		registerPhaseFinalizer("execute", async () => ({ continue: true }));
+		const pi = makePi();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "parallel",
+					results: [{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: a" }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(true);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(false);
+	});
+
+	it("AC-14: when finalizer returns undefined (void), both files are deleted", async () => {
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "verify",
+			tasks: [{ agent: "x", task: "t", cwd: root }],
+		});
+		registerPhaseFinalizer("verify", async () => {});
+		const pi = makePi();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: ok" }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(false);
+	});
+
+	it("AC-14: when finalizer returns {continue:false}, both files are deleted", async () => {
+		prepareDispatch(root, {
+			mode: "parallel",
+			phase: "execute",
+			tasks: [{ agent: "x", task: "t", cwd: root, taskId: "T01" }],
+		});
+		registerPhaseFinalizer("execute", async () => ({ continue: false }));
+		const pi = makePi();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "parallel",
+					results: [{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: a" }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(false);
+	});
+
+	it("AC-15: when finalizer throws, both files are deleted and phase_failed is emitted", async () => {
+		prepareDispatch(root, {
+			mode: "parallel",
+			phase: "execute",
+			tasks: [{ agent: "x", task: "t", cwd: root, taskId: "T01" }],
+		});
+		registerPhaseFinalizer("execute", async () => {
+			throw new Error("boom");
+		});
+		const pi = makePiWithEventsT01();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "parallel",
+					results: [{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: a" }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(false);
+		const failed = pi.emittedPhase.find((e) => e.type === "phase_failed");
+		expect(failed?.error).toBe("boom");
+	});
+});
+
+describe("parseAgentResults — positional ordering for parallel mode (AC-34)", () => {
+	it("3-task parallel batch preserves config->result taskId correspondence", async () => {
+		prepareDispatch(root, {
+			mode: "parallel",
+			phase: "execute",
+			tasks: [
+				{ agent: "tff-executor", task: "t1", cwd: root, taskId: "T01" },
+				{ agent: "tff-executor", task: "t2", cwd: root, taskId: "T02" },
+				{ agent: "tff-executor", task: "t3", cwd: root, taskId: "T03" },
+			],
+		});
+		const pi = makePi();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "parallel",
+					results: [
+						{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: e1" },
+						{ exitCode: 0, finalOutput: "STATUS: DONE_WITH_CONCERNS\nEVIDENCE: e2" },
+						{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: e3" },
+					],
+				},
+			},
+			{ projectRoot: root },
+		);
+		const parsed = readResult(root);
+		expect(parsed.results.map((r) => r.taskId)).toEqual(["T01", "T02", "T03"]);
+		expect(parsed.results.map((r) => r.evidence)).toEqual(["e1", "e2", "e3"]);
+	});
+});
+
+describe("tool_result hook — config cleanup when no finalizer is registered", () => {
+	it("deletes dispatch-config.json but preserves dispatch-result.json so DISPATCHER_PROMPT loop terminates for non-migrated phases", async () => {
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "execute",
+			tasks: [{ agent: "tff-noop", task: "t", cwd: root }],
+		});
+		const pi = makePi();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: ok" }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(true);
+	});
+});
