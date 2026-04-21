@@ -74,7 +74,12 @@ describe("prepareDispatch", () => {
 		expect(persisted.tasks).toHaveLength(1);
 		expect(persisted.tasks[0].task).toBe("## Task\nT");
 		expect(persisted.tasks[0].taskId).toBe("T01");
-		for (const token of ["<DISPATCH-ONLY>", "subagent", "DISPATCH_COMPLETE"]) {
+		for (const token of [
+			"<DISPATCH-ONLY>",
+			"subagent",
+			"DISPATCH_COMPLETE",
+			'agentScope: "both"',
+		]) {
 			expect(message).toContain(token);
 		}
 	});

@@ -134,11 +134,17 @@ tool call to \`subagent\` with these arguments. Forward ONLY the fields listed
 below — do NOT forward \`taskId\` (it is internal correlation metadata, not
 part of pi-subagents' SubagentParams schema).
 
+ALWAYS pass \`agentScope: "both"\` so pi-subagents resolves TFF's
+project-local agents under \`.pi/agents/\` (tff-verifier, tff-executor,
+tff-code-reviewer, tff-security-auditor). The default scope is "user",
+which only sees \`~/.pi/agent/agents/\` and cannot find TFF agents.
+
 - SINGLE mode (mode == "single"):
     subagent({
       agent: <tasks[0].agent>,
       task: <tasks[0].task>,
       cwd: <tasks[0].cwd>,
+      agentScope: "both",
       model: <tasks[0].model>          // omit field entirely if absent
     })
 
@@ -149,6 +155,7 @@ part of pi-subagents' SubagentParams schema).
         if (t.model) item.model = t.model;
         return item;                   // taskId NOT included
       }),
+      agentScope: "both",
       concurrency: <concurrency>       // omit if absent
     })
 
