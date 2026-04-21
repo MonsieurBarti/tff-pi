@@ -490,18 +490,20 @@ export function registerDispatchHook(pi: ExtensionAPI): void {
 		} catch (err) {
 			logException("subagent-dispatcher", err, { fn: "tool-result-hook" });
 		} finally {
-			// Cleanup only when a finalizer was invoked (successful or threw).
-			// Leaving the result file when no finalizer is registered preserves
-			// S02's readDispatchResult (consume-once) semantics for phases not
-			// yet migrated to the finalizer pattern.
-			if (finalizerRan) {
-				if (resultPath) safeUnlink(resultPath);
+			// Always delete the config file after processing so the multi-wave
+			// DISPATCHER_PROMPT loop terminates; the only exception is when the
+			// finalizer explicitly asks to keep it (outcome.continue === true).
+			// The result file is preserved when no finalizer ran so non-migrated
+			// phases keep S02's readDispatchResult (consume-once) semantics.
+			if (configPath) {
 				const keepConfig =
+					finalizerRan &&
 					outcome !== undefined &&
 					outcome !== null &&
 					(outcome as FinalizeOutcome).continue === true;
-				if (!keepConfig && configPath) safeUnlink(configPath);
+				if (!keepConfig) safeUnlink(configPath);
 			}
+			if (finalizerRan && resultPath) safeUnlink(resultPath);
 		}
 		return undefined;
 	});

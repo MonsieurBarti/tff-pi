@@ -968,3 +968,28 @@ describe("parseAgentResults — positional ordering for parallel mode (AC-34)", 
 		expect(parsed.results.map((r) => r.evidence)).toEqual(["e1", "e2", "e3"]);
 	});
 });
+
+describe("tool_result hook — config cleanup when no finalizer is registered", () => {
+	it("deletes dispatch-config.json but preserves dispatch-result.json so DISPATCHER_PROMPT loop terminates for non-migrated phases", async () => {
+		prepareDispatch(root, {
+			mode: "single",
+			phase: "execute",
+			tasks: [{ agent: "tff-noop", task: "t", cwd: root }],
+		});
+		const pi = makePi();
+		registerDispatchHook(pi as never);
+		await fireHook(
+			pi,
+			{
+				toolName: "subagent",
+				details: {
+					mode: "single",
+					results: [{ exitCode: 0, finalOutput: "STATUS: DONE\nEVIDENCE: ok" }],
+				},
+			},
+			{ projectRoot: root },
+		);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-config.json"))).toBe(false);
+		expect(existsSync(join(root, ".pi", ".tff", "dispatch-result.json"))).toBe(true);
+	});
+});
