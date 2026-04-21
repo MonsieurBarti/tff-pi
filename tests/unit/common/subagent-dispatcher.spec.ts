@@ -118,13 +118,13 @@ describe("prepareDispatch", () => {
 describe("registerDispatchHook — single mode", () => {
 	it("registers exactly one tool_result handler", () => {
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		expect(pi.handlers.tool_result ?? []).toHaveLength(1);
 	});
 
 	it("no-ops when toolName !== 'subagent' OR dispatch-config.json absent", async () => {
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		const ctx = { projectRoot: root };
 		await fireHook(pi, { toolName: "bash", details: {} }, ctx);
 		expect(existsSync(resultPathFor(root))).toBe(false);
@@ -139,7 +139,7 @@ describe("registerDispatchHook — single mode", () => {
 			tasks: [{ agent: "tff-executor", task: "t", cwd: root, taskId: "T01" }],
 		});
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -184,7 +184,7 @@ describe("registerDispatchHook — parallel mode", () => {
 			],
 		});
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -210,7 +210,7 @@ describe("registerDispatchHook — parallel mode", () => {
 describe("registerDispatchHook — BLOCKED paths", () => {
 	async function fire(event: unknown): Promise<DispatchResult> {
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(pi, event, { projectRoot: root });
 		return readResult(root);
 	}
@@ -301,8 +301,8 @@ describe("registerDispatchHook — BLOCKED paths", () => {
 describe("registerDispatchHook — idempotency", () => {
 	it("second call with same pi instance does not register a second listener", () => {
 		const pi = makePi();
-		registerDispatchHook(pi as never);
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		expect(pi.handlers.tool_result).toHaveLength(1);
 	});
 });
@@ -319,7 +319,7 @@ describe("readDispatchResult", () => {
 			tasks: [{ agent: "x", task: "t", cwd: root }],
 		});
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -452,7 +452,7 @@ describe("tool_result hook — capture + finalizer", () => {
 			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
 		});
 		const pi = makePiWithEvents();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -525,7 +525,7 @@ describe("tool_result hook — capture + finalizer", () => {
 		const pi = makePiWithEvents();
 		const emitted: unknown[] = [];
 		pi.events.on("tff:phase", (e) => emitted.push(e));
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -555,7 +555,7 @@ describe("tool_result hook — capture + finalizer", () => {
 			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
 		});
 		const pi = makePiWithEvents();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -581,7 +581,7 @@ describe("tool_result hook — capture + finalizer", () => {
 		const emitted: unknown[] = [];
 		const pi = makePiWithEvents();
 		pi.events.on("tff:phase", (e: unknown) => emitted.push(e));
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		prepareDispatch(root, {
 			mode: "single",
 			phase: "verify",
@@ -620,7 +620,7 @@ describe("tool_result hook — capture + finalizer", () => {
 			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
 		});
 		const pi = makePiWithEvents();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -647,7 +647,7 @@ describe("tool_result hook — capture + finalizer", () => {
 			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
 		});
 		const pi = makePiWithEvents();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -675,7 +675,7 @@ describe("tool_result hook — capture + finalizer", () => {
 			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
 		});
 		const pi = makePiWithEvents();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -723,7 +723,7 @@ describe("tool_result hook — capture + finalizer", () => {
 			tasks: [{ agent: "tff-verifier", task: "x", cwd: "/tmp" }],
 		});
 		const pi = makePiWithEvents();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 
 		// Produce a synthetic output that is well above MAX_OUTPUT_BYTES (65 536).
 		const bigText = "x".repeat(110_000);
@@ -842,7 +842,7 @@ describe("tool_result hook — cleanup signalling (AC-13, AC-14, AC-15)", () => 
 		});
 		registerPhaseFinalizer("execute", async () => ({ continue: true }));
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -866,7 +866,7 @@ describe("tool_result hook — cleanup signalling (AC-13, AC-14, AC-15)", () => 
 		});
 		registerPhaseFinalizer("verify", async () => {});
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -890,7 +890,7 @@ describe("tool_result hook — cleanup signalling (AC-13, AC-14, AC-15)", () => 
 		});
 		registerPhaseFinalizer("execute", async () => ({ continue: false }));
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -916,7 +916,7 @@ describe("tool_result hook — cleanup signalling (AC-13, AC-14, AC-15)", () => 
 			throw new Error("boom");
 		});
 		const pi = makePiWithEventsT01();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -947,7 +947,7 @@ describe("parseAgentResults — positional ordering for parallel mode (AC-34)", 
 			],
 		});
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{
@@ -977,7 +977,7 @@ describe("tool_result hook — config cleanup when no finalizer is registered", 
 			tasks: [{ agent: "tff-noop", task: "t", cwd: root }],
 		});
 		const pi = makePi();
-		registerDispatchHook(pi as never);
+		registerDispatchHook(pi as never, { db: {} } as never);
 		await fireHook(
 			pi,
 			{

@@ -1,14 +1,10 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { deleteArtifact, readArtifact, writeArtifact } from "../common/artifacts.js";
+import { readArtifact, writeArtifact } from "../common/artifacts.js";
 import { milestoneBranchName } from "../common/branch-naming.js";
 import { createCheckpoint } from "../common/checkpoint.js";
-import { commitCommand } from "../common/commit.js";
 import { compressIfEnabled } from "../common/compress.js";
-import { getLatestPhaseRun, getMilestone, resetTasksToOpen } from "../common/db.js";
+import { getMilestone, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import { auditVerificationAgainstCapture, formatAuditReport } from "../common/evidence-auditor.js";
-import { getDiff, getTrackedDirtyEntries } from "../common/git.js";
+import { getDiff } from "../common/git.js";
 import {
 	formatMechanicalReport,
 	runMechanicalVerification,
@@ -16,11 +12,7 @@ import {
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
-import {
-	type FinalizeInput,
-	prepareDispatch,
-	registerPhaseFinalizer,
-} from "../common/subagent-dispatcher.js";
+import { prepareDispatch } from "../common/subagent-dispatcher.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { detectVerifyCommands } from "../common/verify-commands.js";
 import { getWorktreePath } from "../common/worktree.js";
@@ -149,131 +141,10 @@ export const verifyPhase: PhaseModule = {
 		// Post-verify checkpoint
 		createCheckpoint(wtPath, sLabel, "post-verify");
 
-		// --- Register verify finalizer (captures {db, pi, root, slice,
-		// milestoneNumber, wtPath, mLabel, sLabel} by ref) ---
-		registerPhaseFinalizer("verify", async ({ result, calls }: FinalizeInput) => {
-			const r = result.results[0];
-
-			// AC-17: BLOCKED / malformed
-			if (!r || r.status === "BLOCKED" || r.status === "NEEDS_CONTEXT") {
-				resetTasksToOpen(db, slice.id);
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "verify",
-					error: r?.evidence ?? "BLOCKED",
-				});
-				return;
-			}
-
-			// Post-subagent worktree integrity: reviewer agents have `write` in
-			// their tool allowlist (needed for gitignored artifacts under .pi/)
-			// but are prompt-restricted to that directory. Enforce it here.
-			const dirty = getTrackedDirtyEntries(wtPath);
-			if (dirty && dirty.length > 0) {
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "verify",
-					error: `reviewer modified tracked files: ${dirty.slice(0, 3).join("; ")}`,
-				});
-				return;
-			}
-
-			// AC-18: missing artifact
-			const artifactsDir = join(wtPath, ".pi", ".tff", "artifacts");
-			const vSrc = join(artifactsDir, "VERIFICATION.md");
-			const prSrc = join(artifactsDir, "PR.md");
-			if (!existsSync(vSrc) || !existsSync(prSrc)) {
-				const missing = !existsSync(vSrc) ? "VERIFICATION.md" : "PR.md";
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "verify",
-					error: `missing ${missing}`,
-				});
-				return;
-			}
-
-			// AC-S3: reject symlinks — a symlink in the artifacts dir could be
-			// planted by the subagent to exfiltrate data or point outside the
-			// worktree. Treat it exactly like a missing file.
-			for (const p of [vSrc, prSrc]) {
-				if (lstatSync(p).isSymbolicLink()) {
-					pi.events.emit("tff:phase", {
-						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-						type: "phase_failed",
-						phase: "verify",
-						error: `symlink rejected: ${basename(p)}`,
-					});
-					return;
-				}
-			}
-
-			const vMd = readFileSync(vSrc, "utf-8");
-			const prMd = readFileSync(prSrc, "utf-8");
-			const auditReport = auditVerificationAgainstCapture(vMd, calls);
-
-			const sliceRel = `milestones/${mLabel}/slices/${sLabel}`;
-			const vRel = `${sliceRel}/VERIFICATION.md`;
-			const auditRel = `${sliceRel}/VERIFICATION-AUDIT.md`;
-			const blockedRel = `${sliceRel}/.audit-blocked`;
-			const prRel = `${sliceRel}/PR.md`;
-
-			// AC-19: audit mismatch — copy V.md, write audit report + .audit-blocked, fail
-			if (auditReport.hasMismatches) {
-				writeArtifact(root, vRel, vMd);
-				writeArtifact(root, auditRel, formatAuditReport(auditReport));
-				writeArtifact(root, blockedRel, "Audit found mismatches. See VERIFICATION-AUDIT.md.\n");
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "verify",
-					error: `audit mismatch: ${auditReport.summary.mismatch}`,
-				});
-				return;
-			}
-
-			// AC-20: clean — clear stale markers from a prior mismatch run
-			deleteArtifact(root, blockedRel);
-			deleteArtifact(root, auditRel);
-
-			// AC-24: idempotency — if the verify phase_run is already completed
-			// (second invocation after a crash between commits and phase_complete
-			// emit), skip both commitCommand calls. Re-running them would fail
-			// preconditions: slice has been promoted out of "verifying" and the
-			// phase_run is no longer "started". We still overwrite the artifacts
-			// (they may have been modified) and re-emit phase_complete below.
-			const latestRun = getLatestPhaseRun(db, slice.id, "verify");
-			const alreadyCompleted = latestRun?.status === "completed";
-
-			if (!alreadyCompleted) {
-				// AC-22: write PR.md + commit first. Done BEFORE write-verification
-				// because projectPhaseComplete("verify") (fired by write-verification)
-				// flips phase_run.status to "completed" and reconcileSliceStatus
-				// promotes the slice to "reviewing" (VERIFICATION.md exists), which
-				// would fail write-pr's "verifying + verify started" precondition.
-				writeArtifact(root, prRel, prMd);
-				commitCommand(db, root, "write-pr", { sliceId: slice.id });
-
-				// AC-21: write VERIFICATION.md + commit → projection flips
-				// phase_run to completed.
-				writeArtifact(root, vRel, vMd);
-				commitCommand(db, root, "write-verification", { sliceId: slice.id });
-			} else {
-				// Overwrite artifacts on idempotent retry so the filesystem matches
-				// what the subagent produced this run.
-				writeArtifact(root, prRel, prMd);
-				writeArtifact(root, vRel, vMd);
-			}
-
-			// AC-23: emit phase_complete
-			pi.events.emit("tff:phase", {
-				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-				type: "phase_complete",
-				phase: "verify",
-			});
-		});
+		// Finalizer registered once at extension init (see src/phases/finalizers.ts
+		// + lifecycle.ts). Stateless: reconstructs everything from config.sliceId
+		// + DB + disk so it can run in any session that handles the subagent
+		// tool_result — PI's newSession() isolates module state.
 
 		// --- Build subagent dispatch ---
 		const prTemplate = readArtifact(root, "templates/pr-body.md");

@@ -405,7 +405,7 @@ describe("lifecycle — registerDispatchHook wiring", () => {
 		const ctx = makeCtx();
 		registerLifecycleHooks(pi as never, ctx);
 		expect(spy).toHaveBeenCalledTimes(1);
-		expect(spy).toHaveBeenCalledWith(pi);
+		expect(spy).toHaveBeenCalledWith(pi, ctx);
 		spy.mockRestore();
 	});
 

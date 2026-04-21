@@ -24,10 +24,13 @@ import type { PhaseContext } from "../../../src/common/phase.js";
 import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import {
 	type DispatchResult,
+	type FinalizeInput,
+	type FinalizeOutcome,
 	type Finalizer,
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../../src/phases/finalizers.js";
 import { must } from "../../helpers.js";
 
 let worktreePath = "";
@@ -170,11 +173,28 @@ function getFinalizer(): Finalizer {
 	return f;
 }
 
+function invokeFinalizer(
+	t: TestCtx,
+	input: { result: DispatchResult; calls: FinalizeInput["calls"] },
+	// biome-ignore lint/suspicious/noConfusingVoidType: matches Finalizer return type in production
+): Promise<FinalizeOutcome | void> {
+	return getFinalizer()({
+		pi: t.pi as unknown as FinalizeInput["pi"],
+		db: t.db,
+		root: t.root,
+		settings: DEFAULT_SETTINGS,
+		config: { mode: "single", phase: "review", sliceId: t.sliceId, tasks: [] },
+		result: input.result,
+		calls: input.calls,
+	});
+}
+
 describe("review finalizer", () => {
 	let t: TestCtx;
 
 	beforeEach(async () => {
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 		t = seedCtx();
 		await reviewPhase.prepare(makePhaseCtx(t));
 		t.emitted.length = 0;
@@ -187,8 +207,7 @@ describe("review finalizer", () => {
 	});
 
 	it("AC-10: BLOCKED result → phase_failed with evidence; no copy; no commit; no task reset", async () => {
-		await getFinalizer()({
-			root: t.root,
+		await invokeFinalizer(t, {
 			result: blockedResult("agent gave up"),
 			calls: [],
 		});
@@ -203,8 +222,7 @@ describe("review finalizer", () => {
 	});
 
 	it("AC-10b: NEEDS_CONTEXT result → phase_failed with evidence; no copy; no commit; tasks untouched", async () => {
-		await getFinalizer()({
-			root: t.root,
+		await invokeFinalizer(t, {
 			result: needsContextResult("need more info about diff"),
 			calls: [],
 		});
@@ -218,7 +236,7 @@ describe("review finalizer", () => {
 	});
 
 	it("AC-11: missing REVIEW.md → phase_failed 'missing REVIEW.md'; no commit", async () => {
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const failed = t.emitted.find((e) => e.type === "phase_failed");
 		expect(failed?.error).toBe("missing REVIEW.md");
 		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
@@ -233,7 +251,7 @@ describe("review finalizer", () => {
 			join(targetDir, "REVIEW.md"),
 			join(t.worktreePath, ".pi", ".tff", "artifacts", "REVIEW.md"),
 		);
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const failed = t.emitted.find((e) => e.type === "phase_failed");
 		expect(String(failed?.error)).toMatch(/symlink rejected: REVIEW\.md/);
 		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
@@ -244,7 +262,7 @@ describe("review finalizer", () => {
 
 	it("AC-13: malformed VERDICT → phase_failed 'missing or malformed VERDICT'; no copy; no commit", async () => {
 		writeReviewArtifact(t, "## Summary\nNo trailer line.");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const failed = t.emitted.find((e) => e.type === "phase_failed");
 		expect(failed?.error).toBe("missing or malformed VERDICT");
 		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
@@ -257,7 +275,7 @@ describe("review finalizer", () => {
 			t,
 			"## Summary\nCritical issues found.\n\n## Tasks to rework\n- T01\n\nVERDICT: denied",
 		);
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 
 		const failed = t.emitted.find((e) => e.type === "phase_failed");
 		expect(failed?.error).toBe("Review verdict: denied");
@@ -278,7 +296,7 @@ describe("review finalizer", () => {
 
 	it("AC-15, 16, 17: approved → copy + write-review commit + phase_complete + phase_run completed", async () => {
 		writeReviewArtifact(t, "## Summary\nLGTM.\n\nVERDICT: approved");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 
 		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(true);
 		expect(t.emitted.some((e) => e.type === "phase_failed")).toBe(false);
@@ -295,9 +313,9 @@ describe("review finalizer", () => {
 
 	it("AC-18: approved idempotency — second invocation skips write-review commit; re-emits phase_complete", async () => {
 		writeReviewArtifact(t, "## Summary\nLGTM.\n\nVERDICT: approved");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		t.emitted.length = 0;
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 
 		const writeReviewEvents = readEvents(t.root).filter((e) => e.cmd === "write-review");
 		expect(writeReviewEvents).toHaveLength(1);
@@ -324,7 +342,7 @@ describe("review finalizer", () => {
 				"VERDICT: denied",
 			].join("\n"),
 		);
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 
 		// Last VERDICT line is "denied" → finalizer must route to the denied branch,
 		// not the approved one (regex was buggy when it took the first match).
@@ -338,9 +356,9 @@ describe("review finalizer", () => {
 
 	it("AC-19: denied idempotency — second invocation tolerated, artifact overwritten", async () => {
 		writeReviewArtifact(t, "## Summary\nFail.\n\nVERDICT: denied");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		t.emitted.length = 0;
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 
 		// Tasks stay open (already reset first time, projection no-ops second time)
 		const tasks = getTasks(t.db, t.sliceId);

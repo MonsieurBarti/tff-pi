@@ -22,6 +22,7 @@ import {
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../../src/phases/finalizers.js";
 import { must } from "../../helpers.js";
 
 let worktreePath = "";
@@ -158,15 +159,16 @@ describe("reviewPhase — dispatch shape (M01-S04)", () => {
 		expect(secSection).not.toContain("name: tff-security-auditor");
 	});
 
-	it("AC-4: registerPhaseFinalizer is called, each prepare() replaces the prior closure", async () => {
-		const { ctx } = makeCtx();
-		await reviewPhase.prepare(ctx);
+	it("AC-4: review finalizer is a singleton registered at extension init", async () => {
+		expect(__getFinalizerForTest("review")).toBeUndefined();
+		registerPhaseFinalizers();
 		const fn1 = __getFinalizerForTest("review");
 		expect(fn1).toBeDefined();
+		// prepare() does NOT re-register; the finalizer is stateless and
+		// reconstructs context from config.sliceId + DB + disk each invocation.
+		const { ctx } = makeCtx();
 		await reviewPhase.prepare(ctx);
-		const fn2 = __getFinalizerForTest("review");
-		expect(fn2).toBeDefined();
-		expect(fn2).not.toBe(fn1);
+		expect(__getFinalizerForTest("review")).toBe(fn1);
 	});
 
 	it("AC-6: phase_start event emitted during prepare()", async () => {

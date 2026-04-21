@@ -1,24 +1,14 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { readArtifact, writeArtifact } from "../common/artifacts.js";
+import { readArtifact } from "../common/artifacts.js";
 import { milestoneBranchName, sliceBranchName } from "../common/branch-naming.js";
-import { commitCommand } from "../common/commit.js";
-import { getLatestPhaseRun, getMilestone } from "../common/db.js";
+import { getMilestone } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
-import { getTrackedDirtyEntries } from "../common/git.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
-import {
-	type FinalizeInput,
-	prepareDispatch,
-	registerPhaseFinalizer,
-} from "../common/subagent-dispatcher.js";
+import { prepareDispatch } from "../common/subagent-dispatcher.js";
 import { milestoneLabel, sliceLabel } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
 import { loadAgentResource, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
-
-const VERDICT_RE = /^VERDICT:\s*(approved|denied)\s*$/gm;
 
 function buildReviewTaskBody(p: {
 	sLabel: string;
@@ -100,108 +90,12 @@ export const reviewPhase: PhaseModule = {
 		const milestoneBranch = milestoneBranchName(milestoneRow);
 		const sliceBranch = sliceBranchName(slice);
 
-		// --- Register review finalizer (captures {db, pi, root, slice,
-		// milestoneNumber, wtPath, mLabel, sLabel} by ref) ---
-		registerPhaseFinalizer("review", async ({ result }: FinalizeInput) => {
-			const r = result.results[0];
-
-			// AC-10: BLOCKED / malformed
-			if (!r || r.status === "BLOCKED" || r.status === "NEEDS_CONTEXT") {
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "review",
-					error: r?.evidence ?? "BLOCKED",
-				});
-				return;
-			}
-
-			// Post-subagent worktree integrity: reviewer has `write` in its
-			// tool allowlist for the gitignored artifact dir but must not touch
-			// tracked files. Enforce it here.
-			const dirty = getTrackedDirtyEntries(wtPath);
-			if (dirty && dirty.length > 0) {
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "review",
-					error: `reviewer modified tracked files: ${dirty.slice(0, 3).join("; ")}`,
-				});
-				return;
-			}
-
-			const reviewSrc = join(wtPath, ".pi", ".tff", "artifacts", "REVIEW.md");
-
-			// AC-11: missing artifact
-			if (!existsSync(reviewSrc)) {
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "review",
-					error: "missing REVIEW.md",
-				});
-				return;
-			}
-
-			// AC-12: symlink rejection
-			if (lstatSync(reviewSrc).isSymbolicLink()) {
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "review",
-					error: `symlink rejected: ${basename(reviewSrc)}`,
-				});
-				return;
-			}
-
-			const reviewMd = readFileSync(reviewSrc, "utf-8");
-
-			// AC-13: VERDICT parse — take the LAST matching line (spec: "a
-			// trailing line: VERDICT: approved OR VERDICT: denied"). Using the
-			// last occurrence prevents earlier prose that happens to contain a
-			// `VERDICT:` line from swallowing the true trailer.
-			const verdictMatches = [...reviewMd.matchAll(VERDICT_RE)];
-			const verdictMatch = verdictMatches.at(-1);
-			if (!verdictMatch) {
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "review",
-					error: "missing or malformed VERDICT",
-				});
-				return;
-			}
-			const verdict = verdictMatch[1] as "approved" | "denied";
-			const reviewRel = `${sliceRel}/REVIEW.md`;
-
-			// AC-14: denied
-			if (verdict === "denied") {
-				writeArtifact(root, reviewRel, reviewMd);
-				commitCommand(db, root, "review-rejected", { sliceId: slice.id });
-				pi.events.emit("tff:phase", {
-					...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-					type: "phase_failed",
-					phase: "review",
-					error: "Review verdict: denied",
-				});
-				return;
-			}
-
-			// AC-15, 16, 17, 18: approved path with idempotency guard.
-			const latestRun = getLatestPhaseRun(db, slice.id, "review");
-			const alreadyCompleted = latestRun?.status === "completed";
-
-			writeArtifact(root, reviewRel, reviewMd);
-			if (!alreadyCompleted) {
-				commitCommand(db, root, "write-review", { sliceId: slice.id });
-			}
-
-			pi.events.emit("tff:phase", {
-				...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-				type: "phase_complete",
-				phase: "review",
-			});
-		});
+		// Finalizer registered once at extension init (see lifecycle.ts +
+		// src/phases/finalizers.ts). It reconstructs {slice, milestone, wtPath,
+		// sLabel, mLabel, sliceRel} from config.sliceId + DB + disk so any
+		// session handling the subagent tool_result can drive completion —
+		// PI's newSession() isolates module state, so closure capture here
+		// would be invisible to the dispatcher session.
 
 		// --- Build dispatch ---
 		const artifacts: { label: string; content: string }[] = [

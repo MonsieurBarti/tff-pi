@@ -22,10 +22,12 @@ import { validateCommandPreconditions } from "../../src/common/preconditions.js"
 import { DEFAULT_SETTINGS } from "../../src/common/settings.js";
 import {
 	type DispatchResult,
+	type FinalizeInput,
 	type Finalizer,
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../src/phases/finalizers.js";
 import { must } from "../helpers.js";
 
 // Per-slice worktree path, captured by the mocked getWorktreePath helper.
@@ -173,7 +175,15 @@ async function runHappyVerifyEndToEnd(t: TestCtx): Promise<void> {
 	await verifyPhase.prepare(makePhaseCtx(t));
 	writeWorktreeArtifact(t, "VERIFICATION.md", "# Verification\n\n- [x] AC-1\n- [x] AC-2\n");
 	writeWorktreeArtifact(t, "PR.md", "## Summary\nSubagent verify wired.\n");
-	await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+	await getFinalizer()({
+		pi: t.pi as unknown as FinalizeInput["pi"],
+		db: t.db,
+		root: t.root,
+		settings: DEFAULT_SETTINGS,
+		config: { mode: "single", phase: "verify", sliceId: t.sliceId, tasks: [] },
+		result: doneResult(),
+		calls: [],
+	});
 }
 
 /**
@@ -198,6 +208,7 @@ describe("ship-changes precondition after subagent verify (AC-35 regression guar
 
 	beforeEach(() => {
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 		t = seedCtx();
 	});
 

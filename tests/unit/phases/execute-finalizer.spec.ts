@@ -25,10 +25,13 @@ import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import {
 	type DispatchBatch,
 	type DispatchResult,
+	type FinalizeInput,
+	type FinalizeOutcome,
 	type Finalizer,
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../../src/phases/finalizers.js";
 import { must } from "../../helpers.js";
 
 let worktreePath = "";
@@ -115,6 +118,31 @@ function getFinalizer(): Finalizer {
 	return f;
 }
 
+function invokeFinalizer(
+	t: TestCtx,
+	input: {
+		result: DispatchResult;
+		calls: FinalizeInput["calls"];
+		configTasks?: FinalizeInput["config"]["tasks"];
+	},
+	// biome-ignore lint/suspicious/noConfusingVoidType: matches Finalizer return type in production
+): Promise<FinalizeOutcome | void> {
+	return getFinalizer()({
+		pi: t.pi as unknown as FinalizeInput["pi"],
+		db: t.db,
+		root: t.root,
+		settings: DEFAULT_SETTINGS,
+		config: {
+			mode: "parallel",
+			phase: "execute",
+			sliceId: t.sliceId,
+			tasks: input.configTasks ?? [],
+		},
+		result: input.result,
+		calls: input.calls,
+	});
+}
+
 async function seedCtx(config: {
 	waves: Array<Array<{ n: number; title: string }>>;
 	sliceStatus?: string;
@@ -194,6 +222,7 @@ describe("execute finalizer", () => {
 
 	beforeEach(async () => {
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 		createCheckpointMock.mockClear();
 	});
 
@@ -210,10 +239,10 @@ describe("execute finalizer", () => {
 		await executePhase.prepare(phaseCtx(t));
 		t.emitted.length = 0;
 
-		const outcome = await getFinalizer()({
-			root: t.root,
+		const outcome = await invokeFinalizer(t, {
 			result: doneResult([must(t.taskIds[0])]),
 			calls: [],
+			configTasks: [{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[0]) }],
 		});
 
 		const task = getTask(t.db, must(t.taskIds[0]));
@@ -228,10 +257,10 @@ describe("execute finalizer", () => {
 		await executePhase.prepare(phaseCtx(t));
 		t.emitted.length = 0;
 
-		await getFinalizer()({
-			root: t.root,
+		await invokeFinalizer(t, {
 			result: mixedResult([{ taskId: must(t.taskIds[0]), status: "DONE_WITH_CONCERNS" }]),
 			calls: [],
+			configTasks: [{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[0]) }],
 		});
 		const task = getTask(t.db, must(t.taskIds[0]));
 		expect(task?.status).toBe("closed");
@@ -244,10 +273,10 @@ describe("execute finalizer", () => {
 		await executePhase.prepare(phaseCtx(t));
 		t.emitted.length = 0;
 
-		const outcome = await getFinalizer()({
-			root: t.root,
+		const outcome = await invokeFinalizer(t, {
 			result: doneResult([must(t.taskIds[0])]),
 			calls: [],
+			configTasks: [{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[0]) }],
 		});
 
 		expect(createCheckpointMock).toHaveBeenCalledWith(t.worktreePath, "M01-S01", "wave-1");
@@ -276,13 +305,16 @@ describe("execute finalizer", () => {
 		await executePhase.prepare(phaseCtx(t));
 		t.emitted.length = 0;
 
-		const outcome = await getFinalizer()({
-			root: t.root,
+		const outcome = await invokeFinalizer(t, {
 			result: mixedResult([
 				{ taskId: must(t.taskIds[0]), status: "DONE" },
 				{ taskId: must(t.taskIds[1]), status: "BLOCKED", evidence: "kaboom" },
 			]),
 			calls: [],
+			configTasks: [
+				{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[0]) },
+				{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[1]) },
+			],
 		});
 
 		expect(createCheckpointMock).toHaveBeenCalledWith(t.worktreePath, "M01-S01", "wave-1-partial");
@@ -310,10 +342,10 @@ describe("execute finalizer", () => {
 			)
 			.run(new Date().toISOString(), t.sliceId);
 
-		const outcome = await getFinalizer()({
-			root: t.root,
+		const outcome = await invokeFinalizer(t, {
 			result: doneResult([must(t.taskIds[0])]),
 			calls: [],
+			configTasks: [{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[0]) }],
 		});
 
 		// Task closure re-applied (idempotent no-op since already closed).
@@ -332,10 +364,10 @@ describe("execute finalizer", () => {
 		});
 
 		await expect(
-			getFinalizer()({
-				root: t.root,
+			invokeFinalizer(t, {
 				result: doneResult([must(t.taskIds[0])]),
 				calls: [],
+				configTasks: [{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[0]) }],
 			}),
 		).rejects.toThrow("fs-error");
 	});
@@ -350,14 +382,14 @@ describe("execute finalizer", () => {
 		await executePhase.prepare(phaseCtx(t));
 		t.emitted.length = 0;
 
-		const outcome = await getFinalizer()({
-			root: t.root,
+		const outcome = await invokeFinalizer(t, {
 			result: {
 				mode: "parallel",
 				capturedAt: "",
 				results: [{ status: "DONE", summary: "", evidence: "a", exitCode: 0 /* no taskId */ }],
 			},
 			calls: [],
+			configTasks: [{ agent: "tff-executor", task: "", cwd: "", taskId: must(t.taskIds[0]) }],
 		});
 		// Task remains open — no taskId → no closure.
 		const tasks = getTasks(t.db, t.sliceId);

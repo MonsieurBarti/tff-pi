@@ -27,6 +27,7 @@ import {
 	__resetFinalizersForTest,
 	registerDispatchHook,
 } from "../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../src/phases/finalizers.js";
 import wave1Fixture from "../fixtures/subagent-details-execute-wave1.json";
 import wave2Fixture from "../fixtures/subagent-details-execute-wave2.json";
 import { must } from "../helpers.js";
@@ -160,7 +161,12 @@ async function createFullCtx(waves: number[][]): Promise<FullCtx> {
 	}
 
 	const pi = makePi();
-	registerDispatchHook(pi as never);
+	const tffCtx = {
+		db,
+		projectRoot: root,
+		settings: DEFAULT_SETTINGS,
+	} as unknown as Parameters<typeof registerDispatchHook>[1];
+	registerDispatchHook(pi as never, tffCtx);
 
 	const emitted: Array<{ type: string; [k: string]: unknown }> = [];
 	pi.events.on("tff:phase", (e) => emitted.push(e as { type: string; [k: string]: unknown }));
@@ -204,6 +210,7 @@ describe("execute phase → subagent → finalizer (multi-wave end-to-end)", () 
 
 	beforeEach(() => {
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 		vi.mocked(createCheckpoint).mockClear();
 	});
 
@@ -286,6 +293,7 @@ describe("execute phase → subagent → finalizer (multi-wave end-to-end)", () 
 
 		// Re-entry: prepare() again should partition against still-open tasks (T02 + T03).
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 		ctx.emitted.length = 0;
 		await executePhase.prepare(ctx.phaseCtx);
 		const cfg = readDispatchConfig(ctx.root);

@@ -27,6 +27,7 @@ import {
 	__resetFinalizersForTest,
 	registerDispatchHook,
 } from "../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../src/phases/finalizers.js";
 import fixture from "../fixtures/subagent-details-review.json";
 import { must } from "../helpers.js";
 
@@ -151,7 +152,12 @@ async function createFullCtx(): Promise<FullCtx> {
 	for (const id of taskIds) updateTaskStatus(db, id, "closed");
 
 	const pi = makePi();
-	registerDispatchHook(pi as never);
+	const tffCtx = {
+		db,
+		projectRoot: root,
+		settings: DEFAULT_SETTINGS,
+	} as unknown as Parameters<typeof registerDispatchHook>[1];
+	registerDispatchHook(pi as never, tffCtx);
 
 	const emitted: Array<{ type: string; [k: string]: unknown }> = [];
 	pi.events.on("tff:phase", (e) => {
@@ -180,6 +186,7 @@ describe("review phase → subagent → finalizer (end-to-end)", () => {
 
 	beforeEach(() => {
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 	});
 
 	afterEach(() => {

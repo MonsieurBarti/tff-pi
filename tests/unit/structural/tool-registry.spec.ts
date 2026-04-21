@@ -213,33 +213,39 @@ describe("phase completion path coverage", () => {
 		}
 	});
 
-	it("every phase has SOME completion signal: either inline phase_complete/failed or a writer tool", () => {
-		// Phases that emit inline (ship) OR rely on writer tools (everyone else).
-		// If a phase has neither, it will stall forever.
+	it("every phase has SOME completion signal: inline emit, stateless finalizer, or writer tool", () => {
+		// Phases that emit inline (ship) OR rely on writer tools (discuss/research/plan)
+		// OR have their completion in the stateless finalizer bundle
+		// (execute/verify/review). If none of the three, the phase stalls.
 		const WRITER_TOOL_BY_PHASE: Record<string, string> = {
 			discuss: "tff_write_spec", // discuss has 3 writers (spec, requirements, classify); any completes
 			research: "tff_write_research",
 			plan: "tff_write_plan",
 		};
+		const FINALIZERS_SRC = readFileSync(join(SRC, "phases", "finalizers.ts"), "utf-8");
 		for (const phase of PHASES) {
 			const src = PHASE_FILES[phase];
 			const emitsInline =
 				src.includes('type: "phase_complete"') || src.includes('type: "phase_failed"');
+			const finalizerEmits =
+				FINALIZERS_SRC.includes(`phase: "${phase}"`) &&
+				(FINALIZERS_SRC.includes('type: "phase_complete"') ||
+					FINALIZERS_SRC.includes('type: "phase_failed"'));
 			const writerTool = WRITER_TOOL_BY_PHASE[phase];
 			const hasWriterTool = writerTool ? REGISTRATION_SRC.includes(`name: "${writerTool}"`) : false;
-			// Execute is the exception: no writer tool, but its completion is captured by
-			// closePredecessorIfReady in verify.ts.
+			// Execute is the exception in the simplest sense: its completion comes
+			// from the stateless finalizer in finalizers.ts, AND verify.ts must
+			// still call closePredecessorIfReady to cover the no-diff re-entry case.
 			if (phase === "execute") {
 				expect(
 					PHASE_FILES.verify.includes("closePredecessorIfReady"),
 					"verify.ts must call closePredecessorIfReady to close out execute's phase_run.",
 				).toBe(true);
-				continue;
 			}
 			expect(
-				emitsInline || hasWriterTool,
-				`${phase}.ts has no completion signal. Add either an inline phase_complete/phase_failed emit ` +
-					`OR register ${writerTool ?? "a writer tool"} that emits phase_complete via projectCommand/appendCommand.`,
+				emitsInline || finalizerEmits || hasWriterTool,
+				`${phase}.ts has no completion signal. Add either an inline phase_complete/phase_failed emit, ` +
+					`a stateless finalizer in finalizers.ts, OR register ${writerTool ?? "a writer tool"}.`,
 			).toBe(true);
 		}
 	});
