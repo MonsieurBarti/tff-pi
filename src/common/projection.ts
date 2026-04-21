@@ -125,6 +125,27 @@ function projectExecuteDone(
 	reconcileSliceStatus(db, root, params.sliceId);
 }
 
+function projectPhaseStart(
+	db: Database.Database,
+	_root: string,
+	params: {
+		sliceId: string;
+		phase: Phase;
+		startedAt: string;
+	},
+): void {
+	// Idempotent: if a started phase_run already exists for this phase, skip.
+	// Ensures phase-entry can issue this command safely even on re-invocation.
+	const latest = getLatestPhaseRun(db, params.sliceId, params.phase);
+	if (latest && latest.status === "started") return;
+	insertPhaseRun(db, {
+		sliceId: params.sliceId,
+		phase: params.phase,
+		status: "started",
+		startedAt: params.startedAt,
+	});
+}
+
 function projectTransition(
 	db: Database.Database,
 	_root: string,
@@ -268,6 +289,7 @@ export const HANDLERS: Record<string, ProjectionHandler> = {
 	"execute-done": projectExecuteDone,
 	classify: projectClassify,
 	transition: projectTransition,
+	"phase-start": projectPhaseStart,
 	"ship-changes": projectArtifactOnly,
 	"write-pr": projectArtifactOnly,
 	"ship-apply-done": projectPhaseComplete("ship"),

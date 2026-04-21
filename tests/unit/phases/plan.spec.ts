@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initTffDirectory, writeArtifact } from "../../../src/common/artifacts.js";
 import {
 	applyMigrations,
+	getLatestPhaseRun,
 	getMilestones,
 	getProject,
 	getSlice,
@@ -89,6 +90,35 @@ describe("planPhase", () => {
 		const result = await planPhase.prepare(ctx);
 		expect(result.message).toContain(".tff/milestones/M01/slices/M01-S01/");
 		expect(result.message).toContain("Do not look for them at project root");
+	});
+
+	it("inserts a started plan phase_run when slice was auto-promoted to 'planning' via Rule 4", async () => {
+		// Reproduces the bug that escaped PR #53: after tff_write_research,
+		// projectPhaseComplete("research") triggers reconcileSliceStatus, which
+		// auto-promotes slice.status → 'planning' via derived-state Rule 4
+		// because SPEC.md is on disk. The plan phase_run is NOT inserted by
+		// that path — only by an explicit transition or phase-start command.
+		// planPhase.prepare() must detect "already at target but no started
+		// phase_run" and emit "phase-start" so tff_write_plan's precondition
+		// (phase_run.status === 'started') passes.
+		db.prepare("UPDATE slice SET status = 'planning' WHERE id = ?").run(sliceId);
+		const slice = must(getSlice(db, sliceId));
+		const ctx: PhaseContext = {
+			pi: {
+				sendUserMessage: vi.fn(),
+				events: { emit: vi.fn(), on: vi.fn() },
+			} as unknown as PhaseContext["pi"],
+			db,
+			root,
+			slice,
+			milestoneNumber: 1,
+			settings: DEFAULT_SETTINGS,
+		};
+		const result = await planPhase.prepare(ctx);
+		expect(result.success).toBe(true);
+
+		const run = getLatestPhaseRun(db, sliceId, "plan");
+		expect(run?.status).toBe("started");
 	});
 
 	it("emits phase_start for plan (reconciler sets status via EventLogger)", async () => {
