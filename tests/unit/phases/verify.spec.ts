@@ -23,6 +23,7 @@ import {
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../../src/phases/finalizers.js";
 import { must } from "../../helpers.js";
 
 vi.mock("../../../src/common/worktree.js", () => ({
@@ -189,32 +190,24 @@ describe("verifyPhase", () => {
 		expect(() => readFileSync(join(root, ".pi/.tff/dispatch-config.json"), "utf-8")).toThrow();
 	});
 
-	it("AC-5: post-verify checkpoint is created before finalizer registration", async () => {
+	it("AC-5: post-verify checkpoint is created during prepare()", async () => {
 		const { createCheckpoint } = await import("../../../src/common/checkpoint.js");
 		const checkpointMock = vi.mocked(createCheckpoint);
 		checkpointMock.mockClear();
-		// The finalizer must not exist before prepare()
-		expect(__getFinalizerForTest("verify")).toBeUndefined();
 		const ctx = makeCtx(db, root, sliceId);
 		await verifyPhase.prepare(ctx);
 		expect(checkpointMock).toHaveBeenCalledTimes(1);
-		expect(__getFinalizerForTest("verify")).toBeDefined();
-		// Order: checkpoint must have been called at least once; the finalizer
-		// is only set after the checkpoint path (code ordering).
-		const order = checkpointMock.mock.invocationCallOrder[0];
-		expect(typeof order).toBe("number");
 	});
 
-	it("AC-6: registerPhaseFinalizer called once per prepare(); second prepare() replaces the closure (last-wins)", async () => {
-		const ctx1 = makeCtx(db, root, sliceId);
-		await verifyPhase.prepare(ctx1);
-		const first = __getFinalizerForTest("verify");
-		expect(first).toBeDefined();
-		const ctx2 = makeCtx(db, root, sliceId);
-		await verifyPhase.prepare(ctx2);
-		const second = __getFinalizerForTest("verify");
-		expect(second).toBeDefined();
-		expect(second).not.toBe(first);
+	it("AC-6: verify finalizer is a singleton registered at extension init", async () => {
+		expect(__getFinalizerForTest("verify")).toBeUndefined();
+		registerPhaseFinalizers();
+		const fn1 = __getFinalizerForTest("verify");
+		expect(fn1).toBeDefined();
+		// prepare() does NOT re-register; same singleton is reused.
+		const ctx = makeCtx(db, root, sliceId);
+		await verifyPhase.prepare(ctx);
+		expect(__getFinalizerForTest("verify")).toBe(fn1);
 	});
 
 	it("emits phase_start event", async () => {

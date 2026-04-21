@@ -23,10 +23,13 @@ import { DEFAULT_SETTINGS } from "../../../src/common/settings.js";
 import {
 	type CapturedCall,
 	type DispatchResult,
+	type FinalizeInput,
+	type FinalizeOutcome,
 	type Finalizer,
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../../src/phases/finalizers.js";
 import { must } from "../../helpers.js";
 
 // Per-slice worktree path: separate from project root so the finalizer's
@@ -208,11 +211,28 @@ function getFinalizer(): Finalizer {
 	return f;
 }
 
+function invokeFinalizer(
+	t: TestCtx,
+	input: { result: DispatchResult; calls: FinalizeInput["calls"] },
+	// biome-ignore lint/suspicious/noConfusingVoidType: matches Finalizer return type in production
+): Promise<FinalizeOutcome | void> {
+	return getFinalizer()({
+		pi: t.pi as unknown as FinalizeInput["pi"],
+		db: t.db,
+		root: t.root,
+		settings: DEFAULT_SETTINGS,
+		config: { mode: "single", phase: "verify", sliceId: t.sliceId, tasks: [] },
+		result: input.result,
+		calls: input.calls,
+	});
+}
+
 describe("verify finalizer", () => {
 	let t: TestCtx;
 
 	beforeEach(async () => {
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 		t = seedCtx();
 		await verifyPhase.prepare(makePhaseCtx(t));
 		// prepare() emits phase_start; clear before each branch's assertion
@@ -226,8 +246,7 @@ describe("verify finalizer", () => {
 	});
 
 	it("AC-17: BLOCKED result → resetTasksToOpen + phase_failed; no commit; no phase_complete", async () => {
-		await getFinalizer()({
-			root: t.root,
+		await invokeFinalizer(t, {
 			result: blockedResult("agent gave up"),
 			calls: [],
 		});
@@ -246,8 +265,7 @@ describe("verify finalizer", () => {
 	});
 
 	it("AC-17b: NEEDS_CONTEXT result → resetTasksToOpen + phase_failed with evidence; no commit; no phase_complete", async () => {
-		await getFinalizer()({
-			root: t.root,
+		await invokeFinalizer(t, {
 			result: needsContextResult("need more info about failing test"),
 			calls: [],
 		});
@@ -265,7 +283,7 @@ describe("verify finalizer", () => {
 
 	it("AC-18a: missing VERIFICATION.md → phase_failed naming the file; no commit", async () => {
 		writeWorktreeArtifact(t, "PR.md", "pr content");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const failed = t.emitted.find((e) => e.type === "phase_failed");
 		expect(failed).toBeDefined();
 		expect(String(failed?.error)).toContain("VERIFICATION.md");
@@ -275,7 +293,7 @@ describe("verify finalizer", () => {
 
 	it("AC-18b: missing PR.md → phase_failed naming the file", async () => {
 		writeWorktreeArtifact(t, "VERIFICATION.md", "# V\nRan `bun test` — all pass.");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const failed = t.emitted.find((e) => e.type === "phase_failed");
 		expect(failed).toBeDefined();
 		expect(String(failed?.error)).toContain("PR.md");
@@ -296,7 +314,7 @@ describe("verify finalizer", () => {
 				timestamp: 1,
 			},
 		];
-		await getFinalizer()({ root: t.root, result: doneResult(), calls });
+		await invokeFinalizer(t, { result: doneResult(), calls });
 		expect(artifactExists(t.root, V_REL)).toBe(true);
 		expect(artifactExists(t.root, AUDIT_REL)).toBe(true);
 		expect(artifactExists(t.root, BLOCKED_REL)).toBe(true);
@@ -320,7 +338,7 @@ describe("verify finalizer", () => {
 
 		writeWorktreeArtifact(t, "VERIFICATION.md", "All ACs PASS.");
 		writeWorktreeArtifact(t, "PR.md", "pr");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		expect(artifactExists(t.root, BLOCKED_REL)).toBe(false);
 		expect(artifactExists(t.root, AUDIT_REL)).toBe(false);
 	});
@@ -328,7 +346,7 @@ describe("verify finalizer", () => {
 	it("AC-21: happy path writes VERIFICATION.md and flips phase_run to completed", async () => {
 		writeWorktreeArtifact(t, "VERIFICATION.md", "All ACs PASS.");
 		writeWorktreeArtifact(t, "PR.md", "pr");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		expect(artifactExists(t.root, V_REL)).toBe(true);
 		const run = t.db
 			.prepare("SELECT status FROM phase_run WHERE slice_id = ? AND phase = ?")
@@ -339,7 +357,7 @@ describe("verify finalizer", () => {
 	it("AC-22: happy path appends write-pr event (ship precondition)", async () => {
 		writeWorktreeArtifact(t, "VERIFICATION.md", "All ACs PASS.");
 		writeWorktreeArtifact(t, "PR.md", "pr");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const events = readEvents(t.root);
 		const writePrEvents = events.filter(
 			(e) => e.cmd === "write-pr" && (e.params as { sliceId?: string }).sliceId === t.sliceId,
@@ -351,7 +369,7 @@ describe("verify finalizer", () => {
 	it("AC-23: happy path emits exactly one phase_complete", async () => {
 		writeWorktreeArtifact(t, "VERIFICATION.md", "All ACs PASS.");
 		writeWorktreeArtifact(t, "PR.md", "pr");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const completes = t.emitted.filter((e) => e.type === "phase_complete");
 		expect(completes).toHaveLength(1);
 		expect(completes[0]?.phase).toBe("verify");
@@ -361,9 +379,9 @@ describe("verify finalizer", () => {
 	it("AC-24: idempotent — second invocation leaves phase_run completed, re-emits phase_complete", async () => {
 		writeWorktreeArtifact(t, "VERIFICATION.md", "All ACs PASS.");
 		writeWorktreeArtifact(t, "PR.md", "pr");
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		t.emitted.length = 0;
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 		const run = t.db
 			.prepare("SELECT status FROM phase_run WHERE slice_id = ? AND phase = ?")
 			.get(t.sliceId, "verify") as { status: string };
@@ -381,7 +399,7 @@ describe("verify finalizer", () => {
 		// PR.md is a regular file — should not matter because we reject on VERIFICATION.md first.
 		writeWorktreeArtifact(t, "PR.md", "pr content");
 
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
 
 		const failed = t.emitted.find((e) => e.type === "phase_failed");
 		expect(failed).toBeDefined();

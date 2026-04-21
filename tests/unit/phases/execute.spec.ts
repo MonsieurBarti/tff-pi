@@ -26,6 +26,7 @@ import {
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../../src/phases/finalizers.js";
 import { must } from "../../helpers.js";
 
 vi.mock("../../../src/common/worktree.js", () => ({
@@ -219,26 +220,13 @@ describe("executePhase", () => {
 		expect(body).toContain("STATUS: <DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED>");
 	});
 
-	it("AC-5: registerPhaseFinalizer('execute', …) is called exactly once per prepare()", async () => {
-		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
-		const slice = must(getSlice(db, sliceId));
-		const ctx: PhaseContext = {
-			pi: {
-				sendUserMessage: vi.fn(),
-				events: { emit: vi.fn(), on: vi.fn() },
-			} as unknown as PhaseContext["pi"],
-			db,
-			root,
-			slice,
-			milestoneNumber: 1,
-			settings: DEFAULT_SETTINGS,
-		};
+	it("AC-5: execute finalizer is registered at extension init (registerPhaseFinalizers)", () => {
 		expect(__getFinalizerForTest("execute")).toBeUndefined();
-		await executePhase.prepare(ctx);
+		registerPhaseFinalizers();
 		expect(__getFinalizerForTest("execute")).toBeDefined();
 	});
 
-	it("AC-7: phase_start is emitted before registerPhaseFinalizer", async () => {
+	it("AC-7: phase_start is emitted by prepare()", async () => {
 		insertTask(db, { sliceId, number: 1, title: "Types", wave: 1 });
 		const slice = must(getSlice(db, sliceId));
 		const events: string[] = [];
@@ -258,7 +246,6 @@ describe("executePhase", () => {
 		};
 		await executePhase.prepare(ctx);
 		expect(events[0]).toBe("phase_start");
-		expect(__getFinalizerForTest("execute")).toBeDefined();
 	});
 
 	it("prepare() does NOT call createWorktree or createCheckpoint synchronously", async () => {

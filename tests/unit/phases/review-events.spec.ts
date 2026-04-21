@@ -25,6 +25,7 @@ import {
 	__getFinalizerForTest,
 	__resetFinalizersForTest,
 } from "../../../src/common/subagent-dispatcher.js";
+import { registerPhaseFinalizers } from "../../../src/phases/finalizers.js";
 import { must } from "../../helpers.js";
 
 let worktreePath = "";
@@ -91,6 +92,7 @@ describe("reviewPhase event emission (finalizer-driven)", () => {
 
 	beforeEach(async () => {
 		__resetFinalizersForTest();
+		registerPhaseFinalizers();
 		const db = openDatabase(":memory:");
 		applyMigrations(db);
 		const root = mkdtempSync(join(tmpdir(), "tff-review-events-root-"));
@@ -166,7 +168,15 @@ describe("reviewPhase event emission (finalizer-driven)", () => {
 			"utf-8",
 		);
 		t.emitted.length = 0;
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await getFinalizer()({
+			pi: t.phaseCtx.pi,
+			db: t.db,
+			root: t.root,
+			settings: DEFAULT_SETTINGS,
+			config: { mode: "single", phase: "review", sliceId: t.sliceId, tasks: [] },
+			result: doneResult(),
+			calls: [],
+		});
 		expect(t.emitted.some((e) => e.type === "phase_complete" && e.phase === "review")).toBe(true);
 	});
 
@@ -177,14 +187,30 @@ describe("reviewPhase event emission (finalizer-driven)", () => {
 			"utf-8",
 		);
 		t.emitted.length = 0;
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await getFinalizer()({
+			pi: t.phaseCtx.pi,
+			db: t.db,
+			root: t.root,
+			settings: DEFAULT_SETTINGS,
+			config: { mode: "single", phase: "review", sliceId: t.sliceId, tasks: [] },
+			result: doneResult(),
+			calls: [],
+		});
 		const failed = t.emitted.find((e) => e.type === "phase_failed" && e.phase === "review");
 		expect(failed?.error).toBe("Review verdict: denied");
 	});
 
 	it("finalizer emits phase_failed('missing REVIEW.md') when artifact missing", async () => {
 		t.emitted.length = 0;
-		await getFinalizer()({ root: t.root, result: doneResult(), calls: [] });
+		await getFinalizer()({
+			pi: t.phaseCtx.pi,
+			db: t.db,
+			root: t.root,
+			settings: DEFAULT_SETTINGS,
+			config: { mode: "single", phase: "review", sliceId: t.sliceId, tasks: [] },
+			result: doneResult(),
+			calls: [],
+		});
 		const failed = t.emitted.find((e) => e.type === "phase_failed" && e.phase === "review");
 		expect(failed?.error).toBe("missing REVIEW.md");
 	});
@@ -192,7 +218,11 @@ describe("reviewPhase event emission (finalizer-driven)", () => {
 	it("finalizer emits phase_failed with evidence on BLOCKED result", async () => {
 		t.emitted.length = 0;
 		await getFinalizer()({
+			pi: t.phaseCtx.pi,
+			db: t.db,
 			root: t.root,
+			settings: DEFAULT_SETTINGS,
+			config: { mode: "single", phase: "review", sliceId: t.sliceId, tasks: [] },
 			result: blockedResult("agent crashed"),
 			calls: [],
 		});

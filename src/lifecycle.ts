@@ -31,6 +31,7 @@ import { ensureSliceWorktree } from "./common/worktree.js";
 import { detectRenameAlert } from "./lifecycle-rename-detect.js";
 import { RESOURCES_DIR } from "./orchestrator.js";
 import { type PendingWorktreeMarker, pendingWorktreeMarkerPath } from "./phases/execute.js";
+import { registerPhaseFinalizers } from "./phases/finalizers.js";
 import { checkForUpdates } from "./update-check.js";
 
 /**
@@ -128,9 +129,21 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 	ctx.toolCallLogger.subscribe();
 
 	try {
-		registerDispatchHook(pi);
+		registerDispatchHook(pi, ctx);
 	} catch (err) {
 		logException("lifecycle", err, { fn: "register-dispatch-hook" });
+	}
+
+	// Register stateless phase finalizers at extension init. Each finalizer
+	// reconstructs its dependencies (slice, milestone, wtPath, artifacts) from
+	// config.sliceId + DB + disk on every invocation. Closure-based
+	// registration in prepare() would fail because PI's newSession() isolates
+	// module state across sessions — the session that handles the subagent
+	// tool_result is not the one that set up the dispatch.
+	try {
+		registerPhaseFinalizers();
+	} catch (err) {
+		logException("lifecycle", err, { fn: "register-phase-finalizers" });
 	}
 
 	// -------------------------------------------------------------------------

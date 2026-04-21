@@ -8,7 +8,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type Database from "better-sqlite3";
+import type { TffContext } from "./context.js";
 import { logException } from "./logger.js";
+import { DEFAULT_SETTINGS, type Settings } from "./settings.js";
 import type { Phase } from "./types.js";
 
 export type AgentStatus = "DONE" | "DONE_WITH_CONCERNS" | "NEEDS_CONTEXT" | "BLOCKED";
@@ -71,12 +74,18 @@ export interface CapturedCall {
 }
 
 /**
- * Input to a phase finalizer. Three fields only — phase-specific dependencies
- * (db/pi/slice/milestoneNumber/worktreePath) live in the closure's captured
- * scope, not on this argument surface. Keeps the dispatcher phase-agnostic.
+ * Input to a phase finalizer. Must be self-sufficient: the finalizer runs in
+ * the session that handles the subagent tool_result, which is NOT the session
+ * that set up the dispatch. PI's newSession() isolates module state, so any
+ * closure-captured variables from the dispatch-setup session are unreachable.
+ * Finalizers reconstruct everything they need from (config.sliceId + DB + disk).
  */
 export interface FinalizeInput {
+	pi: ExtensionAPI;
+	db: Database.Database;
 	root: string;
+	settings: Settings;
+	config: DispatchBatch;
 	result: DispatchResult;
 	calls: CapturedCall[];
 }
@@ -421,7 +430,7 @@ function safeUnlink(path: string): void {
 	}
 }
 
-export function registerDispatchHook(pi: ExtensionAPI): void {
+export function registerDispatchHook(pi: ExtensionAPI, tffCtx?: TffContext): void {
 	if (registeredHandles.has(pi)) return;
 	registeredHandles.add(pi);
 	pi.on("tool_result", async (event, ctx) => {
@@ -459,10 +468,24 @@ export function registerDispatchHook(pi: ExtensionAPI): void {
 
 			const finalize = finalizers.get(config.phase);
 			if (finalize) {
+				// tffCtx is populated by lifecycle's session_start. Test harnesses
+				// can call registerDispatchHook(pi) without a TffContext — in that
+				// case we log the gap and skip the finalizer rather than NPE'ing.
+				if (!tffCtx?.db) {
+					logException("subagent-dispatcher", new Error("tffCtx.db not initialized"), {
+						fn: "finalizer-precheck",
+						cmd: config.phase,
+					});
+					return;
+				}
 				finalizerRan = true;
 				try {
 					outcome = await finalize({
+						pi,
+						db: tffCtx.db,
 						root,
+						settings: tffCtx.settings ?? DEFAULT_SETTINGS,
+						config,
 						result: { mode: config.mode, results: agentResults, capturedAt },
 						calls,
 					});

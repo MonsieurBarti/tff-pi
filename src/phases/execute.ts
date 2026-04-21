@@ -2,26 +2,13 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readArtifact } from "../common/artifacts.js";
 import { milestoneBranchName } from "../common/branch-naming.js";
-import { createCheckpoint } from "../common/checkpoint.js";
 import { commitCommand } from "../common/commit.js";
-import {
-	getLatestPhaseRun,
-	getMilestone,
-	getTasksByWave,
-	resetTasksToOpen,
-	updateTaskStatus,
-} from "../common/db.js";
+import { getLatestPhaseRun, getMilestone, getTasksByWave, resetTasksToOpen } from "../common/db.js";
 import { makeBaseEvent } from "../common/events.js";
 import { closePredecessorIfReady } from "../common/phase-completion.js";
 import { ensurePhaseTransition } from "../common/phase-entry.js";
 import type { PhaseContext, PhaseModule, PhasePrepareResult } from "../common/phase.js";
-import {
-	type DispatchConfig,
-	type FinalizeInput,
-	type FinalizeOutcome,
-	prepareDispatch,
-	registerPhaseFinalizer,
-} from "../common/subagent-dispatcher.js";
+import { type DispatchConfig, prepareDispatch } from "../common/subagent-dispatcher.js";
 import {
 	type Task,
 	milestoneLabel,
@@ -31,6 +18,7 @@ import {
 } from "../common/types.js";
 import { getWorktreePath } from "../common/worktree.js";
 import { enrichContextWithFff, predecessorPhase, verifyPhaseArtifacts } from "../orchestrator.js";
+import { writeExecuteRelatedFiles } from "./finalizers.js";
 
 export const PENDING_WORKTREE_MARKER = "pending-execute-worktree.json";
 
@@ -264,71 +252,19 @@ export const executePhase: PhaseModule = {
 			compressHint,
 		};
 
-		let waveIndex = 0;
+		// Persist fff-bridge related-files for waves 2+. The finalizer runs in
+		// a different session and cannot access fffBridge (session-scoped); this
+		// sidecar lets it dispatch subsequent waves with the same context.
+		// Deleted on execute-done (see finalizers.ts).
+		if (extrasContextByTaskId.size > 0) {
+			const anyBlob = [...extrasContextByTaskId.values()][0] ?? "";
+			if (anyBlob.length > 0) writeExecuteRelatedFiles(root, anyBlob);
+		}
 
-		registerPhaseFinalizer(
-			"execute",
-			async ({ result }: FinalizeInput): Promise<FinalizeOutcome> => {
-				const wave = waves[waveIndex];
-				if (!wave) {
-					// Finalizer invoked after we've exhausted the wave list. This
-					// should not happen because continue:false ends the loop, but
-					// be defensive: emit nothing and stop.
-					return { continue: false };
-				}
-				const waveNum = wave[0]?.wave ?? waveIndex + 1;
-
-				const done = result.results.filter(
-					(r) => r.status === "DONE" || r.status === "DONE_WITH_CONCERNS",
-				);
-				const blocked = result.results.filter(
-					(r) => r.status === "BLOCKED" || r.status === "NEEDS_CONTEXT",
-				);
-
-				for (const r of done) {
-					if (r.taskId) updateTaskStatus(db, r.taskId, "closed");
-				}
-
-				if (blocked.length > 0) {
-					createCheckpoint(wtPath, sLabel, `wave-${waveNum}-partial`);
-					const summary = blocked.map((b) => `${b.taskId ?? "?"}: ${b.evidence}`).join("; ");
-					pi.events.emit("tff:phase", {
-						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-						type: "phase_failed",
-						phase: "execute",
-						error: `BLOCKED: ${summary}`,
-					});
-					return { continue: false };
-				}
-
-				createCheckpoint(wtPath, sLabel, `wave-${waveNum}`);
-				waveIndex += 1;
-
-				if (waveIndex === waves.length) {
-					const latestRun = getLatestPhaseRun(db, slice.id, "execute");
-					if (latestRun?.status !== "completed") {
-						commitCommand(db, root, "execute-done", { sliceId: slice.id });
-					}
-					pi.events.emit("tff:phase", {
-						...makeBaseEvent(slice.id, sLabel, milestoneNumber),
-						type: "phase_complete",
-						phase: "execute",
-					});
-					return { continue: false };
-				}
-
-				// Non-final wave: write next wave's config and signal the hook
-				// to skip cleanup so the dispatcher picks it up.
-				const nextWave = waves[waveIndex] ?? [];
-				prepareDispatch(root, {
-					mode: "parallel",
-					phase: "execute",
-					sliceId: slice.id,
-					tasks: nextWave.map((t) => buildExecutorDispatchConfig(t, ctxBundle)),
-				});
-				return { continue: true };
-			},
-		);
+		// Finalizer registered once at extension init (see src/phases/finalizers.ts
+		// + lifecycle.ts). Stateless: reconstructs slice/milestone/wave-plan from
+		// config.sliceId + DB + disk. Closure capture cannot work — PI's
+		// newSession() isolates module state across sessions.
 
 		const firstWave = waves[0] ?? [];
 		const { message } = prepareDispatch(root, {
