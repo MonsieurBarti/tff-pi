@@ -57,7 +57,14 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	loadAgentResource: vi.fn(() => "---\nname: tff-security-auditor\n---\nSecurity body\n"),
 	predecessorPhase: vi.fn().mockReturnValue(null),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
-	determineNextPhase: vi.fn(),
+	determineNextPhase: vi.fn((status: string) => {
+		const map: Record<string, string> = {
+			executing: "verify",
+			verifying: "review",
+			reviewing: "ship",
+		};
+		return map[status] ?? null;
+	}),
 	PHASE_TOOLS: { review: [] },
 }));
 
@@ -310,6 +317,17 @@ describe("review finalizer", () => {
 			.prepare("SELECT status FROM phase_run WHERE slice_id = ? AND phase = ?")
 			.get(t.sliceId, "review") as { status: string } | undefined;
 		expect(run?.status).toBe("completed");
+
+		// After review completes, the user should run /tff ship next.
+		// Uses the pre-commit slice (status="reviewing"); post-commit it would
+		// be "shipping" which has no mapping and returns null.
+		const sendUserMessage = (t.pi as unknown as { sendUserMessage: ReturnType<typeof vi.fn> })
+			.sendUserMessage;
+		const hintMsg = sendUserMessage.mock.calls
+			.map((c) => String(c[0]))
+			.find((m) => m.includes("Review complete"));
+		expect(hintMsg).toBeDefined();
+		expect(hintMsg).toContain("/tff ship");
 	});
 
 	it("AC-18: approved idempotency — second invocation skips write-review commit and does NOT re-emit phase_complete", async () => {

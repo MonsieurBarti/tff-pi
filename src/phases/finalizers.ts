@@ -166,8 +166,11 @@ async function reviewFinalizer({
 		});
 	}
 
-	const reloaded = getSlice(db, slice.id) ?? slice;
-	const hint = computeNextHint(db, reloaded, milestone.number);
+	// Use the pre-commit slice (status="reviewing"). commitCommand advances the
+	// slice to "shipping" via the reconciler; reloading after the commit would
+	// make determineNextPhase skip past `ship` and fall through to the next
+	// open slice or complete-milestone.
+	const hint = computeNextHint(db, slice, milestone.number);
 	if (hint) {
 		// Finalizer runs in the tool_result hook while the dispatcher is still
 		// streaming (the subagent call just returned). sendUserMessage must
@@ -299,8 +302,10 @@ async function verifyFinalizer({
 		writeArtifact(root, vRel, vMd);
 	}
 
-	const reloaded = getSlice(db, slice.id) ?? slice;
-	const hint = computeNextHint(db, reloaded, milestone.number);
+	// Pre-commit slice (status="verifying"). Post-commit status is "reviewing"
+	// which would make determineNextPhase return "review" for verify — i.e.,
+	// the same phase we're trying to say comes next. Keep the stale slice.
+	const hint = computeNextHint(db, slice, milestone.number);
 	if (hint) {
 		pi.sendUserMessage(`Verify complete. Stop here; the user will advance.\n\n${hint}`, {
 			deliverAs: "followUp",
@@ -460,8 +465,10 @@ async function executeFinalizer({
 			});
 		}
 		removeExecuteRelatedFiles(root);
-		const reloaded = getSlice(db, slice.id) ?? slice;
-		const hint = computeNextHint(db, reloaded, milestone.number);
+		// Pre-commit slice (status="executing"). Post-commit status is "verifying"
+		// which would tell the user to run `/tff review` — skipping verify
+		// entirely. Use the stale status so the hint points at `/tff verify`.
+		const hint = computeNextHint(db, slice, milestone.number);
 		if (hint) {
 			pi.sendUserMessage(`Execute complete. Stop here; the user will advance.\n\n${hint}`, {
 				deliverAs: "followUp",

@@ -73,7 +73,14 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()
 		.mockReturnValue({ agentPrompt: "# Verifier", protocol: "# Protocol" }),
-	determineNextPhase: vi.fn(),
+	determineNextPhase: vi.fn((status: string) => {
+		const map: Record<string, string> = {
+			executing: "verify",
+			verifying: "review",
+			reviewing: "ship",
+		};
+		return map[status] ?? null;
+	}),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
 	predecessorPhase: vi.fn().mockReturnValue(null),
@@ -386,6 +393,11 @@ describe("verify finalizer", () => {
 		const hintMsg = msgs.find((m) => m.includes("Verify complete"));
 		expect(hintMsg).toBeDefined();
 		expect(hintMsg).toMatch(/→ Next:/);
+		// Regression: post-commit reload gave slice.status="reviewing" →
+		// determineNextPhase → "ship". Pre-commit slice (status="verifying")
+		// gives the correct "/tff review" hint.
+		expect(hintMsg).toContain("/tff review");
+		expect(hintMsg).not.toContain("/tff ship");
 	});
 
 	it("AC-24: idempotent — second invocation leaves phase_run completed and does NOT re-emit phase_complete", async () => {

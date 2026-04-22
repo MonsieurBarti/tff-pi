@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { determineNextPhase, verifyPhaseArtifacts } from "../orchestrator.js";
-import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone } from "./db.js";
+import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone, getSlice } from "./db.js";
 import { makeBaseEvent } from "./events.js";
 import { logWarning } from "./logger.js";
 import { type Phase, type Slice, sliceLabel } from "./types.js";
@@ -138,7 +138,14 @@ export function buildDiscussCompletionSuffix(
 			phase: "discuss",
 		});
 	}
-	const hint = computeNextHint(db, slice, milestoneNumber);
+	// Reload the slice: tff_classify commits the tier via commitCommand and
+	// this helper is invoked from the same tool, but the caller's `slice`
+	// snapshot was taken BEFORE the commit — it still has tier=null. A stale
+	// tier makes `determineNextPhase("discussing", null)` fall through to
+	// "research" and an S-tier slice would be told to run `/tff research`
+	// instead of `/tff plan`.
+	const fresh = getSlice(db, slice.id) ?? slice;
+	const hint = computeNextHint(db, fresh, milestoneNumber);
 	return {
 		text: ` Discuss phase complete. Stop here; the user will advance.${hint ? `\n\n${hint}` : ""}`,
 		isComplete: true,

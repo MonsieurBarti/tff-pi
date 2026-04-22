@@ -95,6 +95,28 @@ describe("buildDiscussCompletionSuffix", () => {
 		expect((event as { type?: string }).type).toBe("phase_complete");
 	});
 
+	it("S-tier hint skips research — next is /tff plan (regression: caller passed stale slice with tier=null)", () => {
+		// Reproduces the bug: tff_classify resolves the slice, runs the classify
+		// commit (which sets tier in DB), then calls buildDiscussCompletionSuffix
+		// with the SNAPSHOT taken before the commit — slice.tier is still null.
+		// Without a reload inside the helper, determineNextPhase falls through
+		// to "research" and S-tier slices are told to run /tff research.
+		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# spec");
+		writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# req");
+		// 1. Snapshot the slice BEFORE classify (tier=null at this point).
+		const staleSlice = must(getSlice(db, sliceId));
+		expect(staleSlice.tier).toBeNull();
+		// 2. Classify the slice as S in the DB.
+		updateSliceTier(db, sliceId, "S");
+		// 3. Helper is passed the stale snapshot, but should reload internally.
+		const { pi } = fakePi();
+		const suffix = buildDiscussCompletionSuffix(pi, db, root, staleSlice, 1);
+
+		expect(suffix.isComplete).toBe(true);
+		expect(suffix.text).toContain("/tff plan");
+		expect(suffix.text).not.toContain("/tff research");
+	});
+
 	it("does NOT re-emit phase_complete when discuss is already completed (prevents /tff doctor LogDrift)", () => {
 		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# spec");
 		writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# req");
