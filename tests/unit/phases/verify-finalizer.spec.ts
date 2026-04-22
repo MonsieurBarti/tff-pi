@@ -73,7 +73,14 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	loadPhaseResources: vi
 		.fn()
 		.mockReturnValue({ agentPrompt: "# Verifier", protocol: "# Protocol" }),
-	determineNextPhase: vi.fn(),
+	determineNextPhase: vi.fn((status: string) => {
+		const map: Record<string, string> = {
+			executing: "verify",
+			verifying: "review",
+			reviewing: "ship",
+		};
+		return map[status] ?? null;
+	}),
 	findActiveSlice: vi.fn(),
 	collectPhaseContext: vi.fn().mockReturnValue({}),
 	predecessorPhase: vi.fn().mockReturnValue(null),
@@ -376,7 +383,24 @@ describe("verify finalizer", () => {
 		expect(t.emitted.some((e) => e.type === "phase_failed")).toBe(false);
 	});
 
-	it("AC-24: idempotent — second invocation leaves phase_run completed, re-emits phase_complete", async () => {
+	it("happy path surfaces next-phase hint via sendUserMessage so the user sees `/tff review`", async () => {
+		writeWorktreeArtifact(t, "VERIFICATION.md", "All ACs PASS.");
+		writeWorktreeArtifact(t, "PR.md", "pr");
+		await invokeFinalizer(t, { result: doneResult(), calls: [] });
+		const sendUserMessage = (t.pi as unknown as { sendUserMessage: ReturnType<typeof vi.fn> })
+			.sendUserMessage;
+		const msgs = sendUserMessage.mock.calls.map((c) => String(c[0]));
+		const hintMsg = msgs.find((m) => m.includes("Verify complete"));
+		expect(hintMsg).toBeDefined();
+		expect(hintMsg).toMatch(/→ Next:/);
+		// Regression: post-commit reload gave slice.status="reviewing" →
+		// determineNextPhase → "ship". Pre-commit slice (status="verifying")
+		// gives the correct "/tff review" hint.
+		expect(hintMsg).toContain("/tff review");
+		expect(hintMsg).not.toContain("/tff ship");
+	});
+
+	it("AC-24: idempotent — second invocation leaves phase_run completed and does NOT re-emit phase_complete", async () => {
 		writeWorktreeArtifact(t, "VERIFICATION.md", "All ACs PASS.");
 		writeWorktreeArtifact(t, "PR.md", "pr");
 		await invokeFinalizer(t, { result: doneResult(), calls: [] });
@@ -386,8 +410,10 @@ describe("verify finalizer", () => {
 			.prepare("SELECT status FROM phase_run WHERE slice_id = ? AND phase = ?")
 			.get(t.sliceId, "verify") as { status: string };
 		expect(run.status).toBe("completed");
+		// phase_complete NOT re-emitted: guarded on alreadyCompleted so the
+		// event log stays clean (prevents `/tff doctor` projection drift).
 		const completeEvents = t.emitted.filter((e) => e.type === "phase_complete");
-		expect(completeEvents.length).toBeGreaterThanOrEqual(1);
+		expect(completeEvents).toHaveLength(0);
 	});
 
 	it("Fix-3: symlink for VERIFICATION.md → phase_failed with 'symlink' in reason; no phase_complete; no commit; phase_run stays 'started'", async () => {

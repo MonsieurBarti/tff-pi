@@ -92,14 +92,18 @@ interface TestPi {
 		on(channel: string, l: (e: unknown) => void): void;
 		emit(channel: string, payload: unknown): void;
 	};
+	sendUserMessage(msg: string): void;
+	userMessages: string[];
 }
 
 function makePi(): TestPi {
 	const handlers: Record<string, Handler[]> = {};
 	const listeners: Record<string, Array<(e: unknown) => void>> = {};
+	const userMessages: string[] = [];
 	return {
 		handlers,
 		listeners,
+		userMessages,
 		on(evt, h) {
 			const list = handlers[evt] ?? [];
 			list.push(h);
@@ -114,6 +118,9 @@ function makePi(): TestPi {
 			emit(channel, payload) {
 				for (const l of listeners[channel] ?? []) l(payload);
 			},
+		},
+		sendUserMessage(msg) {
+			userMessages.push(msg);
 		},
 	};
 }

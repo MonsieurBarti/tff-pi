@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type Database from "better-sqlite3";
 import { determineNextPhase, verifyPhaseArtifacts } from "../orchestrator.js";
-import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone } from "./db.js";
+import { getLatestPhaseRun, getMilestone, getNextOpenSliceInMilestone, getSlice } from "./db.js";
 import { makeBaseEvent } from "./events.js";
 import { logWarning } from "./logger.js";
 import { type Phase, type Slice, sliceLabel } from "./types.js";
@@ -125,12 +125,27 @@ export function buildDiscussCompletionSuffix(
 	}
 
 	const label = sliceLabel(milestoneNumber, slice.number);
-	pi.events.emit("tff:phase", {
-		...makeBaseEvent(slice.id, label, milestoneNumber),
-		type: "phase_complete",
-		phase: "discuss",
-	});
-	const hint = computeNextHint(db, slice, milestoneNumber);
+	// Idempotency guard: discuss has three independent writer tools
+	// (write-spec, write-requirements, classify) that each call this helper on
+	// success. Without this guard, every subsequent write after discuss is
+	// first completed re-emits phase_complete, creating duplicate events that
+	// trip `/tff doctor`'s projection-drift check.
+	const priorRun = getLatestPhaseRun(db, slice.id, "discuss");
+	if (priorRun?.status !== "completed") {
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, label, milestoneNumber),
+			type: "phase_complete",
+			phase: "discuss",
+		});
+	}
+	// Reload the slice: tff_classify commits the tier via commitCommand and
+	// this helper is invoked from the same tool, but the caller's `slice`
+	// snapshot was taken BEFORE the commit — it still has tier=null. A stale
+	// tier makes `determineNextPhase("discussing", null)` fall through to
+	// "research" and an S-tier slice would be told to run `/tff research`
+	// instead of `/tff plan`.
+	const fresh = getSlice(db, slice.id) ?? slice;
+	const hint = computeNextHint(db, fresh, milestoneNumber);
 	return {
 		text: ` Discuss phase complete. Stop here; the user will advance.${hint ? `\n\n${hint}` : ""}`,
 		isComplete: true,

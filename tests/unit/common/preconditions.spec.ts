@@ -205,3 +205,55 @@ describe("validateCommandPreconditions — ship-changes write-pr gate", () => {
 		expect(result).toEqual({ ok: true });
 	});
 });
+
+describe("validateCommandPreconditions — ship-merged idempotency", () => {
+	function seedShippingSlice() {
+		const { db, root } = seeded();
+		const pId = insertProject(db, { name: "P", vision: "V" });
+		const mId = insertMilestone(db, { projectId: pId, number: 1, name: "M", branch: "b" });
+		const sId = insertSlice(db, { milestoneId: mId, number: 1, title: "S" });
+		insertPhaseRun(db, { sliceId: sId, phase: "ship", status: "started", startedAt: "t0" });
+		const tId = insertTask(db, { sliceId: sId, number: 1, title: "T1" });
+		updateTaskStatus(db, tId, "closed");
+		return { db, root, sId };
+	}
+
+	test("accepts slice in 'shipping' (first-pass commit)", () => {
+		const { db, root, sId } = seedShippingSlice();
+		forceSliceStatus(db, sId, "shipping");
+		const result = validateCommandPreconditions(db, root, "ship-merged", { sliceId: sId });
+		expect(result).toEqual({ ok: true });
+	});
+
+	test("accepts slice already in 'closed' (finalizeMergedSlice override ran before commitCommand)", () => {
+		// Reproduces the bug: `tff_ship_merged` errored with
+		// "Slice must be in 'shipping' (current: 'closed')" because
+		// finalizeMergedSlice overrides status to closed before
+		// commitCommand("ship-merged") journals the projection.
+		const { db, root, sId } = seedShippingSlice();
+		forceSliceStatus(db, sId, "closed");
+		const result = validateCommandPreconditions(db, root, "ship-merged", { sliceId: sId });
+		expect(result).toEqual({ ok: true });
+	});
+
+	test("rejects slice in any other status (e.g. 'reviewing')", () => {
+		const { db, root, sId } = seedShippingSlice();
+		forceSliceStatus(db, sId, "reviewing");
+		const result = validateCommandPreconditions(db, root, "ship-merged", { sliceId: sId });
+		expect(result.ok).toBe(false);
+		expect(result.reason).toMatch(/shipping.*closed/);
+	});
+
+	test("rejects double-call detected via completed phase_run", () => {
+		// After a full ship-merged cycle, phase_run.ship.status = 'completed'.
+		// A second call must fail even though slice.status is still 'closed'.
+		const { db, root, sId } = seedShippingSlice();
+		forceSliceStatus(db, sId, "closed");
+		db.prepare(
+			"UPDATE phase_run SET status = 'completed' WHERE slice_id = ? AND phase = 'ship'",
+		).run(sId);
+		const result = validateCommandPreconditions(db, root, "ship-merged", { sliceId: sId });
+		expect(result.ok).toBe(false);
+		expect(result.reason).toMatch(/ship.*phase_run/);
+	});
+});

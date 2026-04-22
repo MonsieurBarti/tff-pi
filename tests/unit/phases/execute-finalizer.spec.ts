@@ -57,6 +57,14 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	enrichContextWithFff: vi.fn(),
 	predecessorPhase: vi.fn().mockReturnValue(null),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
+	determineNextPhase: vi.fn((status: string) => {
+		const map: Record<string, string> = {
+			executing: "verify",
+			verifying: "review",
+			reviewing: "ship",
+		};
+		return map[status] ?? null;
+	}),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";
@@ -250,6 +258,18 @@ describe("execute finalizer", () => {
 		expect(createCheckpointMock).toHaveBeenCalledWith(t.worktreePath, "M01-S01", "wave-1");
 		expect(t.emitted.some((e) => e.type === "phase_complete" && e.phase === "execute")).toBe(true);
 		expect(outcome).toEqual({ continue: false });
+
+		// Regression: post-commit reload gave slice.status="verifying" →
+		// determineNextPhase → "review", so the hint told users to skip verify.
+		// Using the pre-commit slice (status="executing") yields /tff verify.
+		const sendUserMessage = (t.pi as unknown as { sendUserMessage: ReturnType<typeof vi.fn> })
+			.sendUserMessage;
+		const hintMsg = sendUserMessage.mock.calls
+			.map((c) => String(c[0]))
+			.find((m) => m.includes("Execute complete"));
+		expect(hintMsg).toBeDefined();
+		expect(hintMsg).toContain("/tff verify");
+		expect(hintMsg).not.toContain("/tff review");
 	});
 
 	it("AC-18: DONE_WITH_CONCERNS also closes the task", async () => {
@@ -350,8 +370,9 @@ describe("execute finalizer", () => {
 
 		// Task closure re-applied (idempotent no-op since already closed).
 		expect(getTask(t.db, must(t.taskIds[0]))?.status).toBe("closed");
-		// phase_complete re-emitted even though phase_run was already completed.
-		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(true);
+		// phase_complete NOT re-emitted: guarded on alreadyCompleted to avoid
+		// duplicate events that trip `/tff doctor`'s projection-drift check.
+		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
 		expect(outcome).toEqual({ continue: false });
 	});
 

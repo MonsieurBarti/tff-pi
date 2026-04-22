@@ -52,6 +52,7 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	loadAgentResource: vi.fn(() => "---\nname: tff-security-auditor\n---\nSecurity body\n"),
 	predecessorPhase: vi.fn().mockReturnValue(null),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
+	determineNextPhase: vi.fn(),
 	PHASE_TOOLS: { review: [] },
 }));
 
