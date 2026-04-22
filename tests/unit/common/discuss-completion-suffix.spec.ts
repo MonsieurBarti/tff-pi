@@ -17,6 +17,7 @@ import {
 	getSlice,
 	getSlices,
 	insertMilestone,
+	insertPhaseRun,
 	insertProject,
 	insertSlice,
 	openDatabase,
@@ -92,6 +93,29 @@ describe("buildDiscussCompletionSuffix", () => {
 		const [channel, event] = emit.mock.calls[0] ?? [];
 		expect(channel).toBe("tff:phase");
 		expect((event as { type?: string }).type).toBe("phase_complete");
+	});
+
+	it("does NOT re-emit phase_complete when discuss is already completed (prevents /tff doctor LogDrift)", () => {
+		writeArtifact(root, "milestones/M01/slices/M01-S01/SPEC.md", "# spec");
+		writeArtifact(root, "milestones/M01/slices/M01-S01/REQUIREMENTS.md", "# req");
+		updateSliceTier(db, sliceId, "SS");
+		// Pre-existing completed phase_run simulates the user revising a writer
+		// tool after discuss already finished (write-spec → write-requirements →
+		// classify each call this helper; duplicate emits tripped doctor).
+		insertPhaseRun(db, {
+			sliceId,
+			phase: "discuss",
+			status: "completed",
+			startedAt: new Date().toISOString(),
+		});
+		const slice = must(getSlice(db, sliceId));
+		const { pi, emit } = fakePi();
+
+		const suffix = buildDiscussCompletionSuffix(pi, db, root, slice, 1);
+
+		expect(suffix.isComplete).toBe(true);
+		expect(suffix.text).toContain("Discuss phase complete");
+		expect(emit).not.toHaveBeenCalled();
 	});
 
 	it("reports progress when SPEC + REQUIREMENTS exist but tier is unclassified", () => {

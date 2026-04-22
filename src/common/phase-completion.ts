@@ -125,11 +125,19 @@ export function buildDiscussCompletionSuffix(
 	}
 
 	const label = sliceLabel(milestoneNumber, slice.number);
-	pi.events.emit("tff:phase", {
-		...makeBaseEvent(slice.id, label, milestoneNumber),
-		type: "phase_complete",
-		phase: "discuss",
-	});
+	// Idempotency guard: discuss has three independent writer tools
+	// (write-spec, write-requirements, classify) that each call this helper on
+	// success. Without this guard, every subsequent write after discuss is
+	// first completed re-emits phase_complete, creating duplicate events that
+	// trip `/tff doctor`'s projection-drift check.
+	const priorRun = getLatestPhaseRun(db, slice.id, "discuss");
+	if (priorRun?.status !== "completed") {
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, label, milestoneNumber),
+			type: "phase_complete",
+			phase: "discuss",
+		});
+	}
 	const hint = computeNextHint(db, slice, milestoneNumber);
 	return {
 		text: ` Discuss phase complete. Stop here; the user will advance.${hint ? `\n\n${hint}` : ""}`,

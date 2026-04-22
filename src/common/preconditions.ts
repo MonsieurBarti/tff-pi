@@ -117,7 +117,23 @@ const CHECKERS: Record<string, Checker> = {
 		return ok();
 	},
 	"ship-apply-done": checkSliceAndPhaseAndTasks("shipping", "ship"),
-	"ship-merged": checkSliceAndPhaseAndTasks("shipping", "ship"),
+	// ship-merged is idempotent: `finalizeMergedSlice` overrides the slice to
+	// `closed` before `commitCommand("ship-merged")` journals the projection, so
+	// the slice is either `shipping` (first pass) or `closed` (already
+	// finalized). phase_run.ship must still be `started` — second call would
+	// find it `completed` and correctly reject.
+	"ship-merged": (db, _root, params) => {
+		const id = sliceId(params);
+		if (!id) return fail("params.sliceId missing");
+		const slice = getSlice(db, id);
+		if (!slice) return fail(`Slice not found: ${id}`);
+		if (slice.status !== "shipping" && slice.status !== "closed") {
+			return fail(`Slice must be in 'shipping' or 'closed' (current: '${slice.status}')`);
+		}
+		const p = checkPhaseRun(db, params, "ship");
+		if (!p.ok) return p;
+		return checkTasksClosed(db, params);
+	},
 	"ship-fix": checkSliceAndPhase("shipping", "ship"),
 	"write-pr": checkSliceAndPhase("verifying", "verify"),
 

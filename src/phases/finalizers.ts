@@ -16,6 +16,7 @@ import {
 import { makeBaseEvent } from "../common/events.js";
 import { auditVerificationAgainstCapture, formatAuditReport } from "../common/evidence-auditor.js";
 import { getTrackedDirtyEntries } from "../common/git.js";
+import { computeNextHint } from "../common/phase-completion.js";
 import {
 	type FinalizeInput,
 	type FinalizeOutcome,
@@ -158,13 +159,18 @@ async function reviewFinalizer({
 	writeArtifact(root, reviewRel, reviewMd);
 	if (!alreadyCompleted) {
 		commitCommand(db, root, "write-review", { sliceId: slice.id });
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestone.number),
+			type: "phase_complete",
+			phase: "review",
+		});
 	}
 
-	pi.events.emit("tff:phase", {
-		...makeBaseEvent(slice.id, sLabel, milestone.number),
-		type: "phase_complete",
-		phase: "review",
-	});
+	const reloaded = getSlice(db, slice.id) ?? slice;
+	const hint = computeNextHint(db, reloaded, milestone.number);
+	if (hint) {
+		pi.sendUserMessage(`Review complete. Stop here; the user will advance.\n\n${hint}`);
+	}
 	return { continue: false };
 }
 
@@ -276,16 +282,21 @@ async function verifyFinalizer({
 		commitCommand(db, root, "write-pr", { sliceId: slice.id });
 		writeArtifact(root, vRel, vMd);
 		commitCommand(db, root, "write-verification", { sliceId: slice.id });
+		pi.events.emit("tff:phase", {
+			...makeBaseEvent(slice.id, sLabel, milestone.number),
+			type: "phase_complete",
+			phase: "verify",
+		});
 	} else {
 		writeArtifact(root, prRel, prMd);
 		writeArtifact(root, vRel, vMd);
 	}
 
-	pi.events.emit("tff:phase", {
-		...makeBaseEvent(slice.id, sLabel, milestone.number),
-		type: "phase_complete",
-		phase: "verify",
-	});
+	const reloaded = getSlice(db, slice.id) ?? slice;
+	const hint = computeNextHint(db, reloaded, milestone.number);
+	if (hint) {
+		pi.sendUserMessage(`Verify complete. Stop here; the user will advance.\n\n${hint}`);
+	}
 	return { continue: false };
 }
 
@@ -430,15 +441,21 @@ async function executeFinalizer({
 	const openWaves = computeOpenWaves(db, slice.id);
 	if (openWaves.length === 0) {
 		const latestRun = getLatestPhaseRun(db, slice.id, "execute");
-		if (latestRun?.status !== "completed") {
+		const alreadyCompleted = latestRun?.status === "completed";
+		if (!alreadyCompleted) {
 			commitCommand(db, root, "execute-done", { sliceId: slice.id });
+			pi.events.emit("tff:phase", {
+				...makeBaseEvent(slice.id, sLabel, milestone.number),
+				type: "phase_complete",
+				phase: "execute",
+			});
 		}
 		removeExecuteRelatedFiles(root);
-		pi.events.emit("tff:phase", {
-			...makeBaseEvent(slice.id, sLabel, milestone.number),
-			type: "phase_complete",
-			phase: "execute",
-		});
+		const reloaded = getSlice(db, slice.id) ?? slice;
+		const hint = computeNextHint(db, reloaded, milestone.number);
+		if (hint) {
+			pi.sendUserMessage(`Execute complete. Stop here; the user will advance.\n\n${hint}`);
+		}
 		return { continue: false };
 	}
 

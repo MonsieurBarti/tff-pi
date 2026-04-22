@@ -57,6 +57,7 @@ vi.mock("../../../src/orchestrator.js", () => ({
 	enrichContextWithFff: vi.fn(),
 	predecessorPhase: vi.fn().mockReturnValue(null),
 	verifyPhaseArtifacts: vi.fn().mockReturnValue({ ok: false, missing: [] }),
+	determineNextPhase: vi.fn(),
 }));
 
 import { executePhase } from "../../../src/phases/execute.js";
@@ -350,8 +351,9 @@ describe("execute finalizer", () => {
 
 		// Task closure re-applied (idempotent no-op since already closed).
 		expect(getTask(t.db, must(t.taskIds[0]))?.status).toBe("closed");
-		// phase_complete re-emitted even though phase_run was already completed.
-		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(true);
+		// phase_complete NOT re-emitted: guarded on alreadyCompleted to avoid
+		// duplicate events that trip `/tff doctor`'s projection-drift check.
+		expect(t.emitted.some((e) => e.type === "phase_complete")).toBe(false);
 		expect(outcome).toEqual({ continue: false });
 	});
 
