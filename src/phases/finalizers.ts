@@ -169,7 +169,14 @@ async function reviewFinalizer({
 	const reloaded = getSlice(db, slice.id) ?? slice;
 	const hint = computeNextHint(db, reloaded, milestone.number);
 	if (hint) {
-		pi.sendUserMessage(`Review complete. Stop here; the user will advance.\n\n${hint}`);
+		// Finalizer runs in the tool_result hook while the dispatcher is still
+		// streaming (the subagent call just returned). sendUserMessage must
+		// specify deliverAs or the agent raises "already processing". followUp
+		// queues the hint to fire after the current turn ends so the user sees
+		// it cleanly after DISPATCH_COMPLETE.
+		pi.sendUserMessage(`Review complete. Stop here; the user will advance.\n\n${hint}`, {
+			deliverAs: "followUp",
+		});
 	}
 	return { continue: false };
 }
@@ -295,7 +302,9 @@ async function verifyFinalizer({
 	const reloaded = getSlice(db, slice.id) ?? slice;
 	const hint = computeNextHint(db, reloaded, milestone.number);
 	if (hint) {
-		pi.sendUserMessage(`Verify complete. Stop here; the user will advance.\n\n${hint}`);
+		pi.sendUserMessage(`Verify complete. Stop here; the user will advance.\n\n${hint}`, {
+			deliverAs: "followUp",
+		});
 	}
 	return { continue: false };
 }
@@ -454,7 +463,9 @@ async function executeFinalizer({
 		const reloaded = getSlice(db, slice.id) ?? slice;
 		const hint = computeNextHint(db, reloaded, milestone.number);
 		if (hint) {
-			pi.sendUserMessage(`Execute complete. Stop here; the user will advance.\n\n${hint}`);
+			pi.sendUserMessage(`Execute complete. Stop here; the user will advance.\n\n${hint}`, {
+				deliverAs: "followUp",
+			});
 		}
 		return { continue: false };
 	}
