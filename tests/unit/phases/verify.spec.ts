@@ -136,7 +136,10 @@ describe("verifyPhase", () => {
 			tasks: Array<{ agent: string; cwd: string; task: string }>;
 		};
 		expect(cfg.phase).toBe("verify");
-		expect(cfg.mode).toBe("single");
+		// Parallel-with-one-task avoids pi-subagents' single-mode agent-discovery
+		// bug: top-level cwd → findNearestProjectRoot stops at worktree's .pi/
+		// and misses the repo-root .pi/agents/. Parallel uses per-task cwd only.
+		expect(cfg.mode).toBe("parallel");
 		expect(cfg.sliceId).toBe(ctx.slice.id);
 		expect(cfg.tasks).toHaveLength(1);
 		expect(cfg.tasks[0]?.agent).toBe("tff-verifier");

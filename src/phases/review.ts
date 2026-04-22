@@ -117,8 +117,12 @@ export const reviewPhase: PhaseModule = {
 			compressLine,
 		});
 
+		// Parallel mode with one task: avoids pi-subagents' single-mode
+		// agent-discovery bug (see verify.ts for detail). Agent lookup falls
+		// back to ctx.cwd (parent session / repo root) → finds project-scope
+		// tff-code-reviewer.
 		const { message } = prepareDispatch(root, {
-			mode: "single",
+			mode: "parallel",
 			phase: "review",
 			sliceId: slice.id,
 			tasks: [{ agent: "tff-code-reviewer", task: taskBody, cwd: wtPath, artifacts }],

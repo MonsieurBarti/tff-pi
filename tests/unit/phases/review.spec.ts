@@ -124,14 +124,17 @@ describe("reviewPhase — dispatch shape (M01-S04)", () => {
 		expect(String(result.message)).toMatch(/subagent/i);
 	});
 
-	it("AC-2: dispatch-config.json carries phase=review, mode=single, sliceId, tff-code-reviewer", async () => {
+	it("AC-2: dispatch-config.json carries phase=review, mode=parallel (one task), sliceId, tff-code-reviewer", async () => {
+		// Parallel-with-one-task avoids pi-subagents' single-mode agent-discovery
+		// bug: top-level cwd → findNearestProjectRoot stops at worktree's .pi/
+		// and misses the repo-root .pi/agents/. Parallel uses per-task cwd only.
 		const { ctx } = makeCtx();
 		await reviewPhase.prepare(ctx);
 		const cfg = JSON.parse(
 			readFileSync(join(root, ".pi", ".tff", "dispatch-config.json"), "utf-8"),
 		);
 		expect(cfg.phase).toBe("review");
-		expect(cfg.mode).toBe("single");
+		expect(cfg.mode).toBe("parallel");
 		expect(cfg.sliceId).toBe(sliceId);
 		expect(cfg.tasks).toHaveLength(1);
 		expect(cfg.tasks[0].agent).toBe("tff-code-reviewer");
