@@ -177,8 +177,14 @@ export const verifyPhase: PhaseModule = {
 
 		const taskBody = buildVerifyTaskBody({ sLabel, wtPath, testInstruction, compressLine });
 
+		// Parallel mode with one task: avoids pi-subagents' single-mode
+		// agent-discovery bug where top-level cwd collapses findNearestProjectRoot
+		// into the worktree's own .pi/ (no .pi/agents/ there) and returns
+		// "Unknown agent: tff-verifier". Parallel mode uses per-task cwd; agent
+		// discovery falls back to ctx.cwd (parent session / repo root) and finds
+		// the project-scope tff-verifier in <repo>/.pi/agents/.
 		const { message } = prepareDispatch(root, {
-			mode: "single",
+			mode: "parallel",
 			phase: "verify",
 			sliceId: slice.id,
 			tasks: [{ agent: "tff-verifier", task: taskBody, cwd: wtPath, artifacts }],

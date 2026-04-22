@@ -249,4 +249,39 @@ describe("phase completion path coverage", () => {
 			).toBe(true);
 		}
 	});
+
+	it("phase dispatches use mode:'parallel' only (pi-subagents single-mode agent-discovery bug)", () => {
+		// pi-subagents' findNearestProjectRoot (node_modules/pi-subagents/agents.ts)
+		// stops walking up at the first directory containing ANY .pi/, not .pi/agents/.
+		// Our worktrees have their own .pi/ (for .tff symlink + state), so top-level
+		// cwd passed in SINGLE mode makes agent discovery stop inside the worktree
+		// and miss the repo-root .pi/agents/ where tff-verifier/tff-executor/etc.
+		// live. PARALLEL mode uses per-task cwd only; agent discovery falls back
+		// to ctx.cwd (parent session / repo root). Enforce the invariant so we
+		// don't regress to SINGLE mode accidentally.
+		const PHASES_WITH_DISPATCH = ["execute", "verify", "review"] as const;
+		for (const phase of PHASES_WITH_DISPATCH) {
+			const src = readFileSync(join(SRC, "phases", `${phase}.ts`), "utf-8");
+			const dispatchCallIdx = src.indexOf("prepareDispatch(");
+			expect(dispatchCallIdx, `${phase}.ts should call prepareDispatch`).toBeGreaterThan(-1);
+			const tailFromCall = src.slice(dispatchCallIdx, dispatchCallIdx + 400);
+			expect(
+				tailFromCall,
+				`${phase}.ts prepareDispatch must use mode: "parallel" (SINGLE mode tickles pi-subagents' agent-discovery bug when cwd points at a worktree)`,
+			).toMatch(/mode:\s*"parallel"/);
+			expect(tailFromCall, `${phase}.ts prepareDispatch must NOT use mode: "single"`).not.toMatch(
+				/mode:\s*"single"/,
+			);
+		}
+
+		// finalizers.ts re-dispatches (execute wave 2+). Same invariant.
+		const finalizersSrc = readFileSync(join(SRC, "phases", "finalizers.ts"), "utf-8");
+		const finalizerDispatchIdx = finalizersSrc.indexOf("prepareDispatch(");
+		if (finalizerDispatchIdx > -1) {
+			const tail = finalizersSrc.slice(finalizerDispatchIdx, finalizerDispatchIdx + 400);
+			expect(tail, 'finalizers.ts prepareDispatch must use mode: "parallel"').toMatch(
+				/mode:\s*"parallel"/,
+			);
+		}
+	});
 });
