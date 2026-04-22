@@ -19,6 +19,19 @@
 ### Removed
 - `updateSliceStatus()` — status is no longer a directly-written column.
 
+## [0.1.8](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.7...tff-pi-v0.1.8) (2026-04-22)
+
+
+### Bug Fixes
+
+* commit state transition on phase entry ([#53](https://github.com/MonsieurBarti/tff-pi/issues/53)) ([892698b](https://github.com/MonsieurBarti/tff-pi/commit/892698bb0e020a2e9e0ebd93dc4d45f78eb5c503))
+* discuss ordering, dispatched-phase hints, ship-merged idempotency, duplicate phase_complete ([#61](https://github.com/MonsieurBarti/tff-pi/issues/61)) ([45a9479](https://github.com/MonsieurBarti/tff-pi/commit/45a9479920dd645a0aab7d9b119acef2475a2132))
+* dispatcher passes agentscope both so tff agents resolve ([#58](https://github.com/MonsieurBarti/tff-pi/issues/58)) ([da0d9d3](https://github.com/MonsieurBarti/tff-pi/commit/da0d9d3f4b62e88699e3473b5f660354943c7254))
+* ensure phase_run insert when slice auto-promoted via rule 4 ([#55](https://github.com/MonsieurBarti/tff-pi/issues/55)) ([04c0cd2](https://github.com/MonsieurBarti/tff-pi/commit/04c0cd22952545b9f5b0b768d01d7828d91279bd))
+* only announce discuss completion when all artifacts present ([#56](https://github.com/MonsieurBarti/tff-pi/issues/56)) ([04f772f](https://github.com/MonsieurBarti/tff-pi/commit/04f772f98dac4d5a687e49c083174d474d3f1fe1))
+* recovery prompt forbids inline work and routes through orchestrator ([#59](https://github.com/MonsieurBarti/tff-pi/issues/59)) ([88495f8](https://github.com/MonsieurBarti/tff-pi/commit/88495f89a923912c0d76a8c4093650f18a1df555))
+* verify/review dispatch parallel-with-one-task to avoid pi-subagents agent lookup bug ([#60](https://github.com/MonsieurBarti/tff-pi/issues/60)) ([73634ad](https://github.com/MonsieurBarti/tff-pi/commit/73634ad2e2b6553c16495e0ec2bf0a168bc0e7a2))
+
 ## [0.1.7](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.6...tff-pi-v0.1.7) (2026-04-21)
 
 
