@@ -1,0 +1,6 @@
+routing:
+  enabled: true
+  confidence_threshold: 0.5
+  tier_policy: { low: haiku, medium: sonnet, high: opus }
+  pools:
+    review: [tff-spec-reviewer, tff-code-reviewer]
