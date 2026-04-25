@@ -6,6 +6,9 @@ thinking: off
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
+routing:
+  handles: []
+  priority: 0
 ---
 
 <!-- Source of truth. Edits here; copies at .pi/agents/<name>.md are overwritten on every session_start. -->
