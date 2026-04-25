@@ -6,6 +6,9 @@ thinking: off
 systemPromptMode: replace
 inheritProjectContext: false
 inheritSkills: false
+routing:
+  handles: [high_risk, auth, migrations, pii, secret, breaking]
+  priority: 20
 ---
 
 <!-- Source of truth. Edits here; copies at .pi/agents/<name>.md are overwritten on every session_start. -->
