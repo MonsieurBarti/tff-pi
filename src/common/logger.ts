@@ -25,6 +25,7 @@ export type LogComponent =
 	| "ship"
 	| "command"
 	| "lifecycle"
+	| "routing"
 	| "subagent-dispatcher";
 
 export interface LogContext {

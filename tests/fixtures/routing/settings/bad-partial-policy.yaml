@@ -1,0 +1,3 @@
+routing:
+  tier_policy:
+    high: sonnet

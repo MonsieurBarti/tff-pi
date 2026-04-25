@@ -13,6 +13,7 @@ import {
 	getProject,
 	openDatabase,
 } from "./common/db.js";
+import { runRoutingDryRun } from "./common/extension-hooks/routing-dry-run.js";
 import { shutdownFffBridge } from "./common/fff-integration.js";
 import { getGitRoot } from "./common/git.js";
 import { logException, setLogBasePath } from "./common/logger.js";
@@ -236,6 +237,11 @@ export function registerLifecycleHooks(pi: ExtensionAPI, ctx: TffContext): void 
 				ctx.db = openDatabase(dbPath);
 				applyMigrations(ctx.db, { root: ctx.projectRoot });
 				loadSettings(ctx, root);
+				await runRoutingDryRun({
+					root,
+					db: ctx.db,
+					log: (m, meta) => logException("routing", new Error(m), meta),
+				});
 				try {
 					tailReplay(ctx.db, ctx.projectRoot);
 				} catch (err) {
