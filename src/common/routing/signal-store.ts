@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Value } from "@sinclair/typebox/value";
 import { sliceDir } from "../artifacts.js";
+import { errnoCode } from "./fs-helpers.js";
 import { type Signals, SignalsSchema } from "./signals.js";
 
 export function signalsPath(root: string, milestoneNumber: number, sliceNumber: number): string {
@@ -29,7 +30,7 @@ export async function readSignals(
 	try {
 		raw = await readFile(path, "utf8");
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+		if (errnoCode(err) === "ENOENT") return null;
 		throw err;
 	}
 	const parsed = JSON.parse(raw); // throws on malformed JSON
