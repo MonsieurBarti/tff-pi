@@ -19,6 +19,13 @@
 ### Removed
 - `updateSliceStatus()` — status is no longer a directly-written column.
 
+## [0.1.9](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.8...tff-pi-v0.1.9) (2026-05-01)
+
+
+### Features
+
+* report-issue pi skill for filing tff-pi github issues ([#65](https://github.com/MonsieurBarti/tff-pi/issues/65)) ([083e855](https://github.com/MonsieurBarti/tff-pi/commit/083e855eaf72b7ce8d4b583414d508efbebdc503))
+
 ## [0.1.8](https://github.com/MonsieurBarti/tff-pi/compare/tff-pi-v0.1.7...tff-pi-v0.1.8) (2026-04-22)
 
 
