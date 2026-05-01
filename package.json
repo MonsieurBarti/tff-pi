@@ -56,6 +56,9 @@
 	"pi": {
 		"extensions": [
 			"./dist/index.js"
+		],
+		"skills": [
+			"./dist/resources/skills"
 		]
 	},
 	"peerDependencies": {

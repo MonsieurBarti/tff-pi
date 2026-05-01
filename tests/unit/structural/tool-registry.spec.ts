@@ -87,7 +87,13 @@ function extractPhaseTools(orchSrc: string): Map<string, string[]> {
 
 describe("tool registry consistency", () => {
 	const registered = extractRegisteredTools(REGISTRATION_SRC);
-	const resources = collectMarkdown(RESOURCES_DIR);
+	// Skills are user-facing documentation, not runtime tool wiring; their
+	// prose mentions the product name "tff-pi" which the regex would
+	// otherwise misread as a tool reference.
+	const SKILLS_DIR = join(RESOURCES_DIR, "skills");
+	const resources = collectMarkdown(RESOURCES_DIR).filter(
+		({ path }) => !path.startsWith(`${SKILLS_DIR}/`),
+	);
 
 	// Tools from external PI extensions (fff, camoufox) are never
 	// registered in this repo's index.ts. Exclude them from the assertion.
